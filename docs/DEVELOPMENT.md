@@ -1,24 +1,26 @@
 # Development
 
-## Purpose
+rust-toolchain.toml pins Rust 1.85.0 with rustfmt and Clippy. Restore repository context using AGENTS.md and the required Git commands before every task.
 
-Provide the Phase 0 local validation baseline.
+Required validation order:
 
-## Current decision
-
-Use Rust 1.85 or newer compatible with the workspace MSRV. Run:
-
-```bash
+~~~bash
 cargo fmt --all --check
 cargo check --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
+cargo doc --workspace --no-deps
+scripts/smoke-test.sh
+~~~
 
-## Not decided
+Run cargo metadata --format-version 1 and cargo tree when the toolchain is available. Retain the generated Cargo.lock. cargo audit is optional only when already installed.
 
-Release automation, dependency policy, and contributor workflow are pending.
+The smoke test executes the real init/add/record/seal/verify/inspect binary flow and parses the persisted JSON report. Static review or cargo check alone is not a program test.
 
-## Next
+If rustup is missing, install it only from the official Rust project, then install the pinned toolchain:
 
-Add deterministic test vectors and contributor guidance.
+~~~bash
+rustup toolchain install 1.85.0 --profile default --component rustfmt clippy
+~~~
+
+Never claim tests passed when the toolchain or executable path did not run.

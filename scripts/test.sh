@@ -2,5 +2,8 @@
 set -euo pipefail
 
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo check --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
+cargo doc --workspace --no-deps
+"$(dirname "$0")/smoke-test.sh"

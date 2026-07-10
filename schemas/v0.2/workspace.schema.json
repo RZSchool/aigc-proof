@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v0.2/workspace.schema.json",
+  "title": "AIGC-Proof Workspace v0.2",
+  "type": "object",
+  "required": ["workspace_version", "created_at", "project", "assets"],
+  "properties": {
+    "workspace_version": { "const": "0.2.0" },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+      },
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 1022,
+      "items": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "role",
+          "package_path",
+          "original_name",
+          "media_type",
+          "size_bytes",
+          "sha256"
+        ],
+        "properties": {
+          "asset_id": { "type": "string" },
+          "role": { "enum": ["input", "output", "reference", "license", "other"] },
+          "package_path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "original_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "media_type": { "type": "string", "minLength": 3, "maxLength": 255 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

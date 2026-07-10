@@ -8,3 +8,14 @@ rust-version.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+proof-schema = { path = "../proof-schema" }
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+time.workspace = true
+uuid.workspace = true
+zip.workspace = true

@@ -1,22 +1,11 @@
 # Roadmap
 
-## Purpose
+~~~text
+0.2 Internal Integrity
+0.3 Creator Signature
+0.4 Trusted Timestamp
+0.5 C2PA Bridge
+1.0 Stable Specification
+~~~
 
-Track the intended public evolution.
-
-## Current decision
-
-- Phase 0: protocol and engineering scaffold.
-- Phase 1: proof-core and CLI.
-- Phase 2: Electron integration.
-- Phase 3: C2PA and RFC 3161.
-- Phase 4: official services.
-- Phase 5: WASM and transparency log.
-
-## Not decided
-
-Dates and release criteria are not committed.
-
-## Next
-
-Define Phase 1 acceptance criteria after the specification review.
+Version 0.2 remains WIP until compilation, tests, real CLI acceptance, tamper detection, and malicious-package tests pass. Later stages require separate protocol review and do not retroactively add assurance to unsigned 0.2 packages.

@@ -1,25 +1,26 @@
 # Architecture
 
-## Purpose
+## Offline component flow
 
-Describe the public component boundary.
+~~~text
+init -> add -> record -> seal -> verify -> inspect
+                   |
+                   v
+                proof-cli
+                   |
+                   v
+                proof-core
+      workspace / hash / JCS / events / ZIP / verifier
+                   |
+                   v
+               proof-schema
+          types / strict JSON / Schema / semantics
+~~~
 
-## Current decision
+The workspace is mutable local staging data. seal creates a new immutable-by-convention package path and refuses overwrite. The package writer precomputes and validates asset metadata, writes stable entry order, flushes and syncs a same-directory temporary file, self-verifies it, confirms the destination remains absent, and persists without clobbering.
 
-```text
-CLI / Desktop / WASM
-        ↓
-proof-core
-        ↓
-Schema + Package + Hash + Signature + Verification
-```
+The verifier never extracts entries. It performs container safety, Manifest, assets, and event-chain stages. Container or Manifest failures may stop dependent stages; asset and event stages collect multiple errors when safe.
 
-The core and verification path will remain usable offline.
+JSON Schema expresses portable structure. Shared Rust validation enforces strict time, lowercase digests, stable sorting, cross-field rules, path traversal defense, case conflicts, ZIP metadata limits, and streaming byte checks. Rust is the execution layer but does not redefine public Schema field meanings.
 
-## Not decided
-
-Concrete crate APIs, package reader design, and compatibility-layer details are not set.
-
-## Next
-
-Define the proof-core interfaces and package-validation flow.
+The public workspace has no dependency on private official code or services.

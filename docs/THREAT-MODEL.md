@@ -1,17 +1,21 @@
-# Threat Model
+# Threat Model 0.2
 
-## Purpose
+## Detected inconsistencies
 
-Record security concerns that shape the public format.
+- Asset size or SHA-256 changes
+- Missing, added, or reordered package entries
+- Event payload, sequence, link, hash, count, or root changes
+- Noncanonical or duplicate-member JSON
+- Manifest structure or semantic violations
 
-## Current decision
+## Malicious ZIP controls
 
-Threats include proof-package tampering, event deletion or reordering, ZIP path traversal, compression bombs, malicious oversized files, private-key disclosure, clock rollback, and falsely describing a creation record as an originality or legal-right determination.
+Container checks cover malformed ZIP, entry count, traversal, absolute/drive/UNC/backslash paths, duplicate entries, case conflicts, duplicate Manifest, explicit symbolic links, non-regular files, encryption, compression methods, one-entry size, total expanded size, structured-file size, and compression ratio.
 
-## Not decided
+Unsafe containers stop before content-dependent processing. Safe containers are streamed in place and never extracted.
 
-Risk limits, trust assumptions, and mitigations have not yet been finalized.
+## Not protected
 
-## Next
+No creator signature or external witness exists. An attacker can generate a new internally consistent Manifest, event chain, and asset set. A valid report cannot establish identity, authorship, originality, rights, authorization, earliest creation time, trusted time, or legal validity.
 
-Associate each threat with validation rules and test vectors.
+SHA-256 collision resistance is assumed for comparison but does not create authenticity. ZIP producer metadata can vary by platform; explicit link metadata is rejected and non-extraction is mandatory, but cross-platform behavior must be tested against the pinned ZIP crate.

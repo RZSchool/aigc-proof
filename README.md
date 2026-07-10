@@ -1,50 +1,68 @@
 # AIGC-Proof
 
-Open protocol and reference implementation for recording AIGC creation processes, verifying package integrity, and applying local digital signatures.
+Open protocol and Rust reference implementation for recording an AIGC creation workflow, sealing it into an unsigned proof package, and verifying package-internal integrity offline.
 
-**Status:** Pre-alpha / Specification and scaffold stage.
+~~~text
+Version: 0.2.0 WIP
+Status: Unverified implementation
+Assurance level: Internal Integrity
+~~~
 
-## Core principles
+Version 0.2 does not contain a creator digital signature or trusted timestamp. A valid result means:
 
-- Creation records and verification must work offline without an official server.
-- Protocol, schemas, and cryptographic profiles are public and reviewable.
-- External input is untrusted; package processing is defensive by default.
+~~~text
+Package internal integrity: valid
+Creator identity: not verified
+Digital signature: not present
+Trusted timestamp: not present
+Originality: not evaluated
+~~~
 
-## Open/private boundary
+It is not copyright registration, rights determination, originality certification, proof of ownership, or official verification. An attacker can construct an entirely new, internally consistent unsigned package.
 
-This repository contains the `.aigcproof` package format, JSON Schemas, core interfaces, CLI scaffold, test-vector locations, and public documentation. Official identity, signing authority, risk controls, billing, and production operations belong only in `aigc-proof-official`. The public repository must not depend on the private repository.
+## Offline workflow
 
-## Initial architecture
+~~~bash
+aigc-proof init demo-workspace --project-name "Project Name"
+aigc-proof add demo-workspace input.txt --role input
+aigc-proof add demo-workspace output.txt --role output
+aigc-proof record demo-workspace \
+  --event-type generation \
+  --payload-file generation-event.json
+aigc-proof seal demo-workspace --output example.aigcproof
+aigc-proof verify example.aigcproof
+aigc-proof verify example.aigcproof --json verification-result.json
+aigc-proof inspect example.aigcproof
+aigc-proof inspect example.aigcproof --json
+~~~
 
-```text
-CLI / Desktop / WASM
-        ↓
-proof-core
-        ↓
-Schema + Package + Hash + Signature + Verification
-```
+Roles are input, output, reference, license, and other. add copies regular files into the workspace and hashes them as streams. seal never overwrites an existing output. inspect reads metadata and explicitly does not claim verification.
 
-## Layout
+The CLI is fully offline and performs no upload. Pass prompts and parameters through payload JSON files instead of command-line text to reduce shell-history exposure.
 
-`crates/` holds Rust crates, `schemas/v0.1/` holds draft JSON Schemas, `docs/` holds the public specification, and `tests/` reserves test-vector categories.
+## Public/private boundary
 
-## Local build and test
+The public repository owns the protocol, Schemas, workspace model, SHA-256, RFC 8785 JCS, event chain, ZIP package, defensive reader, CLI, and offline verification. It has no dependency on aigc-proof-official.
 
-```bash
+Official identity, signing authority, registered keys, revocation, trusted time, risk controls, billing, and production operations are outside 0.2 and remain unimplemented.
+
+## Build and test
+
+Rust 1.85.0, rustfmt, and Clippy are pinned by rust-toolchain.toml.
+
+~~~bash
 cargo fmt --all --check
 cargo check --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
+cargo doc --workspace --no-deps
+scripts/smoke-test.sh
+~~~
 
-On Windows, use `scripts/build.ps1` and `scripts/test.ps1`; on Linux/macOS, use the matching `.sh` scripts.
+A compile-only check is not an executable test. If the real CLI path cannot run, report TEST FAILED.
 
-## Security and legal boundary
+See [CLI](docs/CLI.md), [specification](docs/AIGC-PROOF-SPEC.md), [package format](docs/PACKAGE-FORMAT.md), [assurance levels](docs/ASSURANCE-LEVELS.md), [threat model](docs/THREAT-MODEL.md), and [compatibility](docs/COMPATIBILITY.md).
 
-Treat every input as untrusted. Cryptographic and archive handling are placeholders only at this stage.
+## License
 
-> 本项目提供创作过程记录、完整性验证和数字签名能力，不自动判定作品是否原创，也不直接构成任何司法、行政或版权登记机构的权利认定。
-
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md). Before publication, replace `OWNER` in the Cargo repository URL with the actual GitHub organization or account.
+Apache-2.0.
