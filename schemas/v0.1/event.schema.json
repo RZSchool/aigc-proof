@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aigc-proof/schemas/v0.1/event.schema.json",
+  "title": "AIGC-Proof Event v0.1 (Draft)",
+  "description": "Minimal, unstable event shape for the scaffold stage.",
+  "type": "object",
+  "required": ["event_id", "sequence", "event_type", "created_at", "previous_event_hash", "payload"],
+  "properties": {
+    "event_id": { "type": "string" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "event_type": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "previous_event_hash": { "type": ["string", "null"] },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/proof-core",
+    "crates/proof-schema",
+    "crates/proof-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/OWNER/aigc-proof"
+rust-version = "1.85"

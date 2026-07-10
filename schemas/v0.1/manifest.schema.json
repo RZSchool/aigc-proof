@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/aigc-proof/schemas/v0.1/manifest.schema.json",
+  "title": "AIGC-Proof Manifest v0.1 (Draft)",
+  "description": "Minimal, unstable manifest shape for the scaffold stage.",
+  "type": "object",
+  "required": ["spec_version", "proof_id", "created_at", "asset", "event_chain"],
+  "properties": {
+    "spec_version": { "type": "string" },
+    "proof_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "asset": { "type": "object" },
+    "event_chain": { "type": "array" }
+  },
+  "additionalProperties": false
+}
