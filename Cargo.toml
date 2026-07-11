@@ -4,6 +4,7 @@ members = [
     "crates/proof-core",
     "crates/proof-schema",
     "crates/proof-cli",
+    "crates/proof-desktop",
 ]
 
 [workspace.package]
