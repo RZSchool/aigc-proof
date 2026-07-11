@@ -35,18 +35,16 @@ Verification status:
 Overall verification result: all required fixed-toolchain checks and real executable paths
 passed on 2026-07-11. The v0.2 candidate is Ready for review.
 
-Native Windows follow-up (AP-002, 2026-07-11): TEST FAILED due to an environment blocker. On
-Windows 11 with the native `x86_64-pc-windows-gnu` Rust/Cargo 1.85.0 host, fmt, check, Clippy,
-documentation, both metadata commands, the dependency tree, and the new PowerShell real-CLI
-smoke path passed. The smoke path executed init/add/record/seal/verify/persisted report/inspect
-with CRLF input. `cargo test --workspace --locked` compiled, but Windows Defender quarantined
-the generated GNU test executables before they could run (OS error 225,
-`Trojan:Win32/Filecoder.ZZA!MTB`). Installing the MSVC build environment was separately blocked
-by a cancelled UAC elevation, and a final user-directory retry could not be started after the
-Windows execution approval quota was exhausted. The same accumulated source changes passed the
-complete fixed-toolchain Linux sequence with all 33 tests and the Bash smoke path. AP-002 remains
-blocked; the AP-001 Ready for review decision is retained because no candidate failure was
-observed, but native Windows test-suite acceptance is not complete.
+Native Windows follow-up (AP-002, 2026-07-11): passed on GitHub Actions run 29144222205. The
+`windows-latest` Windows Server 2025 runner used Rust 1.85.0 with the
+`x86_64-pc-windows-msvc` host. Fmt, locked check, locked all-target/all-feature Clippy with
+warnings denied, 31 Windows-applicable tests, locked documentation, and the native PowerShell
+smoke path passed. The tests included real positive and negative CLI execution, tampering,
+malicious ZIPs, Windows path/case behavior, no-clobber writes, CRLF JSON, and temporary-file
+cleanup; two Unix-only symlink tests are intentionally gated by `cfg(unix)`. The smoke path
+executed init/add/record/seal/verify/persisted report/inspect using real Windows executables.
+Ubuntu and macOS jobs passed in the same matrix run. This clean MSVC result supersedes the local
+Windows GNU Defender environment blocker without weakening or excluding any security control.
 
 Not implemented:
 - Creator identity verification
