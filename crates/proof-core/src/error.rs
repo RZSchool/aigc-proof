@@ -55,7 +55,13 @@ impl CoreError {
 impl fmt::Display for CoreError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(path) = &self.path {
-            write!(formatter, "{} at {}: {}", self.code, path.display(), self.message)
+            write!(
+                formatter,
+                "{} at {}: {}",
+                self.code,
+                path.display(),
+                self.message
+            )
         } else {
             write!(formatter, "{}: {}", self.code, self.message)
         }
@@ -66,7 +72,11 @@ impl std::error::Error for CoreError {}
 
 impl From<serde_json::Error> for CoreError {
     fn from(error: serde_json::Error) -> Self {
-        Self::new(ErrorKind::MalformedJson, "MALFORMED_JSON", error.to_string())
+        Self::new(
+            ErrorKind::MalformedJson,
+            "MALFORMED_JSON",
+            error.to_string(),
+        )
     }
 }
 
@@ -81,4 +91,3 @@ impl From<zip::result::ZipError> for CoreError {
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
-

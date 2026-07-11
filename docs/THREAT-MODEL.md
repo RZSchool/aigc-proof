@@ -10,7 +10,11 @@
 
 ## Malicious ZIP controls
 
-Container checks cover malformed ZIP, entry count, traversal, absolute/drive/UNC/backslash paths, duplicate entries, case conflicts, duplicate Manifest, explicit symbolic links, non-regular files, encryption, compression methods, one-entry size, total expanded size, structured-file size, and compression ratio.
+Container checks cover malformed ZIP/ZIP64, raw declared entry count, duplicate-name collapse,
+traversal, absolute/drive/UNC/backslash paths, duplicate entries, case conflicts, duplicate
+Manifest, explicit symbolic links, Unix special files, non-regular files, encryption,
+compression methods, package bytes, one-entry size, total expanded size, structured-file size,
+and compression ratio.
 
 Unsafe containers stop before content-dependent processing. Safe containers are streamed in place and never extracted.
 
@@ -18,4 +22,8 @@ Unsafe containers stop before content-dependent processing. Safe containers are 
 
 No creator signature or external witness exists. An attacker can generate a new internally consistent Manifest, event chain, and asset set. A valid report cannot establish identity, authorship, originality, rights, authorization, earliest creation time, trusted time, or legal validity.
 
-SHA-256 collision resistance is assumed for comparison but does not create authenticity. ZIP producer metadata can vary by platform; explicit link metadata is rejected and non-extraction is mandatory, but cross-platform behavior must be tested against the pinned ZIP crate.
+SHA-256 collision resistance is assumed for comparison but does not create authenticity. ZIP
+producer metadata can vary by platform; explicit link/special-file metadata is rejected and
+non-extraction is mandatory. Same-directory temporary files and no-clobber persistence narrow
+output races, but v0.2 does not claim protection against a hostile process concurrently mutating
+the same local workspace. Cross-platform behavior must be tested against the pinned ZIP crate.

@@ -16,18 +16,26 @@ It does not verify creator identity, a digital signature, trusted time, original
 - Container: standard ZIP with ZIP64 support when size/count fields require it
 
 Duplicate JSON object member names are invalid before canonicalization.
+JCS input follows I-JSON constraints and uses ECMAScript-compatible number serialization
+and UTF-16 property-name ordering. The committed vectors include the RFC 8785 Section 3.2
+number, escaping, Unicode, and non-BMP sorting examples.
 
 ## Manifest
 
 manifest.json contains spec_version, proof_id as a lowercase UUID URN, created_at, tool, project, a stable package_path-sorted assets array, and event_chain.
 
-Each asset contains asset_id, role, package_path, original_name, media_type, size_bytes, and sha256. Original external absolute paths are never stored. Asset roles are input, output, reference, license, and other.
+Each asset contains asset_id, role, package_path, original_name, media_type, size_bytes, and
+sha256. Asset IDs are unique canonical lowercase UUIDs. package_path is under
+assets/<role>/, is sorted by UTF-8 byte order, and obeys portable Windows, Linux, and macOS
+component rules. Original external absolute paths are never stored. Asset roles are input,
+output, reference, license, and other.
 
 event_chain contains algorithm sha-256, event_count, and root_hash. With no events, count is 0 and root is null.
 
 ## Events
 
 events.json is a canonical array. The first event has sequence 1 and previous_event_hash null. Each later sequence increments by one and references the prior event_hash.
+Event IDs are unique canonical lowercase UUIDs.
 
 The event hash input contains exactly:
 
@@ -50,6 +58,12 @@ Times are local observations, not trusted timestamp evidence.
 
 ## Verification result
 
-Status is valid, invalid, or error. assurance always states internal_integrity and the fixed 0.2 limits: creator_identity not_verified, digital_signature not_present, trusted_time not_present, and originality not_evaluated.
+Status is valid, invalid, or error. valid means all integrity stages passed and errors is
+empty. invalid means package bytes or protocol data failed validation. error is reserved for
+an operational failure that prevented evaluation, such as an unreadable input; malformed or
+hostile package content is invalid, not error. assurance.internal_integrity is respectively
+valid, invalid, or not_evaluated. The remaining assurance fields are fixed:
+creator_identity not_verified, digital_signature not_present, trusted_time not_present, and
+originality not_evaluated.
 
 Errors use stable uppercase machine codes, an optional protocol path, and a human message.

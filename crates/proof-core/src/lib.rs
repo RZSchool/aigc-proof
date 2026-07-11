@@ -22,6 +22,7 @@ pub use workspace::{
 pub const SPEC_VERSION: &str = "0.2.0";
 
 pub fn current_timestamp() -> CoreResult<String> {
-    proof_schema::format_canonical_utc(time::OffsetDateTime::now_utc())
-        .map_err(|message| CoreError::new(ErrorKind::InvalidTimestamp, "INVALID_TIMESTAMP", message))
+    proof_schema::format_canonical_utc(time::OffsetDateTime::now_utc()).map_err(|message| {
+        CoreError::new(ErrorKind::InvalidTimestamp, "INVALID_TIMESTAMP", message)
+    })
 }

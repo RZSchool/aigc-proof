@@ -1,20 +1,18 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
-use std::io::{Read, Seek};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use proof_schema::{
     Assurance, CheckResult, CheckStatus, EVENTS_PATH, Event, Inspection, InternalIntegrity,
     MANIFEST_PATH, Manifest, SCHEMA_VERSION, VerificationError, VerificationReport,
     VerificationStatus, VerificationWarning, parse_json_strict, validate_event_schema,
-    validate_manifest_schema, validate_package_path,
+    validate_manifest_schema, validate_package_path, validate_proof_id,
 };
 use serde_json::Value;
 use zip::{CompressionMethod, ZipArchive};
 
-use crate::{
-    CoreError, CoreResult, ErrorKind, canonical_json, sha256_reader, verify_event_chain,
-};
+use crate::{CoreError, CoreResult, ErrorKind, canonical_json, sha256_reader, verify_event_chain};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerificationLimits {
@@ -53,8 +51,10 @@ pub fn verify_package(
     limits: &VerificationLimits,
     verified_at: String,
 ) -> VerificationReport {
+    let verification_timestamp_valid =
+        proof_schema::validate_canonical_timestamp(&verified_at).is_ok();
     let mut report = ReportBuilder::new(verified_at);
-    if proof_schema::validate_canonical_timestamp(&report.verified_at).is_err() {
+    if !verification_timestamp_valid {
         report.operational_error = true;
         report.error(
             "INVALID_VERIFICATION_TIMESTAMP",
@@ -63,37 +63,7 @@ pub fn verify_package(
         );
         return report.finish();
     }
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            report.operational_error = true;
-            report.error(
-                "PACKAGE_OPEN_FAILED",
-                Some(path.display().to_string()),
-                error.to_string(),
-            );
-            report.stage(
-                "CONTAINER_SAFETY",
-                false,
-                "Package could not be opened.",
-            );
-            return report.finish();
-        }
-    };
-    if metadata.len() > limits.max_package_bytes {
-        report.error(
-            "PACKAGE_SIZE_LIMIT_EXCEEDED",
-            Some(path.display().to_string()),
-            "Package exceeds the configured byte limit.",
-        );
-        report.stage(
-            "CONTAINER_SAFETY",
-            false,
-            "Container safety limits failed.",
-        );
-        return report.finish();
-    }
-    let file = match File::open(path) {
+    let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) => {
             report.operational_error = true;
@@ -102,14 +72,75 @@ pub fn verify_package(
                 Some(path.display().to_string()),
                 error.to_string(),
             );
-            report.stage(
-                "CONTAINER_SAFETY",
-                false,
-                "Package could not be opened.",
-            );
+            report.stage("CONTAINER_SAFETY", false, "Package could not be opened.");
             return report.finish();
         }
     };
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            report.operational_error = true;
+            report.error(
+                "PACKAGE_OPEN_FAILED",
+                Some(path.display().to_string()),
+                error.to_string(),
+            );
+            report.stage("CONTAINER_SAFETY", false, "Package could not be opened.");
+            return report.finish();
+        }
+    };
+    if !metadata.is_file() {
+        report.error(
+            "PACKAGE_NOT_REGULAR_FILE",
+            Some(path.display().to_string()),
+            "Package input must be a regular file.",
+        );
+        report.stage(
+            "CONTAINER_SAFETY",
+            false,
+            "Package input is not a regular file.",
+        );
+        return report.finish();
+    }
+    if metadata.len() > limits.max_package_bytes {
+        report.error(
+            "PACKAGE_SIZE_LIMIT_EXCEEDED",
+            Some(path.display().to_string()),
+            "Package exceeds the configured byte limit.",
+        );
+        report.stage("CONTAINER_SAFETY", false, "Container safety limits failed.");
+        return report.finish();
+    }
+    let declared_entries = match declared_zip_entry_count(&mut file) {
+        Ok(count) => count,
+        Err(error) if error.kind == ErrorKind::Io => {
+            report.operational_error = true;
+            report.error(error.code, Some(path.display().to_string()), error.message);
+            report.stage("CONTAINER_SAFETY", false, "Package could not be read.");
+            return report.finish();
+        }
+        Err(error) => {
+            report.error(
+                "MALFORMED_ZIP",
+                Some(path.display().to_string()),
+                error.message,
+            );
+            report.stage("CONTAINER_SAFETY", false, "ZIP container is malformed.");
+            return report.finish();
+        }
+    };
+    if declared_entries > limits.max_entries {
+        report.error(
+            "ZIP_ENTRY_COUNT_LIMIT_EXCEEDED",
+            None,
+            format!(
+                "ZIP declares {declared_entries} entries; the maximum is {}.",
+                limits.max_entries
+            ),
+        );
+        report.stage("CONTAINER_SAFETY", false, "Container safety limits failed.");
+        return report.finish();
+    }
     let mut archive = match ZipArchive::new(file) {
         Ok(archive) => archive,
         Err(error) => {
@@ -118,16 +149,12 @@ pub fn verify_package(
                 Some(path.display().to_string()),
                 error.to_string(),
             );
-            report.stage(
-                "CONTAINER_SAFETY",
-                false,
-                "ZIP container is malformed.",
-            );
+            report.stage("CONTAINER_SAFETY", false, "ZIP container is malformed.");
             return report.finish();
         }
     };
     let container_error_start = report.errors.len();
-    let entries = inspect_entries(&mut archive, limits, &mut report);
+    let entries = inspect_entries(&mut archive, declared_entries, limits, &mut report);
     let container_safe = report.errors.len() == container_error_start;
     report.stage(
         "CONTAINER_SAFETY",
@@ -157,10 +184,12 @@ pub fn verify_package(
     let Some(manifest) = manifest else {
         return report.finish();
     };
-    report.proof_id = Some(manifest.proof_id.clone());
+    if validate_proof_id(&manifest.proof_id).is_ok() {
+        report.proof_id = Some(manifest.proof_id.clone());
+    }
 
     let asset_error_start = report.errors.len();
-    verify_assets(&mut archive, &entries, &manifest, &mut report);
+    verify_assets(&mut archive, &entries, limits, &manifest, &mut report);
     let assets_valid = report.errors.len() == asset_error_start;
     report.stage(
         "ASSETS",
@@ -188,17 +217,41 @@ pub fn verify_package(
 }
 
 pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<Inspection> {
-    let file =
+    let mut file =
         File::open(path).map_err(|error| CoreError::io("PACKAGE_OPEN_FAILED", path, error))?;
-    let mut archive = ZipArchive::new(file).map_err(|error| {
-        CoreError::new(
+    let metadata = file
+        .metadata()
+        .map_err(|error| CoreError::io("PACKAGE_METADATA_FAILED", path, error))?;
+    if !metadata.is_file() {
+        return Err(CoreError::new(
             ErrorKind::PackageFormat,
-            "MALFORMED_ZIP",
-            error.to_string(),
+            "PACKAGE_NOT_REGULAR_FILE",
+            "Package input must be a regular file.",
         )
+        .at_path(path));
+    }
+    if metadata.len() > limits.max_package_bytes {
+        return Err(CoreError::new(
+            ErrorKind::LimitExceeded,
+            "PACKAGE_SIZE_LIMIT_EXCEEDED",
+            "Package exceeds the configured byte limit.",
+        )
+        .at_path(path));
+    }
+    let declared_entries = declared_zip_entry_count(&mut file)?;
+    if declared_entries > limits.max_entries {
+        return Err(CoreError::new(
+            ErrorKind::LimitExceeded,
+            "ZIP_ENTRY_COUNT_LIMIT_EXCEEDED",
+            "ZIP entry count exceeds the configured limit.",
+        )
+        .at_path(path));
+    }
+    let mut archive = ZipArchive::new(file).map_err(|error| {
+        CoreError::new(ErrorKind::PackageFormat, "MALFORMED_ZIP", error.to_string())
     })?;
     let mut report = ReportBuilder::new("1970-01-01T00:00:00Z".to_owned());
-    let entries = inspect_entries(&mut archive, limits, &mut report);
+    let entries = inspect_entries(&mut archive, declared_entries, limits, &mut report);
     if let Some(error) = report.errors.first() {
         return Err(CoreError::new(
             ErrorKind::UnsafeZipEntry,
@@ -235,23 +288,30 @@ pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<I
 
 fn inspect_entries<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
+    declared_entries: usize,
     limits: &VerificationLimits,
     report: &mut ReportBuilder,
 ) -> Vec<EntryMetadata> {
-    if archive.len() == 0 {
+    if archive.is_empty() {
         report.error("ZIP_EMPTY", None, "ZIP container has no entries.");
     }
-    if archive.len() > limits.max_entries {
+    if declared_entries > limits.max_entries {
         report.error(
             "ZIP_ENTRY_COUNT_LIMIT_EXCEEDED",
             None,
             format!(
                 "ZIP contains {} entries; the maximum is {}.",
-                archive.len(),
-                limits.max_entries
+                declared_entries, limits.max_entries
             ),
         );
         return Vec::new();
+    }
+    if archive.len() != declared_entries {
+        report.error(
+            "ZIP_ENTRY_DUPLICATE",
+            None,
+            "ZIP central directory contains duplicate decoded entry names.",
+        );
     }
     let mut entries = Vec::new();
     let mut exact_names = HashSet::new();
@@ -324,7 +384,8 @@ fn inspect_entries<R: Read + Seek>(
                 Some(name.clone()),
                 "Symbolic link ZIP entries are forbidden.",
             );
-        } else if entry.is_dir() || !entry.is_file() {
+        } else if entry.is_dir() || !entry.is_file() || has_non_regular_unix_type(entry.unix_mode())
+        {
             report.error(
                 "ZIP_ENTRY_NOT_REGULAR_FILE",
                 Some(name.clone()),
@@ -360,9 +421,7 @@ fn inspect_entries<R: Read + Seek>(
             .compressed_size()
             .checked_mul(limits.max_compression_ratio)
             .unwrap_or(u64::MAX);
-        if entry.size() > 0
-            && (entry.compressed_size() == 0 || entry.size() > ratio_limit)
-        {
+        if entry.size() > 0 && (entry.compressed_size() == 0 || entry.size() > ratio_limit) {
             report.error(
                 "ZIP_COMPRESSION_RATIO_LIMIT_EXCEEDED",
                 Some(name.clone()),
@@ -428,11 +487,7 @@ fn read_and_validate_manifest<R: Read + Seek>(
             Some(MANIFEST_PATH.to_owned()),
             "manifest.json is not RFC 8785 JCS canonical JSON.",
         ),
-        Err(error) => report.error(
-            error.code,
-            Some(MANIFEST_PATH.to_owned()),
-            error.message,
-        ),
+        Err(error) => report.error(error.code, Some(MANIFEST_PATH.to_owned()), error.message),
         Ok(_) => {}
     }
     if let Err(errors) = validate_manifest_schema(&value) {
@@ -456,11 +511,7 @@ fn read_and_validate_manifest<R: Read + Seek>(
         }
     };
     for issue in manifest.validate() {
-        report.error(
-            issue.code,
-            Some(issue.field),
-            issue.message,
-        );
+        report.error(issue.code, Some(issue.field), issue.message);
     }
     check_entry_coverage(entries, &manifest, report);
     Some(manifest)
@@ -516,10 +567,19 @@ fn check_entry_coverage(
 fn verify_assets<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     entries: &[EntryMetadata],
+    limits: &VerificationLimits,
     manifest: &Manifest,
     report: &mut ReportBuilder,
 ) {
     for asset in &manifest.assets {
+        if asset.size_bytes > limits.max_single_entry_bytes {
+            report.error(
+                "ASSET_SIZE_LIMIT_EXCEEDED",
+                Some(asset.package_path.clone()),
+                "Manifest asset size exceeds the single-entry limit.",
+            );
+            continue;
+        }
         let Some(metadata) = entries
             .iter()
             .find(|entry| entry.name == asset.package_path)
@@ -544,7 +604,11 @@ fn verify_assets<R: Read + Seek>(
                 continue;
             }
         };
-        let mut limited = entry.by_ref().take(asset.size_bytes.saturating_add(1));
+        let read_limit = asset
+            .size_bytes
+            .min(limits.max_single_entry_bytes)
+            .saturating_add(1);
+        let mut limited = entry.by_ref().take(read_limit);
         match sha256_reader(&mut limited) {
             Ok(digest) => {
                 if digest.size != asset.size_bytes {
@@ -725,6 +789,11 @@ struct ReportBuilder {
 
 impl ReportBuilder {
     fn new(verified_at: String) -> Self {
+        let verified_at = if proof_schema::validate_canonical_timestamp(&verified_at).is_ok() {
+            verified_at
+        } else {
+            "1970-01-01T00:00:00Z".to_owned()
+        };
         Self {
             verified_at,
             proof_id: None,
@@ -734,12 +803,7 @@ impl ReportBuilder {
         }
     }
 
-    fn error(
-        &mut self,
-        code: impl Into<String>,
-        path: Option<String>,
-        message: impl Into<String>,
-    ) {
+    fn error(&mut self, code: impl Into<String>, path: Option<String>, message: impl Into<String>) {
         self.errors.push(VerificationError {
             code: code.into(),
             path,
@@ -787,6 +851,95 @@ impl ReportBuilder {
             }],
         }
     }
+}
+
+fn has_non_regular_unix_type(mode: Option<u32>) -> bool {
+    const FILE_TYPE_MASK: u32 = 0o170000;
+    const REGULAR_FILE: u32 = 0o100000;
+    mode.is_some_and(|mode| {
+        let file_type = mode & FILE_TYPE_MASK;
+        file_type != 0 && file_type != REGULAR_FILE
+    })
+}
+
+fn declared_zip_entry_count(file: &mut File) -> CoreResult<usize> {
+    const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
+    const ZIP64_LOCATOR_SIGNATURE: &[u8; 4] = b"PK\x06\x07";
+    const ZIP64_EOCD_SIGNATURE: &[u8; 4] = b"PK\x06\x06";
+    const MAX_EOCD_SIZE: u64 = 22 + u16::MAX as u64;
+
+    let file_size = file
+        .metadata()
+        .map_err(|error| {
+            CoreError::new(ErrorKind::Io, "PACKAGE_METADATA_FAILED", error.to_string())
+        })?
+        .len();
+    let tail_size = file_size.min(MAX_EOCD_SIZE);
+    file.seek(SeekFrom::End(-(tail_size as i64)))
+        .map_err(|error| CoreError::new(ErrorKind::Io, "PACKAGE_SEEK_FAILED", error.to_string()))?;
+    let mut tail = vec![0_u8; tail_size as usize];
+    file.read_exact(&mut tail)
+        .map_err(|error| CoreError::new(ErrorKind::Io, "PACKAGE_READ_FAILED", error.to_string()))?;
+    let eocd_offset = tail
+        .windows(EOCD_SIGNATURE.len())
+        .enumerate()
+        .rev()
+        .find_map(|(offset, signature)| {
+            if signature != EOCD_SIGNATURE || offset + 22 > tail.len() {
+                return None;
+            }
+            let comment_len = u16::from_le_bytes([tail[offset + 20], tail[offset + 21]]) as usize;
+            (offset + 22 + comment_len == tail.len()).then_some(offset)
+        })
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::PackageFormat,
+                "ZIP_EOCD_MISSING",
+                "ZIP end-of-central-directory record is missing or truncated.",
+            )
+        })?;
+    let count = u16::from_le_bytes([tail[eocd_offset + 10], tail[eocd_offset + 11]]);
+    if count != u16::MAX {
+        return Ok(count as usize);
+    }
+    if eocd_offset < 20 || &tail[eocd_offset - 20..eocd_offset - 16] != ZIP64_LOCATOR_SIGNATURE {
+        return Err(CoreError::new(
+            ErrorKind::PackageFormat,
+            "ZIP64_LOCATOR_MISSING",
+            "ZIP64 entry count sentinel requires a ZIP64 locator.",
+        ));
+    }
+    let locator = eocd_offset - 20;
+    let mut zip64_offset_bytes = [0_u8; 8];
+    zip64_offset_bytes.copy_from_slice(&tail[locator + 8..locator + 16]);
+    let zip64_offset = u64::from_le_bytes(zip64_offset_bytes);
+    file.seek(SeekFrom::Start(zip64_offset))
+        .map_err(|error| CoreError::new(ErrorKind::Io, "PACKAGE_SEEK_FAILED", error.to_string()))?;
+    let mut zip64_header = [0_u8; 56];
+    file.read_exact(&mut zip64_header).map_err(|error| {
+        CoreError::new(
+            ErrorKind::PackageFormat,
+            "ZIP64_EOCD_INVALID",
+            error.to_string(),
+        )
+    })?;
+    if &zip64_header[..4] != ZIP64_EOCD_SIGNATURE {
+        return Err(CoreError::new(
+            ErrorKind::PackageFormat,
+            "ZIP64_EOCD_INVALID",
+            "ZIP64 end-of-central-directory record is missing.",
+        ));
+    }
+    let mut count_bytes = [0_u8; 8];
+    count_bytes.copy_from_slice(&zip64_header[32..40]);
+    let count = u64::from_le_bytes(count_bytes);
+    usize::try_from(count).map_err(|_| {
+        CoreError::new(
+            ErrorKind::LimitExceeded,
+            "ZIP_ENTRY_COUNT_LIMIT_EXCEEDED",
+            "ZIP entry count cannot fit this platform.",
+        )
+    })
 }
 
 #[cfg(test)]

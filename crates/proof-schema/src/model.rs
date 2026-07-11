@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use crate::{
     HASH_ALGORITHM, SCHEMA_VERSION, WORKSPACE_VERSION, validate_asset_role,
-    validate_canonical_timestamp, validate_event_type, validate_package_path,
-    validate_sha256_hex,
+    validate_canonical_timestamp, validate_event_type, validate_media_type, validate_package_path,
+    validate_portable_basename, validate_proof_id, validate_sha256_hex, validate_uuid,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -154,13 +154,7 @@ impl Manifest {
                 "Specification version must be 0.2.0.",
             ));
         }
-        let parsed_uuid = self
-            .proof_id
-            .strip_prefix("urn:uuid:")
-            .and_then(|value| uuid::Uuid::parse_str(value).ok());
-        if parsed_uuid
-            .is_none_or(|value| self.proof_id != format!("urn:uuid:{value}"))
-        {
+        if validate_proof_id(&self.proof_id).is_err() {
             issues.push(ValidationIssue::new(
                 "INVALID_PROOF_ID",
                 "proof_id",
@@ -207,7 +201,7 @@ impl Manifest {
 impl Event {
     pub fn validate(&self, expected_sequence: u64) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
-        if !is_canonical_uuid(&self.event_id) {
+        if validate_uuid(&self.event_id).is_err() {
             issues.push(ValidationIssue::new(
                 "INVALID_EVENT_ID",
                 "event_id",
@@ -298,13 +292,21 @@ fn validate_common(
     }
     let mut previous_path: Option<&str> = None;
     let mut folded_paths = std::collections::HashSet::new();
+    let mut asset_ids = std::collections::HashSet::new();
     for (index, asset) in assets.iter().enumerate() {
         let prefix = format!("assets[{index}]");
-        if !is_canonical_uuid(&asset.asset_id) {
+        if validate_uuid(&asset.asset_id).is_err() {
             issues.push(ValidationIssue::new(
                 "INVALID_ASSET_ID",
                 format!("{prefix}.asset_id"),
                 "Asset ID must be a UUID.",
+            ));
+        }
+        if !asset_ids.insert(asset.asset_id.as_str()) {
+            issues.push(ValidationIssue::new(
+                "ASSET_ID_DUPLICATE",
+                format!("{prefix}.asset_id"),
+                "Asset IDs must be unique.",
             ));
         }
         if let Err(message) = validate_asset_role(asset.role.to_string().as_str()) {
@@ -319,6 +321,14 @@ fn validate_common(
                 "INVALID_PACKAGE_PATH",
                 format!("{prefix}.package_path"),
                 message,
+            ));
+        }
+        let required_prefix = format!("assets/{}/", asset.role);
+        if !asset.package_path.starts_with(&required_prefix) {
+            issues.push(ValidationIssue::new(
+                "ASSET_PATH_ROLE_MISMATCH",
+                format!("{prefix}.package_path"),
+                "Asset package path must be under assets/<role>/ for its declared role.",
             ));
         }
         if previous_path.is_some_and(|value| value >= asset.package_path.as_str()) {
@@ -336,25 +346,14 @@ fn validate_common(
                 "Asset package paths must not duplicate or conflict by case.",
             ));
         }
-        if asset.original_name.is_empty()
-            || asset.original_name.len() > 255
-            || asset
-                .original_name
-                .chars()
-                .any(|character| matches!(character, '/' | '\\' | '\0' | ':'))
-            || matches!(asset.original_name.as_str(), "." | "..")
-        {
+        if validate_portable_basename(&asset.original_name).is_err() {
             issues.push(ValidationIssue::new(
                 "INVALID_ORIGINAL_NAME",
                 format!("{prefix}.original_name"),
                 "Original name must be a portable basename.",
             ));
         }
-        if asset.media_type.is_empty()
-            || asset.media_type.len() > 255
-            || !asset.media_type.is_ascii()
-            || !asset.media_type.contains('/')
-        {
+        if validate_media_type(&asset.media_type).is_err() {
             issues.push(ValidationIssue::new(
                 "INVALID_MEDIA_TYPE",
                 format!("{prefix}.media_type"),
@@ -369,10 +368,6 @@ fn validate_common(
             ));
         }
     }
-}
-
-fn is_canonical_uuid(value: &str) -> bool {
-    uuid::Uuid::parse_str(value).is_ok_and(|parsed| parsed.to_string() == value)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -505,11 +500,7 @@ pub struct ValidationIssue {
 }
 
 impl ValidationIssue {
-    pub fn new(
-        code: &'static str,
-        field: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn new(code: &'static str, field: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             code,
             field: field.into(),
@@ -546,14 +537,8 @@ mod tests {
             },
             project: ProjectInfo { name: None },
             assets: vec![
-                asset(
-                    "assets/input/z.txt",
-                    "550e8400-e29b-41d4-a716-446655440001",
-                ),
-                asset(
-                    "assets/input/a.txt",
-                    "550e8400-e29b-41d4-a716-446655440002",
-                ),
+                asset("assets/input/z.txt", "550e8400-e29b-41d4-a716-446655440001"),
+                asset("assets/input/a.txt", "550e8400-e29b-41d4-a716-446655440002"),
             ],
             event_chain: EventChainSummary {
                 algorithm: HASH_ALGORITHM.to_owned(),
@@ -561,9 +546,52 @@ mod tests {
                 root_hash: None,
             },
         };
-        assert!(manifest
-            .validate()
-            .iter()
-            .any(|issue| issue.code == "ASSETS_NOT_SORTED"));
+        assert!(
+            manifest
+                .validate()
+                .iter()
+                .any(|issue| issue.code == "ASSETS_NOT_SORTED")
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_duplicate_asset_ids_and_role_path_mismatches() {
+        let id = "550e8400-e29b-41d4-a716-446655440001";
+        let mut first = asset("assets/input/a.txt", id);
+        first.original_name = "a.txt".to_owned();
+        let mut second = asset("assets/output/b.txt", id);
+        second.role = AssetRole::Output;
+        second.original_name = "b.txt".to_owned();
+        let manifest = Manifest {
+            spec_version: SCHEMA_VERSION.to_owned(),
+            proof_id: "urn:uuid:550e8400-e29b-41d4-a716-446655440000".to_owned(),
+            created_at: "2026-07-10T12:30:45Z".to_owned(),
+            tool: ToolInfo {
+                name: "aigc-proof".to_owned(),
+                version: SCHEMA_VERSION.to_owned(),
+            },
+            project: ProjectInfo { name: None },
+            assets: vec![first, second],
+            event_chain: EventChainSummary {
+                algorithm: HASH_ALGORITHM.to_owned(),
+                event_count: 0,
+                root_hash: None,
+            },
+        };
+        assert!(
+            manifest
+                .validate()
+                .iter()
+                .any(|issue| issue.code == "ASSET_ID_DUPLICATE")
+        );
+
+        let mut mismatch = manifest;
+        mismatch.assets[1].role = AssetRole::Input;
+        assert!(
+            mismatch
+                .validate()
+                .iter()
+                .any(|issue| issue.code == "ASSET_PATH_ROLE_MISMATCH")
+        );
     }
 }

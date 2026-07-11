@@ -26,13 +26,90 @@ pub fn validate_package_path(value: &str) -> Result<(), &'static str> {
     if value.ends_with('/') {
         return Err("directory paths are forbidden");
     }
-    if value
-        .split('/')
-        .any(|component| component.is_empty() || component == "." || component == "..")
-    {
-        return Err("empty, dot, and parent path components are forbidden");
+    for component in value.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err("empty, dot, and parent path components are forbidden");
+        }
+        validate_portable_component(component)?;
     }
     Ok(())
+}
+
+pub fn validate_portable_basename(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 255 || matches!(value, "." | "..") {
+        return Err("basename must contain 1-255 bytes and cannot be dot or parent");
+    }
+    if value.contains('/') || value.contains('\\') || value.contains(':') || value.contains('\0') {
+        return Err("basename must not contain separators, colons, or NUL bytes");
+    }
+    validate_portable_component(value)
+}
+
+pub fn validate_uuid(value: &str) -> Result<(), &'static str> {
+    if uuid::Uuid::parse_str(value).is_ok_and(|parsed| parsed.to_string() == value) {
+        Ok(())
+    } else {
+        Err("must be a canonical lowercase UUID")
+    }
+}
+
+pub fn validate_proof_id(value: &str) -> Result<(), &'static str> {
+    if value
+        .strip_prefix("urn:uuid:")
+        .is_some_and(|uuid| validate_uuid(uuid).is_ok())
+    {
+        Ok(())
+    } else {
+        Err("must be a lowercase urn:uuid value")
+    }
+}
+
+pub fn validate_media_type(value: &str) -> Result<(), &'static str> {
+    let Some((kind, subtype)) = value.split_once('/') else {
+        return Err("media type must contain one type/subtype separator");
+    };
+    if value.len() > 255
+        || subtype.contains('/')
+        || !valid_media_token(kind)
+        || !valid_media_token(subtype)
+    {
+        return Err("media type must be an ASCII type/subtype without parameters");
+    }
+    Ok(())
+}
+
+fn validate_portable_component(value: &str) -> Result<(), &'static str> {
+    if value.ends_with([' ', '.']) {
+        return Err("path components must not end with a space or dot");
+    }
+    if value.chars().any(|character| {
+        character.is_control() || matches!(character, '<' | '>' | '"' | '|' | '?' | '*')
+    }) {
+        return Err("path components contain a character forbidden by portable filesystems");
+    }
+    let device_stem = value.split('.').next().unwrap_or(value);
+    if is_windows_device_name(device_stem) {
+        return Err("Windows reserved device names are forbidden");
+    }
+    Ok(())
+}
+
+fn is_windows_device_name(value: &str) -> bool {
+    let upper = value.to_ascii_uppercase();
+    matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || upper
+        .strip_prefix("COM")
+        .or_else(|| upper.strip_prefix("LPT"))
+        .is_some_and(|suffix| suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9'))
+}
+
+fn valid_media_token(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&byte))
 }
 
 pub fn validate_asset_role(value: &str) -> Result<(), &'static str> {
@@ -50,11 +127,14 @@ pub fn validate_event_type(value: &str) -> Result<(), &'static str> {
     if !bytes.next().is_some_and(|byte| byte.is_ascii_lowercase()) {
         return Err("event type must start with a lowercase ASCII letter");
     }
-    if bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte))
+    if bytes
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte))
     {
         Ok(())
     } else {
-        Err("event type may contain only lowercase ASCII letters, digits, dot, dash, and underscore")
+        Err(
+            "event type may contain only lowercase ASCII letters, digits, dot, dash, and underscore",
+        )
     }
 }
 
@@ -90,7 +170,9 @@ pub fn validate_canonical_timestamp(value: &str) -> Result<(), String> {
     if normalized == value {
         Ok(())
     } else {
-        Err(format!("timestamp must be canonical UTC Z form; use {normalized}"))
+        Err(format!(
+            "timestamp must be canonical UTC Z form; use {normalized}"
+        ))
     }
 }
 
@@ -126,7 +208,10 @@ mod tests {
             "2026-02-30T12:30:45Z",
             "2026-07-10T12:30:45Zextra",
         ] {
-            assert!(parse_canonical_rfc3339(invalid).is_err(), "accepted {invalid}");
+            assert!(
+                parse_canonical_rfc3339(invalid).is_err(),
+                "accepted {invalid}"
+            );
         }
     }
 
@@ -142,9 +227,28 @@ mod tests {
             "a//b",
             "./x",
             "x/",
+            "assets/input/bad?.txt",
+            "assets/input/trailing. ",
+            "assets/input/CON",
         ] {
-            assert!(validate_package_path(invalid).is_err(), "accepted {invalid}");
+            assert!(
+                validate_package_path(invalid).is_err(),
+                "accepted {invalid}"
+            );
         }
+    }
+
+    #[test]
+    fn identifiers_basenames_and_media_types_are_portable() {
+        assert!(validate_uuid("550e8400-e29b-41d4-a716-446655440000").is_ok());
+        assert!(validate_uuid("550E8400-E29B-41D4-A716-446655440000").is_err());
+        assert!(validate_proof_id("urn:uuid:550e8400-e29b-41d4-a716-446655440000").is_ok());
+        assert!(validate_portable_basename("example.txt").is_ok());
+        assert!(validate_portable_basename("bad?.txt").is_err());
+        assert!(validate_portable_basename("NUL.txt").is_err());
+        assert!(validate_media_type("application/ld+json").is_ok());
+        assert!(validate_media_type("text/").is_err());
+        assert!(validate_media_type("text/plain; charset=utf-8").is_err());
     }
 
     #[test]

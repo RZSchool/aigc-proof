@@ -93,5 +93,49 @@
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "valid" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "assurance": {
+            "properties": { "internal_integrity": { "const": "valid" } }
+          },
+          "errors": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "invalid" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "assurance": {
+            "properties": { "internal_integrity": { "const": "invalid" } }
+          },
+          "errors": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "error" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "assurance": {
+            "properties": { "internal_integrity": { "const": "not_evaluated" } }
+          },
+          "errors": { "minItems": 1 }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

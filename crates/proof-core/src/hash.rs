@@ -79,5 +79,13 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }
-}
 
+    #[test]
+    fn reader_hashes_in_chunks_and_reports_size() {
+        let bytes = vec![b'x'; 3 * 64 * 1024 + 17];
+        let mut reader = std::io::Cursor::new(&bytes);
+        let digest = sha256_reader(&mut reader).unwrap();
+        assert_eq!(digest.size, bytes.len() as u64);
+        assert_eq!(digest.sha256, sha256_bytes(&bytes));
+    }
+}

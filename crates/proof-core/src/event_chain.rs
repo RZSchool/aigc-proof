@@ -77,6 +77,7 @@ pub fn create_event(
 pub fn verify_event_chain(events: &[Event]) -> Vec<EventChainIssue> {
     let mut issues = Vec::new();
     let mut previous: Option<&str> = None;
+    let mut event_ids = std::collections::HashSet::new();
     for (index, event) in events.iter().enumerate() {
         let expected_sequence = index as u64 + 1;
         for issue in event.validate(expected_sequence) {
@@ -84,6 +85,13 @@ pub fn verify_event_chain(events: &[Event]) -> Vec<EventChainIssue> {
                 code: issue.code,
                 index,
                 message: format!("{}: {}", issue.field, issue.message),
+            });
+        }
+        if !event_ids.insert(event.event_id.as_str()) {
+            issues.push(EventChainIssue {
+                code: "EVENT_ID_DUPLICATE",
+                index,
+                message: "Event IDs must be unique.".to_owned(),
             });
         }
         if let Ok(value) = serde_json::to_value(event) {
@@ -155,7 +163,10 @@ mod tests {
             "550e8400-e29b-41d4-a716-446655440001",
         );
         assert_eq!(second.sequence, 2);
-        assert_eq!(second.previous_event_hash.as_deref(), Some(first.event_hash.as_str()));
+        assert_eq!(
+            second.previous_event_hash.as_deref(),
+            Some(first.event_hash.as_str())
+        );
         assert!(verify_event_chain(&[first, second]).is_empty());
     }
 
@@ -170,13 +181,28 @@ mod tests {
         assert!(!verify_event_chain(&reordered).is_empty());
         reordered = vec![first.clone(), second.clone()];
         reordered[1].previous_event_hash = Some("0".repeat(64));
-        assert!(verify_event_chain(&reordered)
-            .iter()
-            .any(|issue| issue.code == "EVENT_PREVIOUS_HASH_MISMATCH"));
+        assert!(
+            verify_event_chain(&reordered)
+                .iter()
+                .any(|issue| issue.code == "EVENT_PREVIOUS_HASH_MISMATCH")
+        );
         reordered = vec![first, second];
         reordered[0].event_hash = "0".repeat(64);
-        assert!(verify_event_chain(&reordered)
-            .iter()
-            .any(|issue| issue.code == "EVENT_HASH_MISMATCH"));
+        assert!(
+            verify_event_chain(&reordered)
+                .iter()
+                .any(|issue| issue.code == "EVENT_HASH_MISMATCH")
+        );
+    }
+
+    #[test]
+    fn duplicate_event_ids_are_rejected() {
+        let first = fixed_event(&[], "550e8400-e29b-41d4-a716-446655440000");
+        let second = fixed_event(std::slice::from_ref(&first), &first.event_id);
+        assert!(
+            verify_event_chain(&[first, second])
+                .iter()
+                .any(|issue| issue.code == "EVENT_ID_DUPLICATE")
+        );
     }
 }

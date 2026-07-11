@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use proof_schema::{
@@ -14,7 +14,7 @@ use crate::hash::copy_and_hash;
 use crate::workspace::{events_path, load_events, workspace_asset_path};
 use crate::{
     CoreError, CoreResult, ErrorKind, VerificationLimits, canonical_json, load_workspace,
-    sha256_file, verify_event_chain, verify_package,
+    sha256_reader, verify_event_chain, verify_package,
 };
 
 #[derive(Debug)]
@@ -40,13 +40,7 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
         )
         .at_path(&options.output));
     }
-    let output_parent = options.output.parent().ok_or_else(|| {
-        CoreError::new(
-            ErrorKind::PackageFormat,
-            "INVALID_OUTPUT_PATH",
-            "Seal output must have a parent directory.",
-        )
-    })?;
+    let output_parent = parent_or_current(&options.output);
     require_output_directory(output_parent)?;
 
     let mut workspace = load_workspace(&options.workspace)?;
@@ -71,7 +65,18 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
     let mut total_size = 0_u64;
     for asset in &workspace.assets {
         let path = workspace_asset_path(&options.workspace, asset)?;
-        let digest = sha256_file(&path)?;
+        let mut source =
+            File::open(&path).map_err(|error| CoreError::io("ASSET_OPEN_FAILED", &path, error))?;
+        let mut limited = Read::take(&mut source, limits.max_single_entry_bytes.saturating_add(1));
+        let digest = sha256_reader(&mut limited)?;
+        if digest.size > limits.max_single_entry_bytes {
+            return Err(CoreError::new(
+                ErrorKind::LimitExceeded,
+                "ASSET_SIZE_LIMIT_EXCEEDED",
+                "Workspace asset exceeds the single-entry limit.",
+            )
+            .at_path(path));
+        }
         if digest.size != asset.size_bytes {
             return Err(CoreError::new(
                 ErrorKind::HashMismatch,
@@ -240,7 +245,8 @@ fn write_zip(
         let mut source =
             File::open(&path).map_err(|error| CoreError::io("ASSET_OPEN_FAILED", &path, error))?;
         start_entry(&mut archive, &asset.package_path, asset.size_bytes)?;
-        let digest = copy_and_hash(&mut source, &mut archive)?;
+        let mut limited = Read::take(&mut source, asset.size_bytes.saturating_add(1));
+        let digest = copy_and_hash(&mut limited, &mut archive)?;
         if digest.size != asset.size_bytes || digest.sha256 != asset.sha256 {
             return Err(CoreError::new(
                 ErrorKind::HashMismatch,
@@ -250,7 +256,11 @@ fn write_zip(
             .at_path(path));
         }
     }
-    start_entry(&mut archive, proof_schema::EVENTS_PATH, event_bytes.len() as u64)?;
+    start_entry(
+        &mut archive,
+        proof_schema::EVENTS_PATH,
+        event_bytes.len() as u64,
+    )?;
     archive.write_all(event_bytes).map_err(|error| {
         CoreError::new(ErrorKind::Io, "PACKAGE_WRITE_FAILED", error.to_string())
     })?;
@@ -266,7 +276,7 @@ fn start_entry<W: Write + Seek>(
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644)
-        .large_file(size > u32::MAX as u64);
+        .large_file(size >= u32::MAX as u64);
     archive.start_file(name, options)?;
     Ok(())
 }
@@ -283,4 +293,10 @@ fn require_output_directory(path: &Path) -> CoreResult<()> {
         .at_path(path));
     }
     Ok(())
+}
+
+fn parent_or_current(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
 }

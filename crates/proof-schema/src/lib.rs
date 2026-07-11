@@ -13,7 +13,8 @@ pub use schema::{
 pub use strict_json::parse_json_strict;
 pub use validation::{
     format_canonical_utc, normalize_rfc3339, parse_canonical_rfc3339, validate_asset_role,
-    validate_canonical_timestamp, validate_event_type, validate_package_path, validate_sha256_hex,
+    validate_canonical_timestamp, validate_event_type, validate_media_type, validate_package_path,
+    validate_portable_basename, validate_proof_id, validate_sha256_hex, validate_uuid,
 };
 
 pub const SCHEMA_VERSION: &str = "0.2.0";

@@ -4,7 +4,7 @@ Open protocol and Rust reference implementation for recording an AIGC creation w
 
 ~~~text
 Version: 0.2.0 WIP
-Status: Unverified implementation
+Status: Ready for review
 Assurance level: Internal Integrity
 ~~~
 
@@ -36,7 +36,11 @@ aigc-proof inspect example.aigcproof
 aigc-proof inspect example.aigcproof --json
 ~~~
 
-Roles are input, output, reference, license, and other. add copies regular files into the workspace and hashes them as streams. seal never overwrites an existing output. inspect reads metadata and explicitly does not claim verification.
+Roles are input, output, reference, license, and other. add copies bounded regular,
+non-symlink files into the workspace and hashes them as streams. seal and persisted
+verification reports use same-directory temporary files and never overwrite an existing
+output. Relative output paths are supported. inspect reads metadata and explicitly does
+not claim verification.
 
 The CLI is fully offline and performs no upload. Pass prompts and parameters through payload JSON files instead of command-line text to reduce shell-history exposure.
 
@@ -57,6 +61,8 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo doc --workspace --no-deps
 scripts/smoke-test.sh
+cargo metadata --format-version 1
+cargo tree
 ~~~
 
 A compile-only check is not an executable test. If the real CLI path cannot run, report TEST FAILED.

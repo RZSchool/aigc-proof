@@ -1,5 +1,5 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
@@ -14,6 +14,7 @@ use proof_schema::{
     AssetRole, VerificationStatus, parse_json_strict, validate_verification_result_schema,
 };
 use serde_json::{Value, json};
+use tempfile::Builder;
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -177,9 +178,8 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
             );
             let value = serde_json::to_value(&report)
                 .map_err(|error| CliError::new("REPORT_SERIALIZATION_FAILED", error.to_string()))?;
-            validate_verification_result_schema(&value).map_err(|errors| {
-                CliError::new("REPORT_SCHEMA_INVALID", errors.join("; "))
-            })?;
+            validate_verification_result_schema(&value)
+                .map_err(|errors| CliError::new("REPORT_SCHEMA_INVALID", errors.join("; ")))?;
             let bytes = serde_json::to_vec_pretty(&report)
                 .map_err(|error| CliError::new("REPORT_SERIALIZATION_FAILED", error.to_string()))?;
             if let Some(path) = json_output {
@@ -196,8 +196,8 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
             package,
             json: output_json,
         } => {
-            let inspection =
-                inspect_package(&package, &VerificationLimits::default()).map_err(CliError::from_core)?;
+            let inspection = inspect_package(&package, &VerificationLimits::default())
+                .map_err(CliError::from_core)?;
             if output_json {
                 let value = serde_json::to_value(&inspection).map_err(|error| {
                     CliError::new("INSPECTION_SERIALIZATION_FAILED", error.to_string())
@@ -264,11 +264,38 @@ fn read_payload(path: &Path) -> Result<Value, CliError> {
             message: "Payload JSON exceeds 1 MiB.".to_owned(),
         });
     }
-    let bytes = fs::read(path).map_err(|error| CliError {
+    let mut file = File::open(path).map_err(|error| CliError {
         code: "PAYLOAD_READ_FAILED".to_owned(),
         path: Some(path.display().to_string()),
         message: error.to_string(),
     })?;
+    let opened_metadata = file.metadata().map_err(|error| CliError {
+        code: "PAYLOAD_METADATA_FAILED".to_owned(),
+        path: Some(path.display().to_string()),
+        message: error.to_string(),
+    })?;
+    if !opened_metadata.is_file() {
+        return Err(CliError {
+            code: "PAYLOAD_NOT_REGULAR_FILE".to_owned(),
+            path: Some(path.display().to_string()),
+            message: "Opened payload must be a regular file.".to_owned(),
+        });
+    }
+    let mut bytes = Vec::with_capacity(opened_metadata.len().min(1024 * 1024) as usize);
+    Read::take(&mut file, 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| CliError {
+            code: "PAYLOAD_READ_FAILED".to_owned(),
+            path: Some(path.display().to_string()),
+            message: error.to_string(),
+        })?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(CliError {
+            code: "PAYLOAD_SIZE_LIMIT_EXCEEDED".to_owned(),
+            path: Some(path.display().to_string()),
+            message: "Payload JSON exceeds 1 MiB.".to_owned(),
+        });
+    }
     let payload: Value = parse_json_strict(&bytes).map_err(|error| CliError {
         code: "PAYLOAD_JSON_MALFORMED".to_owned(),
         path: Some(path.display().to_string()),
@@ -285,25 +312,48 @@ fn read_payload(path: &Path) -> Result<Value, CliError> {
 }
 
 fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let parent_metadata = fs::symlink_metadata(parent).map_err(|error| CliError {
+        code: "OUTPUT_DIRECTORY_INVALID".to_owned(),
+        path: Some(parent.display().to_string()),
+        message: error.to_string(),
+    })?;
+    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+        return Err(CliError {
+            code: "OUTPUT_DIRECTORY_INVALID".to_owned(),
+            path: Some(parent.display().to_string()),
+            message: "Output parent must be a real directory, not a symbolic link.".to_owned(),
+        });
+    }
+    let mut temporary = Builder::new()
+        .prefix(".aigc-proof-report-")
+        .tempfile_in(parent)
         .map_err(|error| CliError {
-            code: "OUTPUT_ALREADY_EXISTS_OR_UNWRITABLE".to_owned(),
-            path: Some(path.display().to_string()),
+            code: "TEMPORARY_FILE_FAILED".to_owned(),
+            path: Some(parent.display().to_string()),
             message: error.to_string(),
         })?;
-    file.write_all(bytes).map_err(|error| CliError {
+    temporary.write_all(bytes).map_err(|error| CliError {
         code: "OUTPUT_WRITE_FAILED".to_owned(),
         path: Some(path.display().to_string()),
         message: error.to_string(),
     })?;
-    file.sync_all().map_err(|error| CliError {
+    temporary.as_file().sync_all().map_err(|error| CliError {
         code: "OUTPUT_SYNC_FAILED".to_owned(),
         path: Some(path.display().to_string()),
         message: error.to_string(),
-    })
+    })?;
+    temporary
+        .persist_noclobber(path)
+        .map(|_| ())
+        .map_err(|error| CliError {
+            code: "OUTPUT_ALREADY_EXISTS_OR_UNWRITABLE".to_owned(),
+            path: Some(path.display().to_string()),
+            message: error.error.to_string(),
+        })
 }
 
 fn print_json(value: &Value) -> Result<(), CliError> {

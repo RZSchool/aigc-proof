@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use proof_schema::{
     Asset, AssetRole, Event, WORKSPACE_FILE, Workspace, parse_json_strict,
-    validate_workspace_schema,
+    validate_portable_basename, validate_uuid, validate_workspace_schema,
 };
 use serde_json::Value;
 use tempfile::Builder;
@@ -79,7 +79,10 @@ fn initialize_workspace_contents(root: &Path, workspace: &Workspace) -> CoreResu
     fs::create_dir(&events)
         .map_err(|error| CoreError::io("WORKSPACE_CREATE_FAILED", &events, error))?;
     write_new_file(&root.join(WORKSPACE_FILE), &canonical_json(workspace)?)?;
-    write_new_file(&root.join(WORKSPACE_EVENTS_FILE), &canonical_json(&Vec::<Event>::new())?)?;
+    write_new_file(
+        &root.join(WORKSPACE_EVENTS_FILE),
+        &canonical_json(&Vec::<Event>::new())?,
+    )?;
     Ok(())
 }
 
@@ -126,6 +129,9 @@ pub fn load_workspace(root: &Path) -> CoreResult<Workspace> {
 }
 
 pub fn add_asset(options: AddAssetOptions) -> CoreResult<Asset> {
+    validate_uuid(&options.asset_id).map_err(|message| {
+        CoreError::new(ErrorKind::InvalidWorkspace, "INVALID_ASSET_ID", message)
+    })?;
     let metadata = fs::symlink_metadata(&options.source)
         .map_err(|error| CoreError::io("ASSET_METADATA_FAILED", &options.source, error))?;
     if metadata.file_type().is_symlink() {
@@ -225,18 +231,49 @@ pub fn add_asset(options: AddAssetOptions) -> CoreResult<Asset> {
     }
     let mut source = File::open(&options.source)
         .map_err(|error| CoreError::io("ASSET_OPEN_FAILED", &options.source, error))?;
+    let opened_metadata = source
+        .metadata()
+        .map_err(|error| CoreError::io("ASSET_METADATA_FAILED", &options.source, error))?;
+    if !opened_metadata.is_file() {
+        return Err(CoreError::new(
+            ErrorKind::MissingAsset,
+            "ASSET_NOT_REGULAR_FILE",
+            "Opened source asset must be a regular file.",
+        )
+        .at_path(&options.source));
+    }
+    let remaining_total = limits
+        .max_total_uncompressed_bytes
+        .checked_sub(existing_total)
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::LimitExceeded,
+                "TOTAL_SIZE_LIMIT_EXCEEDED",
+                "Workspace assets exceed the total uncompressed limit.",
+            )
+        })?;
+    let copy_limit = limits.max_single_entry_bytes.min(remaining_total);
     let mut temporary = Builder::new()
         .prefix(".aigc-proof-asset-")
         .tempfile_in(parent)
         .map_err(|error| CoreError::io("TEMPORARY_FILE_FAILED", parent, error))?;
-    let digest = copy_and_hash(&mut source, temporary.as_file_mut())?;
+    let mut limited_source = Read::take(&mut source, copy_limit.saturating_add(1));
+    let digest = copy_and_hash(&mut limited_source, temporary.as_file_mut())?;
+    if digest.size > copy_limit {
+        return Err(CoreError::new(
+            ErrorKind::LimitExceeded,
+            "ASSET_SIZE_LIMIT_EXCEEDED",
+            "Source asset exceeded a workspace size limit while it was being copied.",
+        )
+        .at_path(&options.source));
+    }
     temporary
         .as_file()
         .sync_all()
         .map_err(|error| CoreError::io("TEMPORARY_FILE_SYNC_FAILED", temporary.path(), error))?;
-    temporary.persist_noclobber(&destination).map_err(|error| {
-        CoreError::io("ASSET_PERSIST_FAILED", &destination, error.error)
-    })?;
+    temporary
+        .persist_noclobber(&destination)
+        .map_err(|error| CoreError::io("ASSET_PERSIST_FAILED", &destination, error.error))?;
     let asset = Asset {
         asset_id: options.asset_id,
         role: options.role,
@@ -310,7 +347,17 @@ pub(crate) fn workspace_asset_path(root: &Path, asset: &Asset) -> CoreResult<Pat
             message,
         )
     })?;
+    require_real_directory(root, "INVALID_WORKSPACE")?;
+    require_real_directory(&root.join("assets"), "INVALID_ASSET_DIRECTORY")?;
     let path = root.join(&asset.package_path);
+    let parent = path.parent().ok_or_else(|| {
+        CoreError::new(
+            ErrorKind::InvalidPackagePath,
+            "INVALID_PACKAGE_PATH",
+            "Workspace asset path has no parent directory.",
+        )
+    })?;
+    require_real_directory(parent, "INVALID_ASSET_DIRECTORY")?;
     let metadata = fs::symlink_metadata(&path)
         .map_err(|error| CoreError::io("ASSET_MISSING", &path, error))?;
     if metadata.file_type().is_symlink() {
@@ -431,8 +478,7 @@ fn read_regular_file_limited(path: &Path, limit: u64) -> CoreResult<Vec<u8>> {
         )
         .at_path(path));
     }
-    let mut file =
-        File::open(path).map_err(|error| CoreError::io("FILE_OPEN_FAILED", path, error))?;
+    let file = File::open(path).map_err(|error| CoreError::io("FILE_OPEN_FAILED", path, error))?;
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
@@ -449,8 +495,7 @@ fn read_regular_file_limited(path: &Path, limit: u64) -> CoreResult<Vec<u8>> {
 }
 
 fn require_real_directory(path: &Path, code: &'static str) -> CoreResult<()> {
-    let metadata =
-        fs::symlink_metadata(path).map_err(|error| CoreError::io(code, path, error))?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| CoreError::io(code, path, error))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(CoreError::new(
             ErrorKind::InvalidWorkspace,
@@ -479,21 +524,13 @@ fn ensure_real_directory(path: &Path) -> CoreResult<()> {
 }
 
 fn validate_original_name(value: &str) -> CoreResult<()> {
-    if value.is_empty()
-        || value.len() > 255
-        || value
-            .chars()
-            .any(|character| matches!(character, '/' | '\\' | '\0' | ':'))
-        || matches!(value, "." | "..")
-    {
-        Err(CoreError::new(
+    validate_portable_basename(value).map_err(|message| {
+        CoreError::new(
             ErrorKind::InvalidPackagePath,
             "INVALID_ORIGINAL_NAME",
-            "Asset filename is not a portable basename.",
-        ))
-    } else {
-        Ok(())
-    }
+            message,
+        )
+    })
 }
 
 pub fn media_type_for_path(path: &Path) -> &'static str {

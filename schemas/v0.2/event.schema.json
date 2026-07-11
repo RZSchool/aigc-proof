@@ -45,5 +45,19 @@
       "pattern": "^[0-9a-f]{64}$"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "sequence": { "const": 1 } },
+        "required": ["sequence"]
+      },
+      "then": {
+        "properties": { "previous_event_hash": { "type": "null" } }
+      },
+      "else": {
+        "properties": { "previous_event_hash": { "$ref": "#/$defs/sha256" } }
+      }
+    }
+  ],
   "additionalProperties": false
 }

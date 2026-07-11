@@ -11,13 +11,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.85.0
           components: rustfmt, clippy
+      - run: rustc -Vv
       - run: cargo fmt --all --check
-      - run: cargo check --workspace
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo check --workspace --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo doc --workspace --no-deps --locked
+      - run: scripts/smoke-test.sh
+        if: runner.os != 'Windows'
+      - run: scripts/smoke-test.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh

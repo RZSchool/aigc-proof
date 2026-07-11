@@ -8,4 +8,7 @@
 1.0 Stable Specification
 ~~~
 
-Version 0.2 remains WIP until compilation, tests, real CLI acceptance, tamper detection, and malicious-package tests pass. Later stages require separate protocol review and do not retroactively add assurance to unsigned 0.2 packages.
+Version 0.2 is Ready for review after its fixed-toolchain checks, real CLI acceptance, tamper
+detection, and malicious-package tests passed. It remains pre-release until review and release
+work are completed. Later stages require separate protocol review and do not retroactively add
+assurance to unsigned 0.2 packages.

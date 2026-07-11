@@ -11,6 +11,7 @@ clap.workspace = true
 proof-core = { path = "../proof-core" }
 proof-schema = { path = "../proof-schema" }
 serde_json.workspace = true
+tempfile.workspace = true
 uuid.workspace = true
 
 [[bin]]
@@ -18,4 +19,4 @@ name = "aigc-proof"
 path = "src/main.rs"
 
 [dev-dependencies]
-tempfile.workspace = true
+zip.workspace = true

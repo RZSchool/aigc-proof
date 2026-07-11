@@ -2,8 +2,7 @@ use serde_json::Value;
 
 const MANIFEST_SCHEMA: &str = include_str!("../../../schemas/v0.2/manifest.schema.json");
 const EVENT_SCHEMA: &str = include_str!("../../../schemas/v0.2/event.schema.json");
-const REPORT_SCHEMA: &str =
-    include_str!("../../../schemas/v0.2/verification-result.schema.json");
+const REPORT_SCHEMA: &str = include_str!("../../../schemas/v0.2/verification-result.schema.json");
 const WORKSPACE_SCHEMA: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
 
 pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
@@ -100,5 +99,37 @@ mod tests {
         short["assets"][0]["sha256"] = json!("a".repeat(63));
         assert!(validate_manifest_schema(&short).is_err());
         assert!(validate_sha256_hex(&"a".repeat(63)).is_err());
+    }
+
+    #[test]
+    fn schemas_enforce_cross_field_status_and_chain_rules() {
+        let invalid_event = json!({
+            "event_id": "550e8400-e29b-41d4-a716-446655440000",
+            "sequence": 1,
+            "event_type": "generation",
+            "created_at": "2026-07-10T12:30:45Z",
+            "previous_event_hash": "a".repeat(64),
+            "payload": {},
+            "event_hash": "b".repeat(64)
+        });
+        assert!(validate_event_schema(&invalid_event).is_err());
+
+        let invalid_report = json!({
+            "spec_version": "0.2.0",
+            "proof_id": null,
+            "verified_at": "2026-07-10T12:30:45Z",
+            "status": "valid",
+            "assurance": {
+                "internal_integrity": "invalid",
+                "creator_identity": "not_verified",
+                "digital_signature": "not_present",
+                "trusted_time": "not_present",
+                "originality": "not_evaluated"
+            },
+            "checks": [],
+            "errors": [{"code": "BAD", "message": "bad"}],
+            "warnings": []
+        });
+        assert!(validate_verification_result_schema(&invalid_report).is_err());
     }
 }

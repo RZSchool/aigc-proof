@@ -40,6 +40,20 @@
           ]
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "event_count": { "const": 0 } },
+            "required": ["event_count"]
+          },
+          "then": {
+            "properties": { "root_hash": { "type": "null" } }
+          },
+          "else": {
+            "properties": { "root_hash": { "$ref": "#/$defs/sha256" } }
+          }
+        }
+      ],
       "additionalProperties": false
     }
   },
@@ -78,7 +92,12 @@
           "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         },
         "role": { "enum": ["input", "output", "reference", "license", "other"] },
-        "package_path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "package_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^assets/(input|output|reference|license|other)/[^/]+(?:/[^/]+)*$"
+        },
         "original_name": { "type": "string", "minLength": 1, "maxLength": 255 },
         "media_type": { "type": "string", "minLength": 3, "maxLength": 255 },
         "size_bytes": { "type": "integer", "minimum": 0 },

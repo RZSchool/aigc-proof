@@ -16,7 +16,10 @@ events.json
 
 Every Manifest asset must have exactly one matching regular-file entry. Undeclared entries, missing entries, duplicate names, and case-conflicting names are invalid.
 
-Package paths use UTF-8 and forward slashes. Absolute, UNC, drive-prefixed, backslash, NUL, empty, dot, parent, and directory paths are forbidden.
+Package paths use UTF-8 and forward slashes. Asset entries live below assets/<role>/ and are
+sorted by UTF-8 byte order. Absolute, UNC, drive-prefixed, backslash, NUL, empty, dot, parent,
+and directory paths are forbidden. For portable behavior, components also reject control and
+Windows-forbidden characters, reserved device names, and trailing dots or spaces.
 
 ## Default VerificationLimits
 
@@ -30,6 +33,11 @@ Package paths use UTF-8 and forward slashes. Absolute, UNC, drive-prefixed, back
 | max_single_entry_bytes | 512 MiB |
 | max_compression_ratio | 100:1 |
 
-Declared metadata is checked before decompression. Actual bytes and digests are checked while streaming. Only Stored and Deflated regular-file entries are accepted. Encrypted entries, explicit symbolic links, directories, special entries, unsafe names, and unsupported compression are rejected.
+The EOCD or ZIP64 EOCD declared count is checked before the ZIP library's filename map so
+duplicate-name collapsing cannot bypass duplicate or entry-count checks. Declared metadata is
+checked before decompression. Actual bytes and digests are checked while streaming through hard
+bounds. Only Stored and Deflated regular-file entries are accepted. Encrypted entries, explicit
+symbolic links, directories, Unix special-file types, unsafe names, and unsupported compression
+are rejected.
 
 ZIP platform attributes are not equally expressive across producers. The verifier rejects entries identified as symbolic links and never extracts any entry, so a package path is never used as a filesystem write target. This constraint and library compatibility require real cross-platform testing.

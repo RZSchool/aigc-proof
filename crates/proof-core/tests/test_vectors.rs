@@ -4,8 +4,7 @@ use serde_json::Value;
 
 #[test]
 fn committed_hash_jcs_and_event_vectors_match() {
-    let hash_input_hex =
-        include_str!("../../../tests/test-vectors/hashes/input.hex").trim();
+    let hash_input_hex = include_str!("../../../tests/test-vectors/hashes/input.hex").trim();
     assert_eq!(hash_input_hex, "616263");
     assert_eq!(
         sha256_bytes(b"abc"),
@@ -26,6 +25,30 @@ fn committed_hash_jcs_and_event_vectors_match() {
     assert_eq!(
         sha256_bytes(&canonical),
         include_str!("../../../tests/test-vectors/canonical-json/expected-sha256.txt").trim()
+    );
+
+    let rfc_input: Value = parse_json_strict(include_bytes!(
+        "../../../tests/test-vectors/canonical-json/rfc8785-input.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        canonical_json(&rfc_input).unwrap(),
+        include_str!("../../../tests/test-vectors/canonical-json/rfc8785-expected.jcs.json")
+            .trim()
+            .as_bytes()
+    );
+
+    let sorting_input: Value = parse_json_strict(include_bytes!(
+        "../../../tests/test-vectors/canonical-json/rfc8785-sorting-input.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        canonical_json(&sorting_input).unwrap(),
+        include_str!(
+            "../../../tests/test-vectors/canonical-json/rfc8785-sorting-expected.jcs.json"
+        )
+        .trim()
+        .as_bytes()
     );
 
     let input: Value = parse_json_strict(include_bytes!(

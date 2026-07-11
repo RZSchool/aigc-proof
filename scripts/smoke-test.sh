@@ -9,21 +9,21 @@ printf '%s\n' 'input' >"$work/input.txt"
 printf '%s\n' 'output' >"$work/output.txt"
 printf '%s\n' '{"model":"demo-model","operation":"text-transformation","note":"AIGC-Proof 0.2 CLI verification demo"}' >"$work/generation-event.json"
 
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- init "$work/demo-workspace" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- init "$work/demo-workspace" \
   --project-name "AIGC-Proof 0.2 demo"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- add "$work/demo-workspace" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- add "$work/demo-workspace" \
   "$work/input.txt" --role input
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- add "$work/demo-workspace" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- add "$work/demo-workspace" \
   "$work/output.txt" --role output
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- record "$work/demo-workspace" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- record "$work/demo-workspace" \
   --event-type generation --payload-file "$work/generation-event.json"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- seal "$work/demo-workspace" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- seal "$work/demo-workspace" \
   --output "$work/demo.aigcproof"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof" \
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof"
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof" \
   --json "$work/verification-result.json"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- inspect "$work/demo.aigcproof"
-cargo run -p proof-cli --manifest-path "$root/Cargo.toml" -- inspect "$work/demo.aigcproof" --json
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- inspect "$work/demo.aigcproof"
+cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- inspect "$work/demo.aigcproof" --json
 
 python3 - "$work/demo.aigcproof" "$work/verification-result.json" <<'PY'
 import json
