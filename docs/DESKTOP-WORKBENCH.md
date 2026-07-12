@@ -1,4 +1,4 @@
-# Desktop Workbench 0.1.0
+# Desktop Workbench 0.1.1
 
 ## Architecture
 
@@ -15,13 +15,16 @@ SQLite stores only disposable preferences, recents, indexes, and UI state. Porta
 
 ## Guided flows
 
-1. Create or reopen a portable workspace.
-2. Add input, output, reference, license, or other assets.
-3. Record a creation event from validated JSON.
-4. Seal a new `.aigcproof` package without overwriting an existing file.
-5. Verify package-internal integrity or inspect metadata without claiming verification.
-6. Save a JSON verification report without overwrite.
-7. Reopen recent workspaces and packages from rebuildable SQLite state.
+1. Create a portable workspace by selecting an existing parent directory and entering a new
+   portable folder name. Main resolves and previews the target; an existing target is never
+   initialized or overwritten.
+2. Open an existing valid workspace through a separate directory-selection flow.
+3. Add input, output, reference, license, or other assets.
+4. Record a creation event from validated JSON.
+5. Seal a new `.aigcproof` package without overwriting an existing file.
+6. Verify package-internal integrity or inspect metadata without claiming verification.
+7. Save a JSON verification report without overwrite.
+8. Reopen recent workspaces and packages from rebuildable SQLite state.
 
 ## Security and QA
 
@@ -37,7 +40,7 @@ normal launch, disabled CDP, and clean exit.
 
 ## Scope
 
-Workbench 0.1.0 uses protocol 0.2.0 and evaluates only package-internal integrity. It does not
+Workbench 0.1.1 uses protocol 0.2.0 and evaluates only package-internal integrity. It does not
 provide creator identity, digital signatures, trusted timestamps, C2PA, originality evaluation,
 copyright or ownership determinations, official services, accounts, upload, or WASM.
 

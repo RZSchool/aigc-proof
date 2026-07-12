@@ -1,9 +1,11 @@
 export const channels = {
-  chooseWorkspace: "dialog:choose-workspace",
+  chooseWorkspaceParent: "dialog:choose-workspace-parent",
+  chooseExistingWorkspace: "dialog:choose-existing-workspace",
   chooseAsset: "dialog:choose-asset",
   choosePackage: "dialog:choose-package",
   choosePackageOutput: "dialog:choose-package-output",
   chooseReportOutput: "dialog:choose-report-output",
+  previewWorkspaceTarget: "proof:preview-workspace-target",
   initializeWorkspace: "proof:initialize-workspace",
   loadWorkspace: "proof:load-workspace",
   addAsset: "proof:add-asset",

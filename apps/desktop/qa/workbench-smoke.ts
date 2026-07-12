@@ -32,6 +32,8 @@ const evidence = path.resolve(
 const userData = path.join(evidence, "user data");
 const work = path.join(evidence, "工作 流程");
 const proofWorkspace = path.join(work, "项目 工作区");
+const existingTarget = path.join(work, "已存在 工作区");
+const existingMarker = path.join(existingTarget, "用户 文件.txt");
 const input = path.join(work, "输入 文件.txt");
 const output = path.join(work, "输出 文件.txt");
 const validPackage = path.join(work, "有效 包.aigcproof");
@@ -77,6 +79,12 @@ async function click(cdp: CdpClient, testId: string): Promise<void> {
 async function resultText(cdp: CdpClient): Promise<string> {
   return cdp.evaluate(
     `document.querySelector('[data-testid="result-text"]')?.textContent ?? ''`,
+  );
+}
+
+async function controlText(cdp: CdpClient, testId: string): Promise<string> {
+  return cdp.evaluate(
+    `document.querySelector('[data-testid=${js(testId)}]')?.textContent ?? ''`,
   );
 }
 
@@ -154,6 +162,11 @@ async function launchApp(port: number): Promise<Launch> {
     throw new Error(`Production renderer did not load from file: ${protocol}`);
   const api = await cdp.evaluate<string>("typeof window.aigcProof");
   if (api !== "object") throw new Error("Typed preload API is unavailable.");
+  const version = await cdp.evaluate<string>(
+    `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
+  );
+  if (version !== "Workbench 0.1.1")
+    throw new Error(`Unexpected Workbench version: ${version}`);
   return { process: child, cdp, protocol, executable };
 }
 
@@ -177,6 +190,8 @@ async function closeApp(active: Launch): Promise<void> {
 async function main(): Promise<void> {
   await fsp.rm(evidence, { recursive: true, force: true });
   await fsp.mkdir(work, { recursive: true });
+  await fsp.mkdir(existingTarget);
+  await fsp.writeFile(existingMarker, "must remain unchanged", "utf8");
   await fsp.writeFile(input, "desktop bridge input", "utf8");
   await fsp.writeFile(output, "desktop bridge output", "utf8");
 
@@ -184,10 +199,50 @@ async function main(): Promise<void> {
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
   await navigate(cdp, "workspace");
-  await setControl(cdp, "workspace-path", proofWorkspace);
-  await setControl(cdp, "project-name", "AP-012 Electron 自动验收");
+  await setControl(cdp, "create-parent", work);
+  await setControl(cdp, "workspace-folder-name", "已存在 工作区");
+  await waitFor(
+    () => controlText(cdp, "workspace-target-preview"),
+    (value) => value.includes("目标已存在，不会被修改"),
+    "existing create target guidance",
+  );
+  const createDisabled = await cdp.evaluate<boolean>(
+    `document.querySelector('[data-testid="init-workspace"]')?.hasAttribute('disabled') ?? false`,
+  );
+  if (!createDisabled)
+    throw new Error("Existing workspace target did not disable creation.");
+  if (
+    (await fsp.readFile(existingMarker, "utf8")) !== "must remain unchanged"
+  ) {
+    throw new Error("Existing workspace target was modified.");
+  }
+  record("existing-target-safe-guidance");
+  await fsp.writeFile(
+    path.join(evidence, "workspace-create-existing-guidance.png"),
+    await cdp.screenshot(),
+  );
+
+  await setControl(cdp, "workspace-folder-name", "项目 工作区");
+  await waitFor(
+    () => controlText(cdp, "workspace-target-preview"),
+    (value) => value.includes(proofWorkspace),
+    "new workspace target preview",
+  );
+  await setControl(cdp, "project-name", "AP-016 Electron 自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
+
+  await setControl(cdp, "open-workspace-path", proofWorkspace);
+  await clickAndWait(cdp, "open-workspace", "工作区已打开");
+  record("open-existing-workspace-separate-flow");
+  await cdp.evaluate(
+    `document.querySelector('[data-testid="open-workspace"]')?.scrollIntoView({ block: "center" })`,
+  );
+  await delay(100);
+  await fsp.writeFile(
+    path.join(evidence, "workspace-created-and-opened.png"),
+    await cdp.screenshot(),
+  );
 
   for (const [source, role] of [
     [input, "input"],
@@ -288,6 +343,8 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
+    workbenchVersion: "0.1.1",
+    protocolVersion: "0.2.0",
     executable: testedExecutable,
     protocol: "file:",
     nativeAddon:

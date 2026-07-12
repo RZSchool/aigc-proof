@@ -22,6 +22,7 @@ import {
   setPreferenceRequest,
 } from "../shared/schemas";
 import { invokeNative, loadNativeAddon } from "./native";
+import { resolveWorkspaceTarget } from "./workspace-path";
 
 let databasePath = "";
 
@@ -109,9 +110,19 @@ export async function registerIpc(): Promise<BridgeEnvelope<WorkbenchState>> {
     addon.initializeAppState({ database: databasePath }),
   );
 
-  ipcMain.handle(channels.chooseWorkspace, async () => {
+  ipcMain.handle(channels.chooseWorkspaceParent, async () => {
     const result = await dialog.showOpenDialog({
-      properties: ["openDirectory", "createDirectory"],
+      title: "选择新工作区的父文件夹",
+      buttonLabel: "选择父文件夹",
+      properties: ["openDirectory"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle(channels.chooseExistingWorkspace, async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择已有 AIGC-Proof 工作区",
+      buttonLabel: "打开工作区",
+      properties: ["openDirectory"],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -139,17 +150,38 @@ export async function registerIpc(): Promise<BridgeEnvelope<WorkbenchState>> {
     return result.canceled ? null : result.filePath;
   });
 
+  ipcMain.handle(
+    channels.previewWorkspaceTarget,
+    async (_event, raw: unknown) => resolveWorkspaceTarget(raw),
+  );
   ipcMain.handle(channels.initializeWorkspace, async (_event, raw: unknown) => {
     const request = validated(initializeWorkspaceRequest, raw);
     if (isFailure(request)) return request;
+    const preview = await resolveWorkspaceTarget({
+      parent: request.parent,
+      folderName: request.folderName,
+    });
+    if (!preview.ok) return preview;
+    if (preview.data.exists) {
+      return {
+        ok: false,
+        error: {
+          code: "WORKSPACE_ALREADY_EXISTS",
+          kind: "output_already_exists",
+          message:
+            "目标已存在。若它是有效的 AIGC-Proof 工作区，请使用“打开已有工作区”；否则请选择其他文件夹名。",
+          path: preview.data.path,
+        },
+      } satisfies BridgeEnvelope<never>;
+    }
     const nativeRequest = {
-      path: request.path,
+      path: preview.data.path,
       ...(request.projectName ? { projectName: request.projectName } : {}),
     };
     const result = await invokeNative<WorkspaceSummary>(
       addon.initializeWorkspace(nativeRequest),
     );
-    if (result.ok) await remember("workspace", request.path);
+    if (result.ok) await remember("workspace", preview.data.path);
     return result;
   });
   ipcMain.handle(channels.loadWorkspace, async (_event, raw: unknown) => {

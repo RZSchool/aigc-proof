@@ -34,7 +34,7 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop workbench 0.1.0 preview
+## Desktop workbench 0.1.1 preview
 
 ~~~text
 React + TypeScript renderer (untrusted presentation)
@@ -63,6 +63,11 @@ out to the CLI.
 SQLite stores workbench preferences, recents, indexes, and UI state. It is disposable application
 metadata, not a proof format: losing it must not invalidate or make a workspace, report, or package
 unreadable. See [ADR 0001](adr/0001-electron-workbench.md).
+
+Workspace creation and opening are separate typed flows. The renderer supplies only an existing
+parent plus a portable new-folder component for creation; Electron Main validates and joins them,
+previews the normalized target, checks existence, and then calls Rust. Existing targets are never
+initialized. Opening selects an existing workspace and calls the independent load operation.
 
 The previous Win32 tactical preview was retired only after the packaged Electron replacement
 passed its automatic developer acceptance. Electron is now the sole built and documented primary

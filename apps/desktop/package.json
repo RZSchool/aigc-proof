@@ -1,6 +1,6 @@
 {
   "name": "aigc-proof-workbench",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Offline AIGC-Proof 0.2 Electron workbench",
   "main": "dist/main/main.js",

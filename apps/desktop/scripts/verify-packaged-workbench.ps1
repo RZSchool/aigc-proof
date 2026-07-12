@@ -14,7 +14,9 @@ $required = @(
     (Join-Path $PackageDirectory "resources\native\proof_napi.node"),
     (Join-Path $QaEvidence "qa-result.json"),
     (Join-Path $QaEvidence "tamper-rejection.png"),
-    (Join-Path $QaEvidence "reopened-workbench.png")
+    (Join-Path $QaEvidence "reopened-workbench.png"),
+    (Join-Path $QaEvidence "workspace-create-existing-guidance.png"),
+    (Join-Path $QaEvidence "workspace-created-and-opened.png")
 )
 foreach ($path in $required) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required packaged evidence is missing: $path" }
@@ -25,7 +27,12 @@ if (Get-ChildItem -LiteralPath $PackageDirectory -Recurse -File -Filter "*.map")
 $qaPath = Join-Path $QaEvidence "qa-result.json"
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $qa = [IO.File]::ReadAllText($qaPath, $utf8NoBom) | ConvertFrom-Json
-if ($qa.result -ne "PASS" -or $qa.mode -ne "packaged" -or $qa.protocol -ne "file:") {
+$metadataPath = Join-Path $PackageDirectory "artifact-metadata.json"
+$metadata = [IO.File]::ReadAllText($metadataPath, $utf8NoBom) | ConvertFrom-Json
+if ($metadata.workbench_version -ne "0.1.1" -or $metadata.protocol_version -ne "0.2.0") {
+    throw "Packaged artifact version metadata is invalid."
+}
+if ($qa.result -ne "PASS" -or $qa.mode -ne "packaged" -or $qa.protocol -ne "file:" -or $qa.workbenchVersion -ne "0.1.1" -or $qa.protocolVersion -ne "0.2.0") {
     throw "Packaged CDP QA result is invalid."
 }
 if (($qa.steps | Where-Object result -ne "PASS").Count -ne 0) {

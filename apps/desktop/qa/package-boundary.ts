@@ -37,6 +37,14 @@ async function main(): Promise<void> {
   const renderer = extractFile(asar, "dist\\renderer\\index.html").toString(
     "utf8",
   );
+  const packagedManifest = JSON.parse(
+    extractFile(asar, "package.json").toString("utf8"),
+  ) as { version?: string };
+  if (packagedManifest.version !== "0.1.1") {
+    throw new Error(
+      `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
+    );
+  }
   if (
     !mainSource.includes("nodeIntegration: false") ||
     !mainSource.includes("contextIsolation: true")
@@ -52,6 +60,8 @@ async function main(): Promise<void> {
     executable,
     asar,
     addon,
+    workbenchVersion: packagedManifest.version,
+    protocolVersion: "0.2.0",
     packagedFiles: files.length,
     sourceMaps: 0,
   };

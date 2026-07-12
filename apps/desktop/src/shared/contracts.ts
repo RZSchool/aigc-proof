@@ -24,6 +24,13 @@ export interface WorkspaceSummary {
   workspace: Workspace;
 }
 
+export interface WorkspaceTargetPreview {
+  parent: string;
+  folderName: string;
+  path: string;
+  exists: boolean;
+}
+
 export interface EventRecord {
   event_id: string;
   sequence: number;
@@ -95,13 +102,19 @@ export type BridgeEnvelope<T> =
   | { ok: false; error: BridgeError };
 
 export interface AigcProofApi {
-  chooseWorkspace(): Promise<string | null>;
+  chooseWorkspaceParent(): Promise<string | null>;
+  chooseExistingWorkspace(): Promise<string | null>;
   chooseAsset(): Promise<string | null>;
   choosePackage(): Promise<string | null>;
   choosePackageOutput(): Promise<string | null>;
   chooseReportOutput(): Promise<string | null>;
+  previewWorkspaceTarget(request: {
+    parent: string;
+    folderName: string;
+  }): Promise<BridgeEnvelope<WorkspaceTargetPreview>>;
   initializeWorkspace(request: {
-    path: string;
+    parent: string;
+    folderName: string;
     projectName?: string;
   }): Promise<BridgeEnvelope<WorkspaceSummary>>;
   loadWorkspace(request: {

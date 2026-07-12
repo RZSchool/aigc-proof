@@ -311,6 +311,40 @@ main {
   padding: 10px 11px;
   outline: none;
 }
+.field-help {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.target-preview {
+  display: grid;
+  gap: 5px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--accent-soft);
+}
+.target-preview strong {
+  font-size: 12px;
+}
+.target-preview span,
+.target-preview small {
+  overflow-wrap: anywhere;
+}
+.target-preview span {
+  font:
+    12px/1.5 ui-monospace,
+    Consolas,
+    monospace;
+}
+.target-preview small {
+  color: var(--danger);
+  line-height: 1.55;
+}
+.target-exists {
+  border-color: #d7a29c;
+  background: #fff1ef;
+}
 .field input:focus,
 .field select:focus,
 .field textarea:focus {

@@ -4,11 +4,16 @@ import type { AigcProofApi } from "../shared/contracts";
 import { channels } from "../shared/channels";
 
 const api: AigcProofApi = {
-  chooseWorkspace: () => ipcRenderer.invoke(channels.chooseWorkspace),
+  chooseWorkspaceParent: () =>
+    ipcRenderer.invoke(channels.chooseWorkspaceParent),
+  chooseExistingWorkspace: () =>
+    ipcRenderer.invoke(channels.chooseExistingWorkspace),
   chooseAsset: () => ipcRenderer.invoke(channels.chooseAsset),
   choosePackage: () => ipcRenderer.invoke(channels.choosePackage),
   choosePackageOutput: () => ipcRenderer.invoke(channels.choosePackageOutput),
   chooseReportOutput: () => ipcRenderer.invoke(channels.chooseReportOutput),
+  previewWorkspaceTarget: (request) =>
+    ipcRenderer.invoke(channels.previewWorkspaceTarget, request),
   initializeWorkspace: (request) =>
     ipcRenderer.invoke(channels.initializeWorkspace, request),
   loadWorkspace: (request) =>

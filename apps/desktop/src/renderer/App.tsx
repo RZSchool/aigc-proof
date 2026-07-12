@@ -7,6 +7,7 @@ import type {
   VerificationReport,
   WorkbenchState,
   WorkspaceSummary,
+  WorkspaceTargetPreview,
 } from "../shared/contracts";
 
 type Section = "home" | "workspace" | "event" | "seal" | "verify" | "settings";
@@ -34,6 +35,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function errorGuidance(code: string, fallback: string): string {
+  switch (code) {
+    case "WORKSPACE_ALREADY_EXISTS":
+      return "目标文件夹已存在，未进行任何修改。若它是有效工作区，请使用“打开已有工作区”；否则请选择其他名称。";
+    case "WORKSPACE_FOLDER_NAME_INVALID":
+    case "IPC_REQUEST_INVALID":
+      return "请输入一个新的可移植文件夹名，不能包含分隔符、保留设备名或尾随点/空格。";
+    case "INVALID_WORKSPACE":
+    case "WORKSPACE_JSON_MALFORMED":
+    case "WORKSPACE_SCHEMA_INVALID":
+      return "所选文件夹不是有效的 AIGC-Proof 工作区。请选择包含完整工作区文件的目录。";
+    default:
+      return fallback;
+  }
+}
+
 export function App() {
   const [section, setSection] = useState<Section>("home");
   const [busy, setBusy] = useState<string>();
@@ -45,6 +62,12 @@ export function App() {
   );
   const [state, setState] = useState<WorkbenchState>();
   const [workspacePath, setWorkspacePath] = useState("");
+  const [createParent, setCreateParent] = useState("");
+  const [workspaceFolderName, setWorkspaceFolderName] = useState("");
+  const [workspaceTarget, setWorkspaceTarget] =
+    useState<WorkspaceTargetPreview>();
+  const [workspaceTargetError, setWorkspaceTargetError] = useState("");
+  const [openWorkspacePath, setOpenWorkspacePath] = useState("");
   const [projectName, setProjectName] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceSummary>();
   const [assetPath, setAssetPath] = useState("");
@@ -76,16 +99,48 @@ export function App() {
         document.documentElement.dataset.theme =
           response.data.preferences.theme ?? "light";
       } else {
-        showFailure(response);
+        setResultKind("error");
+        setResult(
+          `[${response.error.code}] ${errorGuidance(response.error.code, response.error.message)}`,
+        );
       }
     });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!createParent || !workspaceFolderName) {
+      setWorkspaceTarget(undefined);
+      setWorkspaceTargetError("");
+      return () => {
+        active = false;
+      };
+    }
+    void window.aigcProof
+      .previewWorkspaceTarget({
+        parent: createParent,
+        folderName: workspaceFolderName,
+      })
+      .then((response) => {
+        if (!active) return;
+        if (response.ok) {
+          setWorkspaceTarget(response.data);
+          setWorkspaceTargetError("");
+        } else {
+          setWorkspaceTarget(undefined);
+          setWorkspaceTargetError(response.error.message);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [createParent, workspaceFolderName]);
 
   function showFailure<T>(response: BridgeEnvelope<T>): void {
     if (!response.ok) {
       setResultKind("error");
       setResult(
-        `[${response.error.code}] ${response.error.message}${response.error.path ? `\n${response.error.path}` : ""}`,
+        `[${response.error.code}] ${errorGuidance(response.error.code, response.error.message)}${response.error.path ? `\n${response.error.path}` : ""}`,
       );
     }
   }
@@ -128,21 +183,25 @@ export function App() {
   async function initializeWorkspace(): Promise<void> {
     await run("正在初始化工作区", async () => {
       const response = await window.aigcProof.initializeWorkspace({
-        path: workspacePath,
+        parent: createParent,
+        folderName: workspaceFolderName,
         ...(projectName.trim() ? { projectName: projectName.trim() } : {}),
       });
       if (!response.ok) return showFailure(response);
       setWorkspace(response.data);
+      setWorkspacePath(response.data.path);
+      setOpenWorkspacePath(response.data.path);
       showSuccess("工作区已创建", response.data);
     });
   }
 
-  async function openWorkspace(path = workspacePath): Promise<void> {
-    setWorkspacePath(path);
+  async function openWorkspace(path = openWorkspacePath): Promise<void> {
     await run("正在打开工作区", async () => {
       const response = await window.aigcProof.loadWorkspace({ path });
       if (!response.ok) return showFailure(response);
       setWorkspace(response.data);
+      setWorkspacePath(response.data.path);
+      setOpenWorkspacePath(response.data.path);
       showSuccess("工作区已打开", response.data);
     });
   }
@@ -254,7 +313,7 @@ export function App() {
         <div className="brand-mark">AP</div>
         <div className="brand-copy">
           <strong>AIGC-Proof</strong>
-          <span>Workbench 0.1.0</span>
+          <span data-testid="workbench-version">Workbench 0.1.1</span>
         </div>
         <nav aria-label="工作台区域">
           {sections.map((item) => (
@@ -349,28 +408,46 @@ export function App() {
                 <section className="panel">
                   <PanelTitle
                     step="1"
-                    title="创建或打开工作区"
-                    hint="工作区路径不会被静默覆盖"
+                    title="新建工作区"
+                    hint="先选择已有父文件夹，再为新工作区命名"
                   />
-                  <Field label="工作区路径">
+                  <Field label="父文件夹">
                     <div className="field-row">
                       <input
-                        data-testid="workspace-path"
-                        value={workspacePath}
-                        onChange={(e) => setWorkspacePath(e.target.value)}
+                        aria-label="新工作区父文件夹"
+                        data-testid="create-parent"
+                        readOnly
+                        placeholder="请选择一个已存在的父文件夹"
+                        value={createParent}
+                        onChange={(e) => setCreateParent(e.target.value)}
                       />
                       <button
                         className="secondary"
+                        data-testid="choose-create-parent"
                         onClick={() =>
                           void choose(
-                            setWorkspacePath,
-                            window.aigcProof.chooseWorkspace,
+                            setCreateParent,
+                            window.aigcProof.chooseWorkspaceParent,
                           )
                         }
                       >
-                        选择文件夹
+                        选择父文件夹
                       </button>
                     </div>
+                  </Field>
+                  <Field label="新工作区文件夹名">
+                    <input
+                      aria-describedby="workspace-name-help"
+                      data-testid="workspace-folder-name"
+                      placeholder="例如：test 或 项目 工作区"
+                      value={workspaceFolderName}
+                      onChange={(e) => setWorkspaceFolderName(e.target.value)}
+                      maxLength={120}
+                    />
+                    <small className="field-help" id="workspace-name-help">
+                      只能填写一个文件夹名，不能包含
+                      /、\、保留设备名或尾随点/空格。
+                    </small>
                   </Field>
                   <Field label="项目名（可选）">
                     <input
@@ -380,28 +457,77 @@ export function App() {
                       maxLength={200}
                     />
                   </Field>
+                  <div
+                    className={`target-preview ${workspaceTarget?.exists ? "target-exists" : ""}`}
+                    data-testid="workspace-target-preview"
+                  >
+                    <strong>将创建到</strong>
+                    <span>
+                      {workspaceTarget?.path ||
+                        workspaceTargetError ||
+                        "选择父文件夹并输入新名称后显示完整路径。"}
+                    </span>
+                    {workspaceTarget?.exists && (
+                      <small>
+                        目标已存在，不会被修改。若它是有效工作区，请使用下方“打开已有工作区”；否则请选择其他名称。
+                      </small>
+                    )}
+                  </div>
+                  <button
+                    className="primary"
+                    data-testid="init-workspace"
+                    disabled={
+                      !!busy || !workspaceTarget || workspaceTarget.exists
+                    }
+                    onClick={() => void initializeWorkspace()}
+                  >
+                    创建新工作区
+                  </button>
+                </section>
+                <section className="panel">
+                  <PanelTitle
+                    step="2"
+                    title="打开已有工作区"
+                    hint="只打开已经初始化完成的 AIGC-Proof 工作区"
+                  />
+                  <Field label="已有工作区文件夹">
+                    <div className="field-row">
+                      <input
+                        aria-label="已有工作区文件夹"
+                        data-testid="open-workspace-path"
+                        readOnly
+                        placeholder="请选择已有工作区"
+                        value={openWorkspacePath}
+                        onChange={(e) => setOpenWorkspacePath(e.target.value)}
+                      />
+                      <button
+                        className="secondary"
+                        data-testid="choose-open-workspace"
+                        onClick={() =>
+                          void choose(
+                            setOpenWorkspacePath,
+                            window.aigcProof.chooseExistingWorkspace,
+                          )
+                        }
+                      >
+                        选择已有工作区
+                      </button>
+                    </div>
+                  </Field>
                   <div className="actions">
-                    <button
-                      className="primary"
-                      data-testid="init-workspace"
-                      disabled={!!busy}
-                      onClick={() => void initializeWorkspace()}
-                    >
-                      创建新工作区
-                    </button>
                     <button
                       className="secondary"
                       data-testid="open-workspace"
-                      disabled={!!busy}
+                      disabled={!!busy || !openWorkspacePath}
                       onClick={() => void openWorkspace()}
                     >
-                      打开已有工作区
+                      打开所选工作区
                     </button>
                   </div>
                 </section>
                 <section className="panel">
                   <PanelTitle
-                    step="2"
+                    step="3"
                     title="添加资产"
                     hint="流式复制并计算 SHA-256"
                   />

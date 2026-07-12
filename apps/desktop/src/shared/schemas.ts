@@ -8,9 +8,39 @@ const localPath = z
   .refine((value) => !value.includes("\0"));
 const assetRole = z.enum(["input", "output", "reference", "license", "other"]);
 
+const windowsDeviceName =
+  /^(con|prn|aux|nul|conin\$|conout\$|com[1-9]|lpt[1-9])(?:\.|$)/i;
+export const workspaceFolderName = z
+  .string()
+  .min(1, "新工作区文件夹名不能为空。")
+  .max(120, "新工作区文件夹名不能超过 120 个字符。")
+  .refine((value) => value === value.trim(), "文件夹名首尾不能包含空格。")
+  .refine(
+    (value) => value !== "." && value !== "..",
+    "文件夹名不能是 . 或 ..。",
+  )
+  .refine(
+    (value) =>
+      !Array.from(value).some(
+        (character) =>
+          character.charCodeAt(0) <= 0x1f || '<>:"/\\|?*'.includes(character),
+      ),
+    "文件夹名包含路径分隔符、控制字符或跨平台禁用字符。",
+  )
+  .refine((value) => !value.endsWith("."), "文件夹名不能以点结尾。")
+  .refine(
+    (value) => !windowsDeviceName.test(value),
+    "文件夹名不能使用 Windows 保留设备名。",
+  );
+
+export const workspaceTargetRequest = z
+  .object({ parent: localPath, folderName: workspaceFolderName })
+  .strict();
+
 export const initializeWorkspaceRequest = z
   .object({
-    path: localPath,
+    parent: localPath,
+    folderName: workspaceFolderName,
     projectName: z.string().trim().min(1).max(200).optional(),
   })
   .strict();

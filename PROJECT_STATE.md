@@ -63,9 +63,29 @@ offline CSP and production window security defaults; normal PowerShell launch ex
 port and exited cleanly. The executable is 205,586,944 bytes with SHA-256
 `0b4cb1a98abbf33fc2897a9e2eafc2ae2da4439c12159bec15d911bb3e1fc1c1`; the native addon SHA-256 is
 `c8d75c5cc796cdbb9567fbe0b29a8659bc86c6129d70c73b293cf5da8f21d05f`. Final evidence is under
-`app/AIGC-Proof-Workbench/acceptance-evidence-final/`. The validated Win32 tactical frontend was
-then removed from the Cargo workspace and current source/QA path; its historical local artifact is
-retained only under workspace-root `app/legacy/`.
+the AP-012 execution record; this 0.1.0 candidate was superseded by Workbench 0.1.1 in AP-016. The
+validated Win32 tactical frontend was then removed from the Cargo workspace and current source/QA
+path; its historical local artifact is retained only under workspace-root `app/legacy/`.
+
+Create-workspace UX correction (AP-016, 2026-07-12): passed through Workbench 0.1.1 at
+workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Creation now selects an existing parent,
+accepts one validated portable new-folder component, and previews a Main-resolved target; opening
+an existing workspace is a separate typed flow. Main rejects missing parents, separators,
+dot/parent, controls, Windows-forbidden/reserved names, trailing dot/space, excessive length, and
+existing targets before Rust, while the unchanged core no-overwrite check remains defense in
+depth. Frozen Node install, formatting, four TypeScript checks, ESLint, 26 unit/component/security
+tests, production build, napi-rs build, development CDP QA, and packaged CDP QA passed. The exact
+package began with the reported existing-target scenario, preserved its marker file, displayed
+Chinese safe guidance, then created and separately opened a Unicode/space-path workspace, added
+input/output, recorded, sealed/no-clobber, verified, saved report/no-clobber, inspected, persisted
+and rebuilt SQLite recents, rejected tampering, and exited cleanly twice. Package-boundary QA found
+644 ASAR files and zero source maps; normal launch exposed no QA ports and exited cleanly. The EXE
+is 205,586,944 bytes with SHA-256
+`6f8317133e9cfd3df276ff3c08567a039e9e9baab1f11183c8f375d0b1b629ca`; ASAR SHA-256 is
+`9a6fffd734b9301a3b367cb93adcb6a6d4f0ea709dac99f0b48053b6b71b1834`; native addon SHA-256 is
+`c8d75c5cc796cdbb9567fbe0b29a8659bc86c6129d70c73b293cf5da8f21d05f`. Final evidence is under
+`app/AIGC-Proof-Workbench/acceptance-evidence-final/`. Linux Rust 1.85.0 fmt, locked check, Clippy,
+all 35 tests, docs, real CLI smoke, metadata, and dependency tree remained green.
 
 Not implemented:
 - Creator identity verification
