@@ -1,0 +1,120 @@
+# Cross-host Integration Synchronization
+
+## Purpose and reference snapshot
+
+This document distinguishes the architecture already implemented by AIGC-Proof from a possible
+future AIGCStudio-hosted product shape. It uses the AIGC Wallpaper Engine (AWPE) architecture as
+an external cross-product reference for the principles of separate products, one shared core,
+reviewed interface semantics, and independently designed UIs. AWPE is not an AIGC-Proof protocol
+authority, runtime dependency, or implementation baseline.
+
+The reference was re-read on 2026-07-13 from external Git revision
+`7794b613bd5da063e95cabe7d9f14ca6544309e5`. Because that external working tree contained
+uncommitted documentation changes, these SHA-256 values identify the exact content reviewed:
+
+| External document | SHA-256 |
+| --- | --- |
+| `ARCHITECTURE_BASELINE.md` | `35641c542d9b34fd9019479f9eba96007d6abbed008a3b11d225f6d0c31fc67e` |
+| `PROJECT_SYNC.md` | `cf3d0726dbad8f25941120a02892dab76f2b193d98f5913be00c19a28de1afdc` |
+| `SOLUTION_SYNC.md` | `7b53895502337c665dda5dfcc44932a351e55c495a2ee539eacc593e614d1f6b` |
+| `INTEGRATION_SYNC.md` | `e9f08e8a45dc223201367c75a5b84330b4f68d1a4b97bdc940434e1f4f5d84e3` |
+
+The snapshot records design input only. It does not import AWPE features, APIs, native addons,
+workers, UI, version numbers, or implementation status into AIGC-Proof.
+
+## Status vocabulary
+
+- **Implemented today** means code and packaged acceptance exist in the standalone AIGC-Proof
+  Workbench.
+- **Standalone-only** means the behavior is valid for that product but is not a cross-host
+  contract.
+- **Prospective** means a future integration boundary that is not implemented, packaged, or
+  accepted today and requires a separate reviewed development scheme.
+
+## Alignment implemented today
+
+The CLI and Electron Workbench share the public Rust `proof-core` and `proof-schema` engine rather
+than reimplementing proof behavior for each UI. The renderer remains untrusted presentation: its
+typed, context-isolated preload reaches allowlisted IPC, while Electron Main owns validation,
+paths, dialogs, lifecycle, SQLite, and the fixed `proof_napi.node` load. The addon is a narrow
+asynchronous Node-API adapter over the Rust engine; Electron does not shell out to the CLI.
+
+Portable workspace files, `.aigcproof` packages, and JSON reports remain authoritative. The
+standalone application's SQLite state is disposable and cannot redefine those formats. These
+properties align with the shared-core and controlled-host-boundary principles without creating a
+dependency between AIGC-Proof and AWPE.
+
+## Valid standalone-only behavior
+
+`window.aigcProof` is the implemented Workbench preload API. It is not a frozen cross-host API.
+Main-owned native dialogs and user-selected local paths are legitimate in the standalone product;
+an asset identifier or session token requirement belongs to a future host boundary, not to the
+current offline Workbench.
+
+AIGC-Proof and AWPE are separate products with separate native modules. AIGC-Proof does not use
+wallpaper capabilities or external generation-worker protocols. Its offline proof operations do
+not require an additional worker protocol.
+
+## Prospective AIGCStudio boundary — not implemented
+
+A future integration could use this boundary, subject to a separate architecture and security
+review:
+
+~~~text
+AIGCStudio proof UI
+        | prospective ProofHostApi
+        v
+context-isolated preload / allowlisted IPC
+        v
+AIGCStudio Main
+        | authorization / asset catalog / task lifecycle / staging
+        v
+proof_napi.node
+        v
+proof-core / proof-schema
+        v
+portable workspace / package / report files
+~~~
+
+AIGCStudio may own and independently design its proof UI; it would not be required to reuse the
+Workbench React pages. If such a product shape is later authorized, both UIs must use the same
+public proof engine and reviewed interface semantics. Visual page reuse is optional; divergent
+protocol algorithms are not.
+
+Nothing in that diagram exists as an AIGCStudio integration today. In particular,
+`ProofHostApi`, Host asset-token mediation, Host proof task/staging services, cross-host version
+and capability negotiation, Utility Process isolation, and dual-product packaging have not been
+implemented or accepted.
+
+## Current-versus-prospective boundary
+
+| Concern | Standalone Workbench today | Prospective AIGCStudio host |
+| --- | --- | --- |
+| Renderer API | Typed `window.aigcProof`, implemented for Workbench | Reviewed `ProofHostApi`, not implemented |
+| Input authority | Main resolves user-selected local paths | Renderer submits Host-authorized references or session tokens; Main resolves paths, not implemented |
+| Native interface | Fixed addon and asynchronous proof operations | Explicit `apiVersion`, `engineVersion`, capabilities, and compatibility refusal, not implemented |
+| Native execution | Addon loaded by Workbench Main; Rust operations use napi-rs async tasks | Utility Process and crash-containment contract for expensive work, not implemented |
+| Application state | Disposable Workbench SQLite preferences, recents, indexes, and UI state | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |
+| Packaging evidence | Packaged standalone Workbench accepted | One contract/addon assembled into two products with separate UIs, not demonstrated |
+
+The current addon's implemented operations must not be used as evidence that the prospective
+contract exists. Likewise, the standalone SQLite database grants no permission to read or write
+an AIGCStudio database, asset catalog, staging area, or final publication location.
+
+## Gates before any future implementation
+
+A future integration needs its own scheme and, at minimum:
+
+1. a reviewed, machine-testable Host contract with version, engine version, capabilities, stable
+   errors, compatibility refusal, and shared test vectors;
+2. renderer-safe asset/workspace/package references or scoped session tokens, with authorization
+   and real-path resolution owned by AIGCStudio Main;
+3. explicit ownership for SQLite, asset catalog, task lifecycle, staging, cleanup, and publication;
+4. a Utility Process/crash-containment decision plus timeout, cancellation, crash, and restart
+   acceptance for expensive native work;
+5. threat, privacy, path-boundary, and failure-mode review;
+6. packaged contract tests and real workflow acceptance in both products.
+
+Until those gates pass, documentation must continue to describe AIGC-Proof as a standalone CLI
+and Workbench. Protocol 0.2.0 and its package-internal integrity assurance remain unchanged; this
+sync does not add identity, signatures, trusted time, C2PA, official services, or other assurance.

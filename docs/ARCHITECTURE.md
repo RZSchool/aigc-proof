@@ -73,6 +73,19 @@ The previous Win32 tactical preview was retired only after the packaged Electron
 passed its automatic developer acceptance. Electron is now the sole built and documented primary
 desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
+## Current standalone and prospective host integration
+
+The implemented `window.aigcProof` preload surface and `proof_napi.node` operations belong to the
+standalone Workbench. They are not a frozen cross-host contract. A possible future AIGCStudio
+product shape may use its own proof UI while sharing `proof-core` / `proof-schema`, but would first
+need a reviewed Host API, authorized asset or session-token mediation, version/capability
+negotiation, process-isolation policy, Host-owned state and staging, and dual-product packaged
+acceptance. None of those adaptations or the AIGCStudio integration is implemented today.
+
+See [Cross-host Integration Synchronization](INTEGRATION-SYNC.md) for the implemented,
+standalone-only, and prospective boundaries. The external architecture used for comparison is a
+reference only and introduces no AIGC-Proof dependency or change to protocol 0.2.0.
+
 ## Future layers
 
 COSE signatures/identity, RFC 3161 trusted time, C2PA, official Axum/PostgreSQL/S3 services, and

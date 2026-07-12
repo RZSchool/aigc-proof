@@ -13,6 +13,12 @@ reimplement hashing, canonical JSON, event chains, ZIP handling, Schema validati
 SQLite stores only disposable preferences, recents, indexes, and UI state. Portable workspaces,
 `.aigcproof` packages, and JSON reports remain authoritative.
 
+This typed `window.aigcProof` surface is specific to the standalone Workbench, not a frozen API
+for another host. A future AIGCStudio product may own a separately designed proof UI while sharing
+the public Rust engine, but its Host contract, asset authorization, state ownership, process
+isolation, and packaging have not been implemented. See
+[Cross-host Integration Synchronization](INTEGRATION-SYNC.md).
+
 ## Guided flows
 
 1. Create a portable workspace by selecting an existing parent directory and entering a new
