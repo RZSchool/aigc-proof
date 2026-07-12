@@ -72,3 +72,23 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 COSE signatures/identity, RFC 3161 trusted time, C2PA, official Axum/PostgreSQL/S3 services, and
 Rust WASM require separate reviewed versions. They are not implemented or implied by the workbench.
+
+## Planned Rights Protection track
+
+The separate planned Rights Protection product track builds on portable public evidence without
+changing protocol 0.2.0:
+
+~~~text
+portable original/publication observations
+        + exact digests
+        + versioned visual/audio fingerprints
+        v
+explainable candidate matches -> preserved evidence -> human review -> case export
+~~~
+
+Public layers will own later reviewed evidence formats, reference verification and matching
+algorithms, and reproducible test vectors/corpora. Optional private services may own authorized
+platform monitoring and commercial case operations while depending on stable public interfaces;
+the public implementation must not depend on them. Similarity findings remain technical
+observations, not legal conclusions. See
+[Rights Protection Product Track](RIGHTS-PROTECTION-ROADMAP.md).

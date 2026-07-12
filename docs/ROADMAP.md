@@ -21,3 +21,22 @@ acceptance succeeded.
 
 COSE/signatures, official identity services, RFC 3161, C2PA, S3-backed services, and WASM remain
 future reviewed phases; they are not bundled into workbench 0.1.0.
+
+## Rights Protection product track
+
+Rights Protection is a separate planned product sequence and does not alter protocol versioning or
+current assurance:
+
+~~~text
+RP-1 Rights Record
+RP-2 Publication Record
+RP-3 Similarity Detection
+RP-4 Resilient Binding
+RP-5 Monitoring and Case Operations
+~~~
+
+Its intended flow is `register -> publish -> detect -> preserve -> review -> export`. Exact hashes,
+perceptual similarity, signatures, trusted time, publication observations, and watermarks remain
+independent signals; none automatically establishes ownership, originality, authorization, or
+infringement. The first planned MVP is local-only and user-driven. See
+[Rights Protection Product Track](RIGHTS-PROTECTION-ROADMAP.md).
