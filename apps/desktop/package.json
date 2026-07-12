@@ -1,0 +1,85 @@
+{
+  "name": "aigc-proof-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline AIGC-Proof 0.2 Electron workbench",
+  "main": "dist/main/main.js",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.qa.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload/preload.js",
+    "build": "pnpm build:main && pnpm build:preload && pnpm build:renderer",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "electron .",
+    "package:dir": "electron-builder --win dir --x64",
+    "qa:dev": "tsx qa/workbench-smoke.ts --mode=dev",
+    "qa:packaged": "tsx qa/workbench-smoke.ts --mode=packaged",
+    "qa:package-boundary": "tsx qa/package-boundary.ts"
+  },
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.18.0",
+    "@electron/asar": "3.4.1",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@testing-library/user-event": "14.6.1",
+    "@types/adm-zip": "0.5.7",
+    "@types/node": "22.10.7",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "@vitejs/plugin-react": "4.3.4",
+    "adm-zip": "0.5.16",
+    "electron": "37.2.3",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.24.2",
+    "eslint": "9.18.0",
+    "eslint-plugin-react-hooks": "5.1.0",
+    "eslint-plugin-react-refresh": "0.4.18",
+    "globals": "15.14.0",
+    "jsdom": "26.0.0",
+    "prettier": "3.4.2",
+    "tsx": "4.19.2",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.29.0",
+    "vite": "6.1.0",
+    "vitest": "3.0.5"
+  },
+  "build": {
+    "appId": "org.aigcproof.workbench",
+    "productName": "AIGC-Proof",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/proof_napi.node",
+        "to": "native/proof_napi.node"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "dir"
+      ],
+      "artifactName": "AIGC-Proof-Workbench-${version}-${arch}.${ext}"
+    }
+  }
+}

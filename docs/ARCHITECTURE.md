@@ -1,6 +1,6 @@
 # Architecture
 
-## Offline component flow
+## Protocol engine
 
 ~~~text
 init -> add -> record -> seal -> verify -> inspect
@@ -33,3 +33,42 @@ collect multiple errors when safe.
 JSON Schema expresses portable structure. Shared Rust validation enforces strict time, lowercase digests, stable sorting, cross-field rules, path traversal defense, case conflicts, ZIP metadata limits, and streaming byte checks. Rust is the execution layer but does not redefine public Schema field meanings.
 
 The public workspace has no dependency on private official code or services.
+
+## Desktop workbench 0.1.0 preview
+
+~~~text
+React + TypeScript renderer (untrusted presentation)
+        | typed window.aigcProof API
+        v
+context-isolated preload (allowlist only)
+        | validated IPC
+        v
+Electron Main (dialogs, paths, lifecycle, security policy)
+        | Node-API
+        v
+proof-napi (asynchronous adapter + bundled SQLite app state)
+        |
+        v
+proof-core + proof-schema
+        |
+        v
+portable workspace files / .aigcproof packages / JSON reports
+~~~
+
+The renderer has no Node.js, filesystem, SQLite, native-module, or generic IPC access. Main
+validates every DTO, owns native dialogs and user-selected paths, and calls only the fixed addon
+surface. Rust remains the sole protocol and archive-security implementation; Electron never shells
+out to the CLI.
+
+SQLite stores workbench preferences, recents, indexes, and UI state. It is disposable application
+metadata, not a proof format: losing it must not invalidate or make a workspace, report, or package
+unreadable. See [ADR 0001](adr/0001-electron-workbench.md).
+
+The previous Win32 tactical preview was retired only after the packaged Electron replacement
+passed its automatic developer acceptance. Electron is now the sole built and documented primary
+desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
+
+## Future layers
+
+COSE signatures/identity, RFC 3161 trusted time, C2PA, official Axum/PostgreSQL/S3 services, and
+Rust WASM require separate reviewed versions. They are not implemented or implied by the workbench.

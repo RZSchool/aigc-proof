@@ -1,0 +1,20 @@
+# Dependencies and local package stores
+node_modules/
+.pnpm-store/
+
+# Compiled, native, and packaged outputs
+dist/
+native/
+release/
+build/
+
+# Automated QA and coverage output
+qa-results/
+coverage/
+
+# Local tool caches and incremental metadata
+.cache/
+.vite/
+.eslintcache
+*.tsbuildinfo
+vite.config.*.timestamp-*

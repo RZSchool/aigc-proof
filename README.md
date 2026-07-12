@@ -44,6 +44,13 @@ not claim verification.
 
 The CLI is fully offline and performs no upload. Pass prompts and parameters through payload JSON files instead of command-line text to reduce shell-history exposure.
 
+## Desktop workbench
+
+The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
+renderer reaches the Rust `proof-core` / `proof-schema` implementation only through a typed,
+allowlisted preload/IPC surface and napi-rs Node-API adapter. SQLite stores disposable local UI
+state; portable proof files remain authoritative. See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
+
 ## Public/private boundary
 
 The public repository owns the protocol, Schemas, workspace model, SHA-256, RFC 8785 JCS, event chain, ZIP package, defensive reader, CLI, and offline verification. It has no dependency on aigc-proof-official.
@@ -67,7 +74,7 @@ cargo tree
 
 A compile-only check is not an executable test. If the real CLI path cannot run, report TEST FAILED.
 
-See [CLI](docs/CLI.md), [specification](docs/AIGC-PROOF-SPEC.md), [package format](docs/PACKAGE-FORMAT.md), [assurance levels](docs/ASSURANCE-LEVELS.md), [threat model](docs/THREAT-MODEL.md), and [compatibility](docs/COMPATIBILITY.md).
+See [CLI](docs/CLI.md), [Desktop Workbench](docs/DESKTOP-WORKBENCH.md), [specification](docs/AIGC-PROOF-SPEC.md), [package format](docs/PACKAGE-FORMAT.md), [assurance levels](docs/ASSURANCE-LEVELS.md), [threat model](docs/THREAT-MODEL.md), and [compatibility](docs/COMPATIBILITY.md).
 
 ## License
 

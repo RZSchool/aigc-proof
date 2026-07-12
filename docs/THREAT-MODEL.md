@@ -27,3 +27,20 @@ producer metadata can vary by platform; explicit link/special-file metadata is r
 non-extraction is mandatory. Same-directory temporary files and no-clobber persistence narrow
 output races, but v0.2 does not claim protection against a hostile process concurrently mutating
 the same local workspace. Cross-platform behavior must be tested against the pinned ZIP crate.
+
+## Electron workbench boundary
+
+The renderer is treated as untrusted presentation. It cannot access Node.js, arbitrary IPC,
+filesystem APIs, SQLite, or native modules. The preload allowlists typed methods; Main validates
+every DTO, owns dialogs and paths, denies renderer permissions/new windows/unexpected navigation,
+and calls a fixed Node-API surface. Rust revalidates all protocol inputs and performs every proof
+operation off the renderer and Main event loops.
+
+The SQLite database is not evidence and must not be trusted as the only copy of workspace or
+package data. Corrupt or missing app state may remove preferences and recents, but must not change
+proof validity. Normal production launch exposes no CDP port or DevTools; the automatic QA port is
+enabled only by an explicit local test argument.
+
+The workbench does not defend against a hostile local administrator, runtime binary replacement,
+or another process racing user-selected files beyond the core's existing no-clobber and recheck
+controls. The preview is unsigned, so the operating system may identify its publisher as unknown.

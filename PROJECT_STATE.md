@@ -13,6 +13,11 @@ Implemented in source:
 8. JSON Schema checks plus Rust semantic and cross-platform safety checks.
 9. Multi-stage JSON verification reports with explicit assurance limits.
 10. Dynamic tamper and malicious-package test sources.
+11. React + TypeScript Electron workbench with typed preload/allowlisted IPC and offline security
+    policy.
+12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
+    workbench state.
+13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
 
 Verification status:
 - Rust toolchain: Rust 1.85.0, rustfmt, and Clippy installed and confirmed
@@ -23,7 +28,7 @@ Verification status:
 - `cargo check --workspace --locked`: passed
 - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`: passed
 - `cargo test --workspace --locked`: passed (35 tests: 2 CLI, 14 package/security,
-  6 proof-core unit, 10 proof-schema unit, 1 committed-vector test, 2 desktop tests;
+  6 proof-core unit, 10 proof-schema unit, 1 committed-vector test, 2 proof-napi/SQLite tests;
   doc-tests passed)
 - `cargo doc --workspace --no-deps --locked`: passed
 - `scripts/smoke-test.sh`: passed with real init/add input/add output/record/seal/
@@ -47,22 +52,27 @@ executed init/add/record/seal/verify/persisted report/inspect using real Windows
 Ubuntu and macOS jobs passed in the same matrix run. This clean MSVC result supersedes the local
 Windows GNU Defender environment blocker without weakening or excluding any security control.
 
-Desktop preview follow-up (AP-005, 2026-07-11): passed through the packaged Windows x64 artifact
-at workspace-root `app/AIGC-Proof-Desktop-Preview/AIGC-Proof.exe`, built with Rust 1.85.0
-`x86_64-pc-windows-gnu`. The directly launchable offline executable initialized and reopened a
-workspace, added input/output assets, recorded an event, sealed and reopened a package, verified a
-valid package, saved a valid JSON report, inspected metadata with an explicit non-verification
-warning, and rejected a tampered package. The final artifact is 8,944,848 bytes with SHA-256
-`f58cf44f23295127d6f131a8b3aafdd0604d9372cb2ffbe6e72feffb4e6229fd`; final packaged evidence is
-under workspace-root `app/AIGC-Proof-Desktop-Preview/acceptance-evidence-final/`. Post-desktop fmt, locked check,
-Clippy with warnings denied, all 35 tests, documentation, and real CLI smoke passed.
+Desktop architecture alignment (AP-012, 2026-07-12): passed through the packaged Windows x64
+artifact at workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Workbench 0.1.0 uses the
+unchanged 0.2.0 protocol through a typed context-isolated preload, allowlisted validated IPC, an
+async napi-rs Node-API adapter, and bundled SQLite application state. Electron/CDP drove the exact
+packaged executable through create/reopen workspace, add input/output, record, seal/no-clobber,
+valid verify, report/no-clobber, metadata-only inspect, SQLite restart/rebuild, Unicode/space paths,
+clean exit, and tamper rejection. Package-boundary QA found 642 ASAR files, zero source maps, the
+offline CSP and production window security defaults; normal PowerShell launch exposed neither QA
+port and exited cleanly. The executable is 205,586,944 bytes with SHA-256
+`0b4cb1a98abbf33fc2897a9e2eafc2ae2da4439c12159bec15d911bb3e1fc1c1`; the native addon SHA-256 is
+`c8d75c5cc796cdbb9567fbe0b29a8659bc86c6129d70c73b293cf5da8f21d05f`. Final evidence is under
+`app/AIGC-Proof-Workbench/acceptance-evidence-final/`. The validated Win32 tactical frontend was
+then removed from the Cargo workspace and current source/QA path; its historical local artifact is
+retained only under workspace-root `app/legacy/`.
 
 Not implemented:
 - Creator identity verification
 - Digital signature or COSE_Sign1
 - Trusted timestamp, RFC 3161, or C2PA
 - Originality or copyright evaluation
-- Official verification, accounts, network APIs, databases, WASM, or upload
+- Official verification, accounts, network APIs, official-service databases, WASM, or upload
 
 Ready for review does not expand the Internal Integrity-only assurance boundary or imply a
 release, signature, creator identity, trusted timestamp, originality judgment, or official
