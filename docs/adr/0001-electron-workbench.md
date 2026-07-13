@@ -7,8 +7,12 @@
 
 AP-020 evolves this accepted boundary without changing its decision: Workbench 0.2.0 introduces
 `ProofHostApi` 1.0.0, a Standalone adapter, typed opaque Host references, and fail-closed native
-API/engine/capability discovery. Actual AIGCStudio integration and Utility Process isolation remain
-outside this ADR and unimplemented.
+API/engine/capability discovery.
+
+AP-022 evolves the same boundary again: Workbench 0.3.0 / `ProofHostApi` 1.1.0 moves native loading
+from Main into a supervised Utility Process, adds bounded jobs, and replaces workflow navigation
+with one menu-free page. See ADR 0002. Actual AIGCStudio integration remains outside these ADRs
+and unimplemented.
 
 ## Context
 

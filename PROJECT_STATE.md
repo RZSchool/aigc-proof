@@ -18,8 +18,11 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.0.0 contract, Standalone and Mock Host adapters, opaque
-    authority references, and fail-closed native API/engine/capability discovery.
+14. Renderer-safe `ProofHostApi` 1.1.0 contract, Standalone and Mock Host adapters, opaque
+    authority references, and fail-closed native API/engine/capability/limit discovery.
+15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
+    sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
+    replay, Main-owned SQLite, and one menu-free scrollable workflow page.
 
 Verification status:
 - Rust toolchain: Rust 1.85.0, rustfmt, and Clippy installed and confirmed
@@ -119,6 +122,42 @@ x86_64-unknown-linux-gnu passed Rust 1.85.0 fmt, locked check, locked Clippy, al
 docs/doc-tests, and real CLI smoke. Native Windows GNU passed the same gates with all 34
 Windows-applicable tests; the two source-symlink tests remain Unix-only. Locked metadata and the
 dependency tree also passed.
+
+Complete isolated one-page Workbench (AP-022, 2026-07-13): passed through Workbench 0.3.0 at
+workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. `ProofHostApi` and native API 1.1.0 add
+bounded jobs, phase progress, truthful queued/running cancellation states, runtime limits, and
+Utility health while engine/protocol 0.2.0 and Internal Integrity assurance remain unchanged.
+Electron Main now owns authority, one-running/sixteen-queued scheduling, SQLite and result
+publication; a supervised Utility Process is the exclusive `proof_napi.node` owner. Utility loss
+fails affected work without replay, performs only scoped temporary cleanup, and restarts through a
+fresh compatible handshake. The renderer presents all eight workflow regions on one scrollable
+page with no sidebar, hidden route/tab, or Electron application menu.
+
+Frozen pnpm 11.7.0 install, Prettier, contract plus all desktop TypeScript configurations, ESLint,
+6 contract tests, 54 desktop unit/component/security/process tests, clean production builds, and
+a clean native rebuild passed. Development and exact packaged Electron/CDP QA passed both target
+layouts, create/open, all five asset roles, event, seal/no-clobber, verify, report/no-clobber,
+metadata-only inspect, malformed/tampered rejection, queue/cancel, Utility crash/no-replay/
+restart/cleanup, Unicode/space paths, SQLite restart/rebuild/corruption recovery, and three clean
+exits. Package-boundary QA found 409 ASAR files, zero source maps/sources/PDBs, and Utility-only
+addon loading. Normal launch created a visible window, exposed no QA/CDP port, and exited with no
+residual AIGC-Proof/Electron process.
+
+Linux `x86_64-unknown-linux-gnu` passed Rust 1.85.0 locked fetch/metadata/check/Clippy, all 36
+tests/doc-tests, docs, real CLI smoke and dependency tree. Native Windows
+`x86_64-pc-windows-gnu` used Rust 1.85.0 plus MinGW-w64 GCC 15.2.0 in an isolated target and passed
+the same gates with all 34 applicable release-profile tests (two source-symlink tests are
+Unix-only), CRLF real-CLI smoke, docs/doc-tests and dependency tree. Defender blocked the debug
+integration-test EXE before execution with system error 225; no exclusion or security weakening
+was applied, and the same complete test set passed from the clean release profile.
+
+The final Windows x64 artifact is 205,586,944 bytes with SHA-256
+`c52a95b45c9a89455f748084117917896aba02ec69a34b2bdd0961b90d8ee125`; ASAR SHA-256 is
+`b40201930a9a1480f32ffa07cdd0f4672d687275033fcfe9f744ff663277c3ff`; native addon SHA-256 is
+`958650cdfac7ff42a7d1b74b3d6baa8c936f91b75c021f96debd8c2a03cf9f36`; built Host contract SHA-256
+is `dcee5e87bc2823b32ab53ebcac7a84e758a89eb6ee53011b3cbfdfa8c8e03050`. Final structured
+evidence and six reviewed layout screenshots are under
+`app/AIGC-Proof-Workbench/acceptance-evidence-final/`.
 
 Not implemented:
 - Creator identity verification

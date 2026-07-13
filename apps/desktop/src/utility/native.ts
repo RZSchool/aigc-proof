@@ -1,11 +1,9 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { app } from "electron";
 import { z } from "zod";
 
-import type { HostEnvelope, NativeDiscovery } from "@aigc-proof/host-contracts";
-import { validateNativeAddonDiscovery } from "./native-contract";
+import type { HostEnvelope } from "@aigc-proof/host-contracts";
 
 export interface NativeAddon {
   getApiInfo(): unknown;
@@ -30,48 +28,9 @@ export interface NativeAddon {
   }): Promise<string>;
   verifyProofPackage(request: { path: string }): Promise<string>;
   inspectProofPackage(request: { path: string }): Promise<string>;
-  initializeAppState(request: { database: string }): Promise<string>;
-  getAppState(request: { database: string }): Promise<string>;
-  setAppPreference(request: {
-    database: string;
-    key: string;
-    value: string;
-  }): Promise<string>;
-  rememberRecentItem(request: {
-    database: string;
-    kind: string;
-    path: string;
-  }): Promise<string>;
-  rebuildRecentIndexes(request: { database: string }): Promise<string>;
 }
 
-export interface NativeRuntime {
-  addon: NativeAddon;
-  discovery: NativeDiscovery;
-}
-
-let nativeAddon: NativeAddon | undefined;
-const requireNative = createRequire(__filename);
-
-function addonPath(): string {
-  const override = process.env.AIGC_PROOF_NATIVE_PATH;
-  if (override) return path.resolve(override);
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "native", "proof_napi.node")
-    : path.resolve(__dirname, "../../native/proof_napi.node");
-}
-
-export function loadNativeAddon(): NativeAddon {
-  nativeAddon ??= requireNative(addonPath()) as NativeAddon;
-  return nativeAddon;
-}
-
-export function loadNativeRuntime(): NativeRuntime {
-  const addon = loadNativeAddon();
-  return { addon, discovery: validateNativeAddonDiscovery(addon) };
-}
-
-const nativeEnvelopeSchema = z.union([
+const nativeEnvelopeSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), data: z.unknown() }).strict(),
   z
     .object({
@@ -88,12 +47,21 @@ const nativeEnvelopeSchema = z.union([
     .strict(),
 ]);
 
-export async function invokeNative<T>(
+const requireNative = createRequire(__filename);
+
+export function loadNativeAddon(): NativeAddon {
+  const configured = process.env.AIGC_PROOF_NATIVE_PATH;
+  if (!configured)
+    throw new Error("AIGC_PROOF_NATIVE_PATH is not configured for Utility.");
+  return requireNative(path.resolve(configured)) as NativeAddon;
+}
+
+export async function invokeNative(
   operation: Promise<string>,
-): Promise<HostEnvelope<T>> {
+): Promise<HostEnvelope<unknown>> {
   try {
     const parsed = nativeEnvelopeSchema.parse(JSON.parse(await operation));
-    if (parsed.ok) return { ok: true, data: parsed.data as T };
+    if (parsed.ok) return { ok: true, data: parsed.data };
     return {
       ok: false,
       error: {

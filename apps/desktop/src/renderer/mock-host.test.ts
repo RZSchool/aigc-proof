@@ -10,10 +10,10 @@ describe("deterministic ProofHostApi mock", () => {
       hostReferenceSchema.parse(await host.chooseWorkspaceParent()).kind,
     ).toBe("workspace-parent");
     const diagnostics = await host.getDiagnostics();
-    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe("1.0.0");
+    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe("1.1.0");
     expect(
       diagnostics.ok && diagnostics.data.execution.utilityProcessIsolation,
-    ).toBe(false);
+    ).toBe(true);
     const created = await host.initializeWorkspace({
       parent: host.workspaceParent,
       folderName: "mock-project",
@@ -21,5 +21,12 @@ describe("deterministic ProofHostApi mock", () => {
     expect(created.ok && created.data.workspace.workspace_version).toBe(
       "0.2.0",
     );
+    const job = await host.startJob({
+      operation: "loadWorkspace",
+      input: { workspace: host.workspaceReference },
+    });
+    expect(job.ok && job.data.state).toBe("succeeded");
+    const jobs = await host.getJobs();
+    expect(jobs.ok && jobs.data).toHaveLength(1);
   });
 });

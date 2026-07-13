@@ -31,18 +31,22 @@ the same local workspace. Cross-platform behavior must be tested against the pin
 ## Electron workbench boundary
 
 The renderer is treated as untrusted presentation. It cannot access Node.js, arbitrary IPC,
-filesystem APIs, SQLite, or native modules. The preload allowlists typed methods; Main validates
-every DTO, owns dialogs and paths, denies renderer permissions/new windows/unexpected navigation,
-and calls a fixed Node-API surface. Renderer operations carry expiring, kind-specific opaque
-references. Main rejects malformed, forged, unknown, expired, mismatched-kind, and changed-path
-references; any display label/path is ignored as authority. Rust revalidates all protocol inputs
-and performs every proof operation off the renderer and Main event loops.
+filesystem APIs, SQLite, native modules, or Utility primitives. The preload allowlists typed
+methods; Main validates every DTO, owns dialogs, paths, SQLite and bounded scheduling, and denies
+renderer permissions/new windows/unexpected navigation. Renderer operations carry one-use or
+scoped, expiring, session/origin/kind/permission-specific opaque references. Main rejects
+malformed, forged, unknown, expired, consumed, cross-session, cross-origin, mismatched-kind/
+permission, and changed-path references; any display label/path is ignored as authority. A
+supervised Utility Process is the exclusive fixed Node-API owner, and Rust revalidates every
+protocol input off the renderer and Main event loops.
 
 Main validates the native discovery response before proof IPC registration. Missing/malformed
-discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities
-fails closed with a stable startup diagnostic. The current addon uses napi-rs asynchronous tasks
-in Main; it does not claim Utility Process crash isolation, progress streaming, or safe
-cancellation.
+discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities/
+limits fails closed with a stable startup diagnostic. The current addon uses napi-rs asynchronous
+tasks in the Utility. Main permits one running and sixteen queued operations, bounds IPC size,
+progress, and timeouts, and does not replay a job after Utility loss. Queued cancellation is
+immediate; a running atomic Rust operation records `cancel_requested` but is not falsely claimed
+to stop. Only known same-job temporary files are eligible for crash cleanup.
 
 The SQLite database is not evidence and must not be trusted as the only copy of workspace or
 package data. Corrupt or missing app state may remove preferences and recents, but must not change

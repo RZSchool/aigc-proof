@@ -36,14 +36,15 @@ workers, UI, version numbers, or implementation status into AIGC-Proof.
 The CLI and Electron Workbench share the public Rust `proof-core` and `proof-schema` engine rather
 than reimplementing proof behavior for each UI. The renderer remains untrusted presentation: its
 typed, context-isolated preload reaches allowlisted IPC, while Electron Main owns validation,
-paths, dialogs, lifecycle, SQLite, and the fixed `proof_napi.node` load. The addon is a narrow
-asynchronous Node-API adapter over the Rust engine; Electron does not shell out to the CLI.
+paths, dialogs, lifecycle, SQLite, authority, and bounded scheduling. A supervised Utility Process
+is the exclusive `proof_napi.node` owner. The addon is a narrow asynchronous Node-API adapter over
+the Rust engine; Electron does not shell out to the CLI.
 
-Workbench 0.2.0 adds `@aigc-proof/host-contracts` 1.0.0 as the single renderer-safe source of
+Workbench 0.3.0 uses `@aigc-proof/host-contracts` 1.1.0 as the single renderer-safe source of
 `ProofHostApi`, DTOs, strict Schemas, versions, capabilities, and stable errors. The Standalone
-adapter and a deterministic consumer-test Mock implement that contract. Native API 1.0.0 now
-reports engine/protocol 0.2.0 plus deterministic capability and execution facts; Main validates
-the response and fails closed before proof IPC registration.
+adapter and a deterministic consumer-test Mock implement that contract. Native API 1.1.0 reports
+engine/protocol 0.2.0 plus deterministic capabilities, execution facts, and limits; Main validates
+the Utility handshake and fails closed before proof IPC registration.
 
 Portable workspace files, `.aigcproof` packages, and JSON reports remain authoritative. The
 standalone application's SQLite state is disposable and cannot redefine those formats. These
@@ -52,7 +53,7 @@ dependency between AIGC-Proof and AWPE.
 
 ## Valid standalone-only behavior
 
-`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.0.0.
+`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.1.0.
 Main-owned native dialogs and user-selected local paths are legitimate in the standalone product,
 but the renderer receives only kind-specific opaque references plus non-authoritative display
 information. An AIGCStudio asset identifier or session token belongs to its future adapter and is
@@ -69,14 +70,14 @@ review:
 
 ~~~text
 AIGCStudio proof UI
-        | ProofHostApi 1.0.0 through a prospective AIGCStudio adapter
+        | ProofHostApi 1.1.0 through a prospective AIGCStudio adapter
         v
 context-isolated preload / allowlisted IPC
         v
 AIGCStudio Main
         | authorization / asset catalog / task lifecycle / staging
         v
-proof_napi.node
+supervised Utility / proof_napi.node
         v
 proof-core / proof-schema
         v
@@ -91,17 +92,16 @@ protocol algorithms are not.
 The reusable `ProofHostApi` and native discovery exist in the Standalone product, but nothing in
 that diagram has been implemented as an AIGCStudio runtime integration. In particular, the
 AIGCStudio adapter/Bridge, asset-token mediation, Host proof task/staging services, Host database
-ownership, Utility Process isolation, and dual-product packaging have not been implemented or
-accepted.
+ownership, Utility profile, and dual-product packaging have not been implemented or accepted.
 
 ## Current-versus-prospective boundary
 
 | Concern | Standalone Workbench today | Prospective AIGCStudio host |
 | --- | --- | --- |
-| Renderer API | `ProofHostApi` 1.0.0 through typed `window.aigcProof` and Standalone adapter | AIGCStudio adapter/Bridge implementing the same semantics, not implemented |
+| Renderer API | `ProofHostApi` 1.1.0 through typed `window.aigcProof` and Standalone adapter | AIGCStudio adapter/Bridge implementing the same semantics, not implemented |
 | Input authority | Main issues expiring typed references for selected paths and recent records; display paths are not authority | AIGCStudio asset/workspace/package references or session tokens, not implemented |
-| Native interface | API 1.0.0, engine 0.2.0, protocol list, capabilities, execution facts, and fail-closed compatibility | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated |
-| Native execution | Addon loaded by Workbench Main; Rust operations use napi-rs async tasks | Utility Process and crash-containment contract for expensive work, not implemented |
+| Native interface | API 1.1.0, engine 0.2.0, protocol list, capabilities, execution facts, limits, and fail-closed compatibility | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated |
+| Native execution | Supervised Workbench Utility exclusively loads the addon; bounded jobs, progress, no-replay crash recovery, and truthful cancellation are accepted | AIGCStudio-owned Utility profile and crash-containment acceptance, not implemented |
 | Application state | Disposable Workbench SQLite preferences, recents, indexes, and UI state | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |
 | Packaging evidence | Packaged standalone Workbench accepted | One contract/addon assembled into two products with separate UIs, not demonstrated |
 

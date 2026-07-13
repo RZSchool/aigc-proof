@@ -18,6 +18,12 @@ export const channels = {
   getState: "state:get",
   setPreference: "state:set-preference",
   rebuildRecents: "state:rebuild-recents",
+  startJob: "jobs:start",
+  getJobs: "jobs:get-all",
+  getJobResult: "jobs:get-result",
+  cancelJob: "jobs:cancel",
+  jobEvent: "jobs:event",
+  qaCrashUtility: "qa:crash-utility",
   closeApp: "app:close",
 } as const;
 

@@ -13,6 +13,10 @@ interface AuthorityRecord {
   reference: HostReference;
   absolutePath: string;
   canonicalPath: string;
+  owner: number;
+  permissions: ReadonlySet<string>;
+  oneUse: boolean;
+  consumed: boolean;
   expiresAt: number;
 }
 
@@ -61,8 +65,11 @@ export class AuthorityRegistry {
   async issue<K extends ReferenceKind>(
     kind: K,
     selectedPath: string,
+    owner: number,
+    permissions: readonly string[],
     displayLabel = path.basename(selectedPath) || selectedPath,
     ttlMs = this.defaultTtlMs,
+    oneUse = false,
   ): Promise<HostReference<K>> {
     const canonical = await canonicalize(selectedPath, kind);
     const reference = Object.freeze({
@@ -74,12 +81,22 @@ export class AuthorityRegistry {
     this.#records.set(reference.id, {
       reference,
       ...canonical,
+      owner,
+      permissions: new Set(permissions),
+      oneUse,
+      consumed: false,
       expiresAt: this.now() + ttlMs,
     });
     return reference;
   }
 
-  async resolve(raw: unknown, expectedKind: ReferenceKind): Promise<string> {
+  async resolve(
+    raw: unknown,
+    expectedKind: ReferenceKind,
+    owner: number,
+    permission: string,
+    consume = false,
+  ): Promise<string> {
     const parsed = hostReferenceSchema.safeParse(raw);
     if (!parsed.success) {
       throw new HostContractError(
@@ -107,6 +124,33 @@ export class AuthorityRegistry {
         `Reference was issued for ${record.reference.kind}, not ${expectedKind}.`,
       );
     }
+    if (record.owner !== owner) {
+      throw new HostContractError(
+        "HOST_REFERENCE_ORIGIN_MISMATCH",
+        "Host reference belongs to another renderer origin.",
+      );
+    }
+    if (!record.permissions.has(permission)) {
+      throw new HostContractError(
+        "HOST_REFERENCE_PERMISSION_DENIED",
+        `Host reference does not grant ${permission}.`,
+      );
+    }
+    if (
+      candidate.displayLabel !== record.reference.displayLabel ||
+      candidate.displayPath !== record.reference.displayPath
+    ) {
+      throw new HostContractError(
+        "HOST_REFERENCE_INVALID",
+        "Host reference display fields were substituted after issuance.",
+      );
+    }
+    if (record.consumed) {
+      throw new HostContractError(
+        "HOST_REFERENCE_REUSED",
+        "One-use Host reference has already been consumed.",
+      );
+    }
     if (record.expiresAt <= this.now()) {
       this.#records.delete(candidate.id);
       throw new HostContractError(
@@ -124,6 +168,33 @@ export class AuthorityRegistry {
         "The selected path changed after authorization; select it again.",
       );
     }
+    if (consume && record.oneUse) record.consumed = true;
     return record.absolutePath;
+  }
+
+  consume(
+    raw: unknown,
+    expectedKind: ReferenceKind,
+    owner: number,
+    permission: string,
+  ): void {
+    const parsed = hostReferenceSchema.safeParse(raw);
+    const record = parsed.success
+      ? this.#records.get(parsed.data.id)
+      : undefined;
+    if (
+      !parsed.success ||
+      !record ||
+      record.reference.kind !== expectedKind ||
+      record.owner !== owner ||
+      !record.permissions.has(permission) ||
+      record.consumed
+    ) {
+      throw new HostContractError(
+        "HOST_REFERENCE_REUSED",
+        "One-use Host reference could not be consumed for this operation.",
+      );
+    }
+    if (record.oneUse) record.consumed = true;
   }
 }

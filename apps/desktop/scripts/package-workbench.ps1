@@ -98,16 +98,27 @@ function Invoke-NodeTool {
 & (Join-Path $PSScriptRoot "build-native.ps1")
 Invoke-Pnpm "install --frozen-lockfile --config.block-exotic-subdeps=false"
 Invoke-NodeTool "prettier" "--check ."
+$generatedDirectories = @(
+    (Join-Path $desktop "dist"),
+    (Join-Path $desktop "release")
+)
+foreach ($generatedDirectory in $generatedDirectories) {
+    if (Test-Path -LiteralPath $generatedDirectory) {
+        Remove-Item -LiteralPath $generatedDirectory -Recurse -Force
+    }
+}
 Invoke-NodeTool "tsc" "-p packages\host-contracts\tsconfig.json"
 Invoke-NodeTool "tsc" "--noEmit -p packages\host-contracts\tsconfig.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.renderer.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.main.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.preload.json"
+Invoke-NodeTool "tsc" "--noEmit -p tsconfig.utility.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.qa.json"
 Invoke-NodeTool "eslint" "."
 Invoke-NodeTool "vitest" "run --config packages\host-contracts\vitest.config.ts"
 Invoke-NodeTool "vitest" "run"
 Invoke-NodeTool "tsc" "-p tsconfig.main.json"
+Invoke-NodeTool "tsc" "-p tsconfig.utility.json"
 Invoke-NodeTool "esbuild" "src/preload/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload/preload.js"
 Invoke-NodeTool "vite" "build"
 Invoke-NodeTool "electron-builder" "--win dir --x64"
@@ -130,10 +141,12 @@ $addon = Join-Path $Destination "resources\native\proof_napi.node"
 $nodeVersion = Get-VersionText (Join-Path $nodeBin "node.exe") "--version"
 $pnpmVersion = Get-VersionText $env:ComSpec "/d /c call `"$pnpm`" --version"
 $rustcVersion = Get-VersionText (Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-gnu\bin\rustc.exe") "-Vv"
+$gccPath = (Get-Command "x86_64-w64-mingw32-gcc.exe" -ErrorAction Stop).Source
+$gccVersion = Get-VersionText $gccPath "--version"
 $metadata = [ordered]@{
-    workbench_version = "0.2.0"
-    host_contract_version = "1.0.0"
-    native_api_version = "1.0.0"
+    workbench_version = "0.3.0"
+    host_contract_version = "1.1.0"
+    native_api_version = "1.1.0"
     native_engine_version = "0.2.0"
     protocol_version = "0.2.0"
     platform = "Windows x64"
@@ -143,7 +156,9 @@ $metadata = [ordered]@{
     executable_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $executable).Hash.ToLowerInvariant()
     app_asar_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $asar).Hash.ToLowerInvariant()
     native_addon_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $addon).Hash.ToLowerInvariant()
+    host_contract_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $desktop "packages\host-contracts\dist\index.js")).Hash.ToLowerInvariant()
     rust_toolchain = $rustcVersion
+    c_toolchain = $gccVersion
     node = $nodeVersion
     pnpm = $pnpmVersion
     build_command = "apps/desktop/scripts/package-workbench.ps1"

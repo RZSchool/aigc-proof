@@ -3,6 +3,7 @@ import {
   NATIVE_CAPABILITIES,
   NATIVE_ENGINE_VERSION,
   PROTOCOL_VERSION,
+  RUNTIME_LIMITS,
 } from "@aigc-proof/host-contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,10 +16,11 @@ const validDiscovery = {
   capabilities: [...NATIVE_CAPABILITIES],
   execution: {
     napiAsyncTasks: true as const,
-    utilityProcessIsolation: false as const,
-    progressStreaming: false as const,
+    utilityProcessIsolation: true as const,
+    progressStreaming: true as const,
     safeCancellation: false as const,
   },
+  limits: RUNTIME_LIMITS,
 };
 
 describe("native compatibility gate", () => {

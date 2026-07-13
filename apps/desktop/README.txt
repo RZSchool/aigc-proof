@@ -1,4 +1,4 @@
-AIGC-Proof Workbench 0.2.0 Preview
+AIGC-Proof Workbench 0.3.0 Preview
 ==================================
 
 运行平台
@@ -26,14 +26,17 @@ Windows x64。双击 AIGC-Proof.exe 即可启动，不需要安装 Node.js、Rus
 
 安全行为
 --------
-renderer 无 Node.js、文件系统、SQLite 或原生模块访问。preload 只暴露固定 typed API，
-Electron Main 验证所有请求并调用 napi-rs Rust addon。证明包和报告均拒绝静默覆盖。
-正常启动不会开启 DevTools 或远程调试端口。
+renderer 无 Node.js、文件系统、SQLite、Utility 或原生模块访问。preload 只暴露固定
+typed API；Electron Main 负责授权、SQLite 和有界任务调度，受监督 Utility Process 是
+唯一加载 napi-rs Rust addon 的进程。证明包和报告均拒绝静默覆盖。正常启动不会开启
+DevTools 或远程调试端口，应用也不显示 Electron 菜单栏。
 
-Workbench 0.2.0 使用 ProofHostApi 1.0.0，并在开放证明操作前核对 native API 1.0.0、
-engine 0.2.0、protocol 0.2.0 和能力清单。界面显示的路径仅用于辨认，真正路径权限由
-Main 内短时 opaque 引用持有。当前没有 AIGCStudio 接入、Utility Process 隔离、进度流
-或安全取消能力；设置页会如实显示这些不可用项。
+Workbench 0.3.0 使用 ProofHostApi/native API 1.1.0，并在开放证明操作前核对 engine、
+protocol 0.2.0、能力、执行事实和运行上限。界面显示的路径仅用于辨认，真正路径权限由
+Main 内的 opaque 引用持有。任务按一项运行、最多十六项排队；排队任务可取消，已进入
+原子 Rust 操作的任务只能如实标为 cancel_requested。Utility 异常会使当前任务失败且
+不重放，后续任务使用新的兼容 Utility。当前没有 AIGCStudio 接入、签名、可信时间、
+C2PA、Rights Protection、官方服务、网络、上传或安全中断运行中原子操作的能力。
 
 工作区创建
 ----------
@@ -41,8 +44,13 @@ Main 内短时 opaque 引用持有。当前没有 AIGCStudio 接入、Utility Pr
 创建前显示完整目标路径。若目标已经存在，程序不会修改它，请改用“打开已有工作区”
 或选择其他名称。新建和打开是两个独立流程。
 
+单页操作
+--------
+所有流程都在同一可滚动页面：工作区、五种资产角色、事件、封装、验证/元数据检查/
+报告、任务历史与诊断。后续步骤不会被菜单或标签页隐藏；条件不足时会显示前置提示。
+
 已知限制
 --------
 - 这是未签名的 0.2.0 预览版，Windows 可能显示未知发布者提示。
-- 大文件操作在后台线程执行并显示忙碌状态；当前核心操作不支持安全中途取消。
+- 大文件操作在隔离 Utility 中执行并显示阶段进度；当前核心操作不支持安全中途取消。
 - Windows x64 是当前打包平台；macOS 桌面成品尚未测试。

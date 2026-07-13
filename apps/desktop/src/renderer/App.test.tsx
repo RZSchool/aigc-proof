@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  NATIVE_CAPABILITIES,
+  HOST_CAPABILITIES,
+  RUNTIME_LIMITS,
   UNAVAILABLE_FEATURES,
   type ProofHostApi,
   type WorkspaceParentReference,
@@ -48,19 +49,26 @@ beforeEach(() => {
       ok: true,
       data: {
         hostKind: "standalone",
-        workbenchVersion: "0.2.0",
-        contractVersion: "1.0.0",
-        nativeApiVersion: "1.0.0",
+        reference: {
+          id: `ref_${"d".repeat(32)}`,
+          kind: "diagnostic",
+          displayLabel: "diagnostics",
+        },
+        workbenchVersion: "0.3.0",
+        contractVersion: "1.1.0",
+        nativeApiVersion: "1.1.0",
         engineVersion: "0.2.0",
         protocolVersion: "0.2.0",
         supportedProtocolVersions: ["0.2.0"],
-        capabilities: [...NATIVE_CAPABILITIES],
+        capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,
-          utilityProcessIsolation: false,
-          progressStreaming: false,
+          utilityProcessIsolation: true,
+          progressStreaming: true,
           safeCancellation: false,
         },
+        limits: RUNTIME_LIMITS,
+        utility: { state: "healthy", generation: 1, processId: 4242 },
         unavailableFeatures: [...UNAVAILABLE_FEATURES],
       },
     }),
@@ -82,6 +90,11 @@ beforeEach(() => {
     inspectPackage: vi.fn(),
     saveReport: vi.fn(),
     rebuildRecents: vi.fn(),
+    startJob: vi.fn(),
+    getJobs: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    getJobResult: vi.fn(),
+    cancelJob: vi.fn(),
+    subscribeJobEvents: vi.fn().mockReturnValue(() => undefined),
     closeApp: vi.fn(),
   } as unknown as ProofHostApi;
 });
@@ -95,16 +108,18 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "创建者身份未验证",
     );
-    expect(screen.getByText("Workbench 0.2.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.3.0")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
+    ).toHaveLength(8);
+    expect(document.querySelector("nav")).not.toBeInTheDocument();
   });
 
   it("shows exact compatible versions and explicitly unavailable features", async () => {
-    const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByTestId("nav-settings"));
     const card = await screen.findByTestId("diagnostics-card");
     expect(card).toHaveTextContent("0.2.0");
-    expect(card).toHaveTextContent("1.0.0");
+    expect(card).toHaveTextContent("1.1.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -131,7 +146,6 @@ describe("workbench shell", () => {
     });
     render(<App />);
 
-    await user.click(screen.getByTestId("nav-workspace"));
     await user.click(screen.getByTestId("choose-create-parent"));
     await user.type(screen.getByTestId("workspace-folder-name"), "项目 test");
     await waitFor(() =>
@@ -163,13 +177,12 @@ describe("workbench shell", () => {
     });
     render(<App />);
 
-    await user.click(screen.getByTestId("nav-workspace"));
     await user.click(screen.getByTestId("choose-create-parent"));
     await user.type(screen.getByTestId("workspace-folder-name"), "existing");
 
     await waitFor(() =>
       expect(screen.getByTestId("workspace-target-preview")).toHaveTextContent(
-        "目标已存在，不会被修改",
+        "目标已存在且不会修改",
       ),
     );
     expect(screen.getByTestId("init-workspace")).toBeDisabled();
@@ -187,7 +200,6 @@ describe("workbench shell", () => {
     });
     render(<App />);
 
-    await user.click(screen.getByTestId("nav-workspace"));
     await user.click(screen.getByTestId("choose-open-workspace"));
     await user.click(screen.getByTestId("open-workspace"));
 
@@ -203,7 +215,6 @@ describe("workbench shell", () => {
     vi.mocked(window.aigcProof.chooseExistingWorkspace).mockResolvedValue(null);
     render(<App />);
 
-    await user.click(screen.getByTestId("nav-workspace"));
     await user.click(screen.getByTestId("choose-create-parent"));
     await user.click(screen.getByTestId("choose-open-workspace"));
 

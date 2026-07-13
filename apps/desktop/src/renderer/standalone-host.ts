@@ -66,6 +66,23 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   rebuildRecents() {
     return this.bridge.rebuildRecents();
   }
+  startJob(request: Parameters<ProofHostApi["startJob"]>[0]) {
+    return this.bridge.startJob(request);
+  }
+  getJobs() {
+    return this.bridge.getJobs();
+  }
+  getJobResult(request: Parameters<ProofHostApi["getJobResult"]>[0]) {
+    return this.bridge.getJobResult(request);
+  }
+  cancelJob(request: Parameters<ProofHostApi["cancelJob"]>[0]) {
+    return this.bridge.cancelJob(request);
+  }
+  subscribeJobEvents(
+    listener: Parameters<ProofHostApi["subscribeJobEvents"]>[0],
+  ) {
+    return this.bridge.subscribeJobEvents(listener);
+  }
   closeApp() {
     return this.bridge.closeApp();
   }

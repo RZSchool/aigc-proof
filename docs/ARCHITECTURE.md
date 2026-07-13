@@ -34,11 +34,11 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop workbench 0.2.0 preview
+## Desktop Workbench 0.3.0
 
 ~~~text
 React + TypeScript renderer (untrusted presentation)
-        | ProofHostApi 1.0.0
+        | ProofHostApi 1.1.0
         v
 Standalone Host adapter
         | typed window.aigcProof API
@@ -46,8 +46,11 @@ Standalone Host adapter
 context-isolated preload (allowlist only)
         | validated IPC
         v
-Electron Main (dialogs, paths, lifecycle, security policy)
-        | version/capability handshake + Node-API
+Electron Main (authority, bounded jobs, SQLite, lifecycle)
+        | versioned messages
+        v
+supervised Electron Utility Process (exclusive native owner)
+        | native API 1.1.0 + Node-API
         v
 proof-napi (asynchronous adapter + bundled SQLite app state)
         |
@@ -58,12 +61,21 @@ proof-core + proof-schema
 portable workspace files / .aigcproof packages / JSON reports
 ~~~
 
-The renderer has no Node.js, filesystem, SQLite, native-module, or generic IPC access. Main
-validates every DTO, owns native dialogs and user-selected paths, and resolves short-lived typed
-opaque references whose display labels/paths have no authority. It registers proof IPC only after
-`proof_napi.node` reports compatible API 1.0.0, engine 0.2.0, protocol 0.2.0, deterministic
-capabilities, and truthful execution facts. Rust remains the sole protocol and archive-security
-implementation; Electron never shells out to the CLI.
+The renderer has no Node.js, filesystem, SQLite, native-module, Utility primitive, or generic IPC
+access. Main validates every DTO, owns native dialogs and user-selected paths, and resolves
+session/origin/kind/permission/expiry-bound opaque references whose display labels/paths have no
+authority. The supervised Utility Process is the only production process that loads
+`proof_napi.node`. Main registers proof IPC only after its versioned handshake reports compatible
+API 1.1.0, engine 0.2.0, protocol 0.2.0, capabilities, execution facts, and bounded limits. Rust
+remains the sole protocol and archive-security implementation; Electron never shells out to the
+CLI.
+
+Main schedules at most one running native job and sixteen queued jobs. Progress is a bounded
+sequence of real host phases rather than guessed byte percentages. Queued work can cancel before
+dispatch; a running atomic Rust operation records `cancel_requested` and finishes or fails under
+the existing no-clobber rules. Utility loss deterministically fails affected work without replay,
+then a fresh compatible Utility is started for later jobs. See
+[ADR 0002](adr/0002-supervised-utility-jobs.md).
 
 SQLite stores workbench preferences, recents, indexes, and UI state. It is disposable application
 metadata, not a proof format: losing it must not invalidate or make a workspace, report, or package
@@ -80,15 +92,16 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 ## Versioned standalone host and prospective integration
 
-`@aigc-proof/host-contracts` 1.0.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+`@aigc-proof/host-contracts` 1.1.0 is the reusable renderer-safe source of DTOs, strict Schemas,
 versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
 Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
 consumer/component tests but is not registered by the packaged product.
 
 A possible future AIGCStudio product may use its own proof UI while implementing the same reviewed
-interface semantics and sharing `proof-core` / `proof-schema`. Its Bridge, asset-token/catalog
-mediation, database/task/staging ownership, Utility Process policy, and dual-product packaged
-acceptance remain unimplemented and require separate schemes.
+interface semantics and sharing `proof-core` / `proof-schema`. The generic contract/conformance
+profile is reusable, but its Bridge, asset-token/catalog mediation, database/task/staging
+ownership, and dual-product packaged acceptance remain unimplemented and require separate
+schemes.
 
 See [Cross-host Integration Synchronization](INTEGRATION-SYNC.md) for the implemented,
 standalone-only, and prospective boundaries. The external architecture used for comparison is a

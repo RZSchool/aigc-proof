@@ -17,7 +17,13 @@ $required = @(
     (Join-Path $QaEvidence "reopened-workbench.png"),
     (Join-Path $QaEvidence "workspace-create-existing-guidance.png"),
     (Join-Path $QaEvidence "workspace-created-and-opened.png"),
-    (Join-Path $QaEvidence "capability-diagnostics.png")
+    (Join-Path $QaEvidence "capability-diagnostics.png"),
+    (Join-Path $QaEvidence "layout-1320x880-top.png"),
+    (Join-Path $QaEvidence "layout-1320x880-middle.png"),
+    (Join-Path $QaEvidence "layout-1320x880-lower.png"),
+    (Join-Path $QaEvidence "layout-1040x720-top.png"),
+    (Join-Path $QaEvidence "layout-1040x720-middle.png"),
+    (Join-Path $QaEvidence "layout-1040x720-lower.png")
 )
 foreach ($path in $required) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required packaged evidence is missing: $path" }
@@ -30,9 +36,9 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $qa = [IO.File]::ReadAllText($qaPath, $utf8NoBom) | ConvertFrom-Json
 $metadataPath = Join-Path $PackageDirectory "artifact-metadata.json"
 $metadata = [IO.File]::ReadAllText($metadataPath, $utf8NoBom) | ConvertFrom-Json
-if ($metadata.workbench_version -ne "0.2.0" -or
-    $metadata.host_contract_version -ne "1.0.0" -or
-    $metadata.native_api_version -ne "1.0.0" -or
+if ($metadata.workbench_version -ne "0.3.0" -or
+    $metadata.host_contract_version -ne "1.1.0" -or
+    $metadata.native_api_version -ne "1.1.0" -or
     $metadata.native_engine_version -ne "0.2.0" -or
     $metadata.protocol_version -ne "0.2.0") {
     throw "Packaged artifact version metadata is invalid."
@@ -40,9 +46,9 @@ if ($metadata.workbench_version -ne "0.2.0" -or
 if ($qa.result -ne "PASS" -or
     $qa.mode -ne "packaged" -or
     $qa.protocol -ne "file:" -or
-    $qa.workbenchVersion -ne "0.2.0" -or
-    $qa.contractVersion -ne "1.0.0" -or
-    $qa.nativeApiVersion -ne "1.0.0" -or
+    $qa.workbenchVersion -ne "0.3.0" -or
+    $qa.contractVersion -ne "1.1.0" -or
+    $qa.nativeApiVersion -ne "1.1.0" -or
     $qa.engineVersion -ne "0.2.0" -or
     $qa.protocolVersion -ne "0.2.0") {
     throw "Packaged CDP QA result is invalid."
@@ -65,7 +71,7 @@ try {
         Start-Sleep -Milliseconds 200
     } while ([DateTime]::UtcNow -lt $deadline)
     if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw "Normal packaged launch did not create a window." }
-    foreach ($port in @(9322, 9324)) {
+    foreach ($port in @(9322, 9324, 9326)) {
         $client = [Net.Sockets.TcpClient]::new()
         try {
             if ($client.ConnectAsync("127.0.0.1", $port).Wait(500) -and $client.Connected) {

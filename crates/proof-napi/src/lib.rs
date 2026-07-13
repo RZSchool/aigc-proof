@@ -18,10 +18,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.0.0";
+pub const NATIVE_API_VERSION: &str = "1.1.0";
 pub const NATIVE_ENGINE_VERSION: &str = "0.2.0";
 pub const SUPPORTED_PROTOCOL_VERSION: &str = "0.2.0";
 pub const NATIVE_CAPABILITIES: &[&str] = &[
+    "execution.phase-progress",
     "proof.asset.add",
     "proof.event.record",
     "proof.package.inspect",
@@ -29,8 +30,6 @@ pub const NATIVE_CAPABILITIES: &[&str] = &[
     "proof.package.verify",
     "proof.workspace.create",
     "proof.workspace.open",
-    "workbench.state.preferences",
-    "workbench.state.recents",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +49,19 @@ pub struct NativeApiInfo {
     pub supported_protocol_versions: Vec<String>,
     pub capabilities: Vec<String>,
     pub execution: NativeExecutionFacts,
+    pub limits: NativeRuntimeLimits,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[napi(object)]
+pub struct NativeRuntimeLimits {
+    pub max_concurrent_jobs: u32,
+    pub max_queued_jobs: u32,
+    pub max_message_bytes: u32,
+    pub max_progress_events_per_second: u32,
+    pub operation_timeout_ms: u32,
+    pub startup_timeout_ms: u32,
+    pub shutdown_timeout_ms: u32,
 }
 
 #[napi]
@@ -64,9 +76,18 @@ pub fn get_api_info() -> NativeApiInfo {
             .collect(),
         execution: NativeExecutionFacts {
             napi_async_tasks: true,
-            utility_process_isolation: false,
-            progress_streaming: false,
+            utility_process_isolation: true,
+            progress_streaming: true,
             safe_cancellation: false,
+        },
+        limits: NativeRuntimeLimits {
+            max_concurrent_jobs: 1,
+            max_queued_jobs: 16,
+            max_message_bytes: 1024 * 1024,
+            max_progress_events_per_second: 10,
+            operation_timeout_ms: 5 * 60 * 1000,
+            startup_timeout_ms: 10 * 1000,
+            shutdown_timeout_ms: 5 * 1000,
         },
     }
 }
@@ -421,7 +442,7 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.0.0");
+        assert_eq!(info.api_version, "1.1.0");
         assert_eq!(info.engine_version, "0.2.0");
         assert_eq!(info.supported_protocol_versions, ["0.2.0"]);
         assert_eq!(
@@ -433,9 +454,12 @@ mod tests {
         );
         assert!(info.capabilities.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(info.execution.napi_async_tasks);
-        assert!(!info.execution.utility_process_isolation);
-        assert!(!info.execution.progress_streaming);
+        assert!(info.execution.utility_process_isolation);
+        assert!(info.execution.progress_streaming);
         assert!(!info.execution.safe_cancellation);
+        assert_eq!(info.limits.max_concurrent_jobs, 1);
+        assert_eq!(info.limits.max_queued_jobs, 16);
+        assert_eq!(info.limits.max_message_bytes, 1024 * 1024);
     }
 
     fn data(operation: Operation) -> Value {

@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   HOST_CONTRACT_VERSION,
+  HOST_CAPABILITIES,
   HostContractError,
   NATIVE_API_VERSION,
   NATIVE_CAPABILITIES,
   NATIVE_ENGINE_VERSION,
   PROTOCOL_VERSION,
+  RUNTIME_LIMITS,
   hostReferenceSchema,
   hostDiagnosticsSchema,
   initializeWorkspaceRequestSchema,
@@ -24,18 +26,19 @@ function discovery(overrides: Record<string, unknown> = {}) {
     capabilities: [...NATIVE_CAPABILITIES].sort(),
     execution: {
       napiAsyncTasks: true,
-      utilityProcessIsolation: false,
-      progressStreaming: false,
+      utilityProcessIsolation: true,
+      progressStreaming: true,
       safeCancellation: false,
     },
+    limits: RUNTIME_LIMITS,
     ...overrides,
   };
 }
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(HOST_CONTRACT_VERSION).toBe("1.0.0");
-    expect(NATIVE_API_VERSION).toBe("1.0.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.1.0");
+    expect(NATIVE_API_VERSION).toBe("1.1.0");
     expect(NATIVE_ENGINE_VERSION).toBe("0.2.0");
     expect(PROTOCOL_VERSION).toBe("0.2.0");
   });
@@ -45,13 +48,16 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.0.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.1.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
       discovery({ supportedProtocolVersions: ["0.1.0"] }),
       discovery({ capabilities: NATIVE_CAPABILITIES.slice(1) }),
-      discovery({ utilityProcessIsolation: true }),
+      discovery({
+        execution: { ...discovery().execution, utilityProcessIsolation: false },
+      }),
+      discovery({ limits: { ...RUNTIME_LIMITS, maxQueuedJobs: 17 } }),
       null,
     ]) {
       expect(() => validateNativeDiscovery(invalid)).toThrow(HostContractError);
@@ -83,7 +89,7 @@ describe("@aigc-proof/host-contracts", () => {
     ).toThrow();
   });
 
-  it("rejects malformed, missing, duplicate, unsorted, and unknown 1.0 capabilities", () => {
+  it("rejects malformed, missing, duplicate, and unsorted 1.1 capabilities", () => {
     const cases = [
       {},
       discovery({ apiVersion: undefined }),
@@ -91,9 +97,6 @@ describe("@aigc-proof/host-contracts", () => {
         capabilities: [NATIVE_CAPABILITIES[0], NATIVE_CAPABILITIES[0]],
       }),
       discovery({ capabilities: [...NATIVE_CAPABILITIES].reverse() }),
-      discovery({
-        capabilities: [...NATIVE_CAPABILITIES, "proof.future.operation"].sort(),
-      }),
       discovery({ extra: true }),
     ];
     for (const value of cases) {
@@ -123,15 +126,22 @@ describe("@aigc-proof/host-contracts", () => {
     ).toThrow();
 
     const diagnostics = {
+      reference: {
+        id: `ref_${"e".repeat(32)}`,
+        kind: "diagnostic",
+        displayLabel: "diagnostics",
+      },
       hostKind: "standalone",
-      workbenchVersion: "0.2.0",
-      contractVersion: "1.0.0",
-      nativeApiVersion: "1.0.0",
+      workbenchVersion: "0.3.0",
+      contractVersion: "1.1.0",
+      nativeApiVersion: "1.1.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
-      capabilities: [...NATIVE_CAPABILITIES],
+      capabilities: [...HOST_CAPABILITIES],
       execution: discovery().execution,
+      limits: RUNTIME_LIMITS,
+      utility: { state: "healthy", generation: 1, processId: 4242 },
       unavailableFeatures: ["integration.aigcstudio"],
     };
     expect(hostDiagnosticsSchema.parse(diagnostics)).toEqual(diagnostics);
@@ -154,6 +164,9 @@ describe("@aigc-proof/host-contracts", () => {
       package: reference("package", "d"),
       packageOutput: reference("package-output", "e"),
       reportOutput: reference("report-output", "f"),
+      task: reference("task", "g"),
+      result: reference("result", "h"),
+      diagnostic: reference("diagnostic", "i"),
     };
     const asset = {
       asset_id: "asset-1",
@@ -233,16 +246,37 @@ describe("@aigc-proof/host-contracts", () => {
       ],
     };
     const diagnostics = {
+      reference: references.diagnostic,
       hostKind: "standalone",
-      workbenchVersion: "0.2.0",
-      contractVersion: "1.0.0",
-      nativeApiVersion: "1.0.0",
+      workbenchVersion: "0.3.0",
+      contractVersion: "1.1.0",
+      nativeApiVersion: "1.1.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
-      capabilities: [...NATIVE_CAPABILITIES],
+      capabilities: [...HOST_CAPABILITIES],
       execution: discovery().execution,
+      limits: RUNTIME_LIMITS,
+      utility: { state: "healthy", generation: 1, processId: 4242 },
       unavailableFeatures: ["integration.aigcstudio"],
+    };
+    const job = {
+      reference: references.task,
+      operation: "verifyPackage",
+      state: "succeeded",
+      progress: {
+        sequence: 4,
+        phase: "complete",
+        completedUnits: 100,
+        totalUnits: 100,
+        message: "complete",
+        interruptibility: "atomic",
+        observedAt: "2026-07-13T00:00:01Z",
+      },
+      createdAt: "2026-07-13T00:00:00Z",
+      startedAt: "2026-07-13T00:00:00Z",
+      finishedAt: "2026-07-13T00:00:01Z",
+      result: references.result,
     };
     const valid: Record<string, unknown> = {
       getDiagnostics: { ok: true, data: diagnostics },
@@ -282,6 +316,13 @@ describe("@aigc-proof/host-contracts", () => {
       getState: { ok: true, data: state },
       setPreference: { ok: true, data: state },
       rebuildRecents: { ok: true, data: state },
+      startJob: { ok: true, data: job },
+      getJobs: { ok: true, data: [job] },
+      getJobResult: {
+        ok: true,
+        data: { operation: "verifyPackage", data: report },
+      },
+      cancelJob: { ok: true, data: job },
       closeApp: undefined,
     };
 

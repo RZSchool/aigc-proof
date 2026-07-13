@@ -14,7 +14,12 @@ UI state in SQLite under the current user's application-data directory. Those ab
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.2.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 0.3.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
+
+Main sends only validated job DTOs and authorized paths to the local supervised Utility Process;
+file bytes and SQLite contents are not copied through renderer IPC. Job history and recent items
+remain local disposable application state. Utility isolation, progress, and crash diagnostics do
+not introduce telemetry, upload, accounts, or network access.

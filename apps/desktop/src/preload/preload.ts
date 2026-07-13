@@ -31,8 +31,27 @@ const api: ProofHostApi = {
   setPreference: (request) =>
     ipcRenderer.invoke(channels.setPreference, request),
   rebuildRecents: () => ipcRenderer.invoke(channels.rebuildRecents),
+  startJob: (request) => ipcRenderer.invoke(channels.startJob, request),
+  getJobs: () => ipcRenderer.invoke(channels.getJobs),
+  getJobResult: (request) => ipcRenderer.invoke(channels.getJobResult, request),
+  cancelJob: (request) => ipcRenderer.invoke(channels.cancelJob, request),
+  subscribeJobEvents: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown) =>
+      listener(value as Parameters<typeof listener>[0]);
+    ipcRenderer.on(channels.jobEvent, handler);
+    return () => ipcRenderer.off(channels.jobEvent, handler);
+  },
   closeApp: () => ipcRenderer.invoke(channels.closeApp),
 };
 Object.freeze(api);
 
 contextBridge.exposeInMainWorld("aigcProof", api);
+
+if (process.argv.includes("--aigc-proof-preload-qa")) {
+  contextBridge.exposeInMainWorld(
+    "aigcProofQa",
+    Object.freeze({
+      crashUtility: () => ipcRenderer.invoke(channels.qaCrashUtility),
+    }),
+  );
+}

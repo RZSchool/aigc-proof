@@ -1,12 +1,27 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.2.0" as const;
-export const HOST_CONTRACT_VERSION = "1.0.0" as const;
-export const NATIVE_API_VERSION = "1.0.0" as const;
+export const WORKBENCH_VERSION = "0.3.0" as const;
+export const HOST_CONTRACT_VERSION = "1.1.0" as const;
+export const NATIVE_API_VERSION = "1.1.0" as const;
 export const NATIVE_ENGINE_VERSION = "0.2.0" as const;
 export const PROTOCOL_VERSION = "0.2.0" as const;
 
 export const NATIVE_CAPABILITIES = [
+  "execution.phase-progress",
+  "proof.asset.add",
+  "proof.event.record",
+  "proof.package.inspect",
+  "proof.package.seal",
+  "proof.package.verify",
+  "proof.workspace.create",
+  "proof.workspace.open",
+] as const;
+
+export const HOST_CAPABILITIES = [
+  "execution.bounded-jobs",
+  "execution.phase-progress",
+  "execution.queued-cancellation",
+  "execution.utility-process",
   "proof.asset.add",
   "proof.event.record",
   "proof.package.inspect",
@@ -18,11 +33,19 @@ export const NATIVE_CAPABILITIES = [
   "workbench.state.recents",
 ] as const;
 
+export const RUNTIME_LIMITS = Object.freeze({
+  maxConcurrentJobs: 1,
+  maxQueuedJobs: 16,
+  maxMessageBytes: 1024 * 1024,
+  maxProgressEventsPerSecond: 10,
+  operationTimeoutMs: 5 * 60 * 1000,
+  startupTimeoutMs: 10 * 1000,
+  shutdownTimeoutMs: 5 * 1000,
+});
+
 export const UNAVAILABLE_FEATURES = [
   "integration.aigcstudio",
   "host.asset-tokens",
-  "execution.utility-process",
-  "operation.progress-streaming",
   "operation.safe-cancellation",
   "assurance.creator-signature",
   "assurance.trusted-time",
@@ -40,7 +63,19 @@ export const HOST_ERROR_CODES = [
   "HOST_REFERENCE_EXPIRED",
   "HOST_REFERENCE_KIND_MISMATCH",
   "HOST_REFERENCE_PATH_CHANGED",
+  "HOST_REFERENCE_ORIGIN_MISMATCH",
+  "HOST_REFERENCE_PERMISSION_DENIED",
+  "HOST_REFERENCE_REUSED",
   "IPC_REQUEST_INVALID",
+  "JOB_QUEUE_FULL",
+  "JOB_NOT_FOUND",
+  "JOB_RESULT_NOT_READY",
+  "JOB_TRANSITION_INVALID",
+  "JOB_TIMEOUT",
+  "UTILITY_HANDSHAKE_FAILED",
+  "UTILITY_MESSAGE_INVALID",
+  "UTILITY_PROCESS_LOST",
+  "UTILITY_SHUTDOWN_TIMEOUT",
   "NATIVE_DISCOVERY_MISSING",
   "NATIVE_DISCOVERY_INVALID",
   "NATIVE_API_INCOMPATIBLE",
@@ -51,6 +86,7 @@ export const HOST_ERROR_CODES = [
 ] as const;
 
 export type NativeCapabilityId = (typeof NATIVE_CAPABILITIES)[number];
+export type HostCapabilityId = (typeof HOST_CAPABILITIES)[number];
 export type UnavailableFeatureId = (typeof UNAVAILABLE_FEATURES)[number];
 export type HostErrorCode = (typeof HOST_ERROR_CODES)[number];
 
@@ -93,6 +129,7 @@ export const referenceKinds = [
   "report-output",
   "task",
   "result",
+  "diagnostic",
 ] as const;
 export type ReferenceKind = (typeof referenceKinds)[number];
 
@@ -129,6 +166,9 @@ export const taskReferenceSchema = hostReferenceSchema
 export const resultReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("result") })
   .strict();
+export const diagnosticReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("diagnostic") })
+  .strict();
 
 export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
   Omit<z.infer<typeof hostReferenceSchema>, "kind"> & { kind: K }
@@ -141,6 +181,7 @@ export type PackageOutputReference = HostReference<"package-output">;
 export type ReportOutputReference = HostReference<"report-output">;
 export type TaskReference = HostReference<"task">;
 export type ResultReference = HostReference<"result">;
+export type DiagnosticReference = HostReference<"diagnostic">;
 
 export type AssetRole = "input" | "output" | "reference" | "license" | "other";
 export type VerificationStatus = "valid" | "invalid" | "error";
@@ -159,7 +200,7 @@ export interface Asset {
 export interface Workspace {
   workspace_version: "0.2.0";
   created_at: string;
-  project: { name?: string };
+  project: { name?: string | undefined };
   assets: Asset[];
 }
 
@@ -201,10 +242,10 @@ export interface VerificationReport {
   checks: Array<{
     code: string;
     status: CheckStatus;
-    path?: string;
+    path?: string | undefined;
     message: string;
   }>;
-  errors: Array<{ code: string; path?: string; message: string }>;
+  errors: Array<{ code: string; path?: string | undefined; message: string }>;
   warnings: Array<{ code: string; message: string }>;
 }
 
@@ -212,7 +253,7 @@ export interface Inspection {
   spec_version: "0.2.0";
   proof_id: string;
   created_at: string;
-  project: { name?: string };
+  project: { name?: string | undefined };
   assets: Asset[];
   event_chain: {
     algorithm: "sha-256";
@@ -240,13 +281,34 @@ export interface HostError {
   code: string;
   kind: string;
   message: string;
-  displayPath?: string;
+  displayPath?: string | undefined;
 }
 
 export type HostEnvelope<T> =
   | { ok: true; data: T }
   | { ok: false; error: HostError };
 export type BridgeEnvelope<T> = HostEnvelope<T>;
+
+export const runtimeLimitsSchema = z
+  .object({
+    maxConcurrentJobs: z.number().int().min(1).max(4),
+    maxQueuedJobs: z.number().int().min(1).max(64),
+    maxMessageBytes: z
+      .number()
+      .int()
+      .min(64 * 1024)
+      .max(4 * 1024 * 1024),
+    maxProgressEventsPerSecond: z.number().int().min(1).max(30),
+    operationTimeoutMs: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(30 * 60 * 1000),
+    startupTimeoutMs: z.number().int().min(1_000).max(60_000),
+    shutdownTimeoutMs: z.number().int().min(1_000).max(30_000),
+  })
+  .strict();
+export type RuntimeLimits = z.infer<typeof runtimeLimitsSchema>;
 
 export const nativeDiscoverySchema = z
   .object({
@@ -273,11 +335,12 @@ export const nativeDiscoverySchema = z
     execution: z
       .object({
         napiAsyncTasks: z.literal(true),
-        utilityProcessIsolation: z.literal(false),
-        progressStreaming: z.literal(false),
+        utilityProcessIsolation: z.literal(true),
+        progressStreaming: z.literal(true),
         safeCancellation: z.literal(false),
       })
       .strict(),
+    limits: runtimeLimitsSchema,
   })
   .strict();
 export type NativeDiscovery = z.infer<typeof nativeDiscoverySchema>;
@@ -326,6 +389,21 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
       "Native discovery response is missing a required implemented capability.",
     );
   }
+  if (
+    discovery.limits.maxConcurrentJobs !== RUNTIME_LIMITS.maxConcurrentJobs ||
+    discovery.limits.maxQueuedJobs !== RUNTIME_LIMITS.maxQueuedJobs ||
+    discovery.limits.maxMessageBytes !== RUNTIME_LIMITS.maxMessageBytes ||
+    discovery.limits.maxProgressEventsPerSecond !==
+      RUNTIME_LIMITS.maxProgressEventsPerSecond ||
+    discovery.limits.operationTimeoutMs !== RUNTIME_LIMITS.operationTimeoutMs ||
+    discovery.limits.startupTimeoutMs !== RUNTIME_LIMITS.startupTimeoutMs ||
+    discovery.limits.shutdownTimeoutMs !== RUNTIME_LIMITS.shutdownTimeoutMs
+  ) {
+    throw new HostContractError(
+      "NATIVE_CAPABILITY_INCONSISTENT",
+      "Native discovery limits contradict the required Host 1.1 runtime profile.",
+    );
+  }
   const version = parseSemVer(discovery.apiVersion)!;
   if (
     version.minor === 0 &&
@@ -343,15 +421,23 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
 }
 
 export interface HostDiagnostics {
-  hostKind: "standalone";
-  workbenchVersion: "0.2.0";
-  contractVersion: "1.0.0";
+  reference: DiagnosticReference;
+  hostKind: "standalone" | "mock" | "compatible-host";
+  workbenchVersion: "0.3.0";
+  contractVersion: "1.1.0";
   nativeApiVersion: string;
   engineVersion: string;
   protocolVersion: "0.2.0";
   supportedProtocolVersions: string[];
   capabilities: string[];
   execution: NativeDiscovery["execution"];
+  limits: RuntimeLimits;
+  utility: {
+    state: "starting" | "healthy" | "restarting" | "stopped" | "failed";
+    generation: number;
+    processId?: number | undefined;
+    lastFailureCode?: string | undefined;
+  };
   unavailableFeatures: UnavailableFeatureId[];
 }
 
@@ -497,6 +583,120 @@ export function hostEnvelopeSchemaFor<T extends z.ZodTypeAny>(data: T) {
   ]);
 }
 
+export const jobOperations = [
+  "initializeWorkspace",
+  "loadWorkspace",
+  "addAsset",
+  "recordEvent",
+  "sealPackage",
+  "verifyPackage",
+  "inspectPackage",
+  "rebuildRecents",
+] as const;
+export type JobOperation = (typeof jobOperations)[number];
+
+export const jobStates = [
+  "queued",
+  "running",
+  "cancel_requested",
+  "succeeded",
+  "failed",
+  "cancelled",
+] as const;
+export type JobState = (typeof jobStates)[number];
+
+export const progressPhases = [
+  "authorized",
+  "queued",
+  "utility-startup",
+  "native-execution",
+  "result-publication",
+  "complete",
+] as const;
+export type ProgressPhase = (typeof progressPhases)[number];
+
+export const jobProgressSchema = z
+  .object({
+    sequence: z.number().int().positive(),
+    phase: z.enum(progressPhases),
+    completedUnits: z.number().int().min(0).max(100),
+    totalUnits: z.literal(100),
+    message: z.string().min(1).max(500),
+    interruptibility: z.enum(["queued-cancellable", "checkpoint", "atomic"]),
+    observedAt: z.string().min(1),
+  })
+  .strict();
+export type JobProgress = z.infer<typeof jobProgressSchema>;
+
+export interface JobSnapshot {
+  reference: TaskReference;
+  operation: JobOperation;
+  state: JobState;
+  progress: JobProgress;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  cancelRequestedAt?: string;
+  result?: ResultReference;
+  error?: HostError;
+}
+
+export interface JobEvent {
+  sequence: number;
+  job: JobSnapshot;
+}
+
+export type JobCreateRequest =
+  | {
+      operation: "initializeWorkspace";
+      input: z.infer<typeof initializeWorkspaceRequestSchema>;
+    }
+  | {
+      operation: "loadWorkspace";
+      input: z.infer<typeof workspaceRequestSchema>;
+    }
+  | {
+      operation: "addAsset";
+      input: z.infer<typeof addAssetRequestSchema>;
+    }
+  | {
+      operation: "recordEvent";
+      input: z.infer<typeof recordEventRequestSchema>;
+    }
+  | {
+      operation: "sealPackage";
+      input: z.infer<typeof sealPackageRequestSchema>;
+    }
+  | {
+      operation: "verifyPackage" | "inspectPackage";
+      input: z.infer<typeof packageRequestSchema>;
+    }
+  | { operation: "rebuildRecents"; input: Record<string, never> };
+
+export type JobResult =
+  | {
+      operation: "initializeWorkspace" | "loadWorkspace";
+      data: WorkspaceSummary;
+    }
+  | {
+      operation: "addAsset";
+      data: { asset: Asset; workspace: Workspace };
+    }
+  | { operation: "recordEvent"; data: { event: EventRecord } }
+  | {
+      operation: "sealPackage";
+      data: {
+        package: PackageReference;
+        displayPath: string;
+        manifest: Record<string, unknown>;
+      };
+    }
+  | { operation: "verifyPackage"; data: VerificationReport }
+  | { operation: "inspectPackage"; data: Inspection }
+  | { operation: "rebuildRecents"; data: WorkbenchState };
+
+export type JobEventListener = (event: JobEvent) => void;
+
 export interface ProofHostApi {
   getDiagnostics(): Promise<HostEnvelope<HostDiagnostics>>;
   chooseWorkspaceParent(): Promise<WorkspaceParentReference | null>;
@@ -553,6 +753,15 @@ export interface ProofHostApi {
     value: string;
   }): Promise<HostEnvelope<WorkbenchState>>;
   rebuildRecents(): Promise<HostEnvelope<WorkbenchState>>;
+  startJob(request: JobCreateRequest): Promise<HostEnvelope<JobSnapshot>>;
+  getJobs(): Promise<HostEnvelope<JobSnapshot[]>>;
+  getJobResult(request: {
+    result: ResultReference;
+  }): Promise<HostEnvelope<JobResult>>;
+  cancelJob(request: {
+    job: TaskReference;
+  }): Promise<HostEnvelope<JobSnapshot>>;
+  subscribeJobEvents(listener: JobEventListener): () => void;
   closeApp(): Promise<void>;
 }
 
@@ -646,7 +855,8 @@ export const workbenchStateSchema = z
   .strict();
 export const hostDiagnosticsSchema = z
   .object({
-    hostKind: z.literal("standalone"),
+    reference: diagnosticReferenceSchema,
+    hostKind: z.enum(["standalone", "mock", "compatible-host"]),
     workbenchVersion: z.literal(WORKBENCH_VERSION),
     contractVersion: z.literal(HOST_CONTRACT_VERSION),
     nativeApiVersion: semVerSchema,
@@ -655,6 +865,21 @@ export const hostDiagnosticsSchema = z
     supportedProtocolVersions: z.array(semVerSchema).min(1),
     capabilities: z.array(z.string()).min(1),
     execution: nativeDiscoverySchema.shape.execution,
+    limits: runtimeLimitsSchema,
+    utility: z
+      .object({
+        state: z.enum([
+          "starting",
+          "healthy",
+          "restarting",
+          "stopped",
+          "failed",
+        ]),
+        generation: z.number().int().nonnegative(),
+        processId: z.number().int().positive().optional(),
+        lastFailureCode: z.string().min(1).optional(),
+      })
+      .strict(),
     unavailableFeatures: z.array(z.enum(UNAVAILABLE_FEATURES)),
   })
   .strict();
@@ -676,6 +901,138 @@ export const saveReportResultSchema = z
   .object({ displayPath: localDisplayPath })
   .strict();
 
+export const jobCreateRequestSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("initializeWorkspace"),
+      input: initializeWorkspaceRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("loadWorkspace"),
+      input: workspaceRequestSchema,
+    })
+    .strict(),
+  z
+    .object({ operation: z.literal("addAsset"), input: addAssetRequestSchema })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("recordEvent"),
+      input: recordEventRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("sealPackage"),
+      input: sealPackageRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("verifyPackage"),
+      input: packageRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("inspectPackage"),
+      input: packageRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("rebuildRecents"),
+      input: z.object({}).strict(),
+    })
+    .strict(),
+]);
+
+export const jobSnapshotSchema = z
+  .object({
+    reference: taskReferenceSchema,
+    operation: z.enum(jobOperations),
+    state: z.enum(jobStates),
+    progress: jobProgressSchema,
+    createdAt: z.string().min(1),
+    startedAt: z.string().min(1).optional(),
+    finishedAt: z.string().min(1).optional(),
+    cancelRequestedAt: z.string().min(1).optional(),
+    result: resultReferenceSchema.optional(),
+    error: hostErrorSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const terminal = ["succeeded", "failed", "cancelled"].includes(value.state);
+    if (terminal !== Boolean(value.finishedAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Terminal job state and finishedAt must agree.",
+      });
+    }
+    if ((value.state === "succeeded") !== Boolean(value.result)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Only succeeded jobs expose a result reference.",
+      });
+    }
+    if ((value.state === "failed") !== Boolean(value.error)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Only failed jobs expose an error.",
+      });
+    }
+  });
+export const jobEventSchema = z
+  .object({ sequence: z.number().int().positive(), job: jobSnapshotSchema })
+  .strict();
+
+export const jobResultSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("initializeWorkspace"),
+      data: workspaceSummarySchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("loadWorkspace"),
+      data: workspaceSummarySchema,
+    })
+    .strict(),
+  z
+    .object({ operation: z.literal("addAsset"), data: addAssetResultSchema })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("recordEvent"),
+      data: recordEventResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("sealPackage"),
+      data: sealPackageResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("verifyPackage"),
+      data: verificationReportSchema,
+    })
+    .strict(),
+  z
+    .object({ operation: z.literal("inspectPackage"), data: inspectionSchema })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("rebuildRecents"),
+      data: workbenchStateSchema,
+    })
+    .strict(),
+]);
+
 export const proofHostResponseSchemas = {
   getDiagnostics: hostEnvelopeSchemaFor(hostDiagnosticsSchema),
   chooseWorkspaceParent: workspaceParentReferenceSchema.nullable(),
@@ -696,5 +1053,9 @@ export const proofHostResponseSchemas = {
   getState: hostEnvelopeSchemaFor(workbenchStateSchema),
   setPreference: hostEnvelopeSchemaFor(workbenchStateSchema),
   rebuildRecents: hostEnvelopeSchemaFor(workbenchStateSchema),
+  startJob: hostEnvelopeSchemaFor(jobSnapshotSchema),
+  getJobs: hostEnvelopeSchemaFor(z.array(jobSnapshotSchema)),
+  getJobResult: hostEnvelopeSchemaFor(jobResultSchema),
+  cancelJob: hostEnvelopeSchemaFor(jobSnapshotSchema),
   closeApp: z.void(),
 } as const;

@@ -14,6 +14,9 @@ describe("typed preload source", () => {
     expect(source).toContain("chooseExistingWorkspace");
     expect(source).toContain("previewWorkspaceTarget");
     expect(source).toContain("getDiagnostics");
+    expect(source).toContain("subscribeJobEvents");
+    expect(source).toContain("--aigc-proof-preload-qa");
+    expect(source).toContain("qaCrashUtility");
     expect(source).toContain(
       'contextBridge.exposeInMainWorld("aigcProof", api)',
     );

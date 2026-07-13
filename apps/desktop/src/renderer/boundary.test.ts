@@ -24,4 +24,44 @@ describe("renderer dependency boundary", () => {
     );
     expect(combined).not.toMatch(/src\/(?:main|preload)\//u);
   });
+
+  it("keeps production native loading exclusively in the Utility source", async () => {
+    const mainDirectory = path.resolve(process.cwd(), "src/main");
+    const mainNames = (await fs.readdir(mainDirectory)).filter(
+      (name) => name.endsWith(".ts") && !name.endsWith(".test.ts"),
+    );
+    const mainSources = await Promise.all(
+      mainNames.map((name) =>
+        fs.readFile(path.join(mainDirectory, name), "utf8"),
+      ),
+    );
+    const utility = await fs.readFile(
+      path.resolve(process.cwd(), "src/utility/native.ts"),
+      "utf8",
+    );
+    expect(mainNames).not.toContain("native.ts");
+    expect(mainSources.join("\n")).not.toMatch(
+      /createRequire|loadNativeAddon/u,
+    );
+    expect(utility).toMatch(/createRequire|loadNativeAddon/u);
+  });
+
+  it("cleans generated application output before packaging", async () => {
+    const packageScript = await fs.readFile(
+      path.resolve(process.cwd(), "scripts/package-workbench.ps1"),
+      "utf8",
+    );
+    expect(packageScript).toContain('(Join-Path $desktop "dist")');
+    expect(packageScript).toContain('(Join-Path $desktop "release")');
+    expect(packageScript).toMatch(
+      /Remove-Item -LiteralPath \$generatedDirectory -Recurse -Force/u,
+    );
+    const nativeScript = await fs.readFile(
+      path.resolve(process.cwd(), "scripts/build-native.ps1"),
+      "utf8",
+    );
+    expect(nativeScript).toContain('Get-Command "x86_64-w64-mingw32-gcc.exe"');
+    expect(nativeScript).not.toContain("link-self-contained");
+    expect(nativeScript).toContain('"target\\windows-gnu"');
+  });
 });

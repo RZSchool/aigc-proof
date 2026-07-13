@@ -39,6 +39,7 @@ const output = path.join(work, "输出 文件.txt");
 const reference = path.join(work, "参考 文件.txt");
 const license = path.join(work, "许可 文件.txt");
 const other = path.join(work, "其他 文件.txt");
+const crashInput = path.join(work, "崩溃 恢复 输入.bin");
 const validPackage = path.join(work, "有效 包.aigcproof");
 const tamperedPackage = path.join(work, "篡改 包.aigcproof");
 const malformedPackage = path.join(work, "损坏 包.aigcproof");
@@ -114,11 +115,6 @@ async function clickAndWait(
   );
 }
 
-async function navigate(cdp: CdpClient, section: string): Promise<void> {
-  await click(cdp, `nav-${section}`);
-  await delay(100);
-}
-
 async function launchApp(port: number): Promise<Launch> {
   const executable =
     mode === "packaged"
@@ -177,9 +173,71 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.2.0")
+  if (version !== "Workbench 0.3.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
+  const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
+  if (qaApi !== "object")
+    throw new Error("Explicitly gated QA surface is unavailable.");
   return { process: child, cdp, protocol, executable };
+}
+
+async function captureLayoutEvidence(cdp: CdpClient): Promise<void> {
+  for (const [width, height] of [
+    [1320, 880],
+    [1040, 720],
+  ] as const) {
+    await cdp.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    const layout = await cdp.evaluate<{
+      horizontalOverflow: boolean;
+      regions: number;
+      navs: number;
+      clippedActions: number;
+    }>(`(() => ({
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      regions: document.querySelectorAll('[data-region]').length,
+      navs: document.querySelectorAll('nav, .sidebar').length,
+      clippedActions: [...document.querySelectorAll('button.primary')].filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width <= 0 || rect.right > document.documentElement.scrollWidth + 1;
+      }).length,
+    }))()`);
+    if (
+      layout.horizontalOverflow ||
+      layout.regions !== 8 ||
+      layout.navs !== 0 ||
+      layout.clippedActions !== 0
+    ) {
+      throw new Error(
+        `Unified layout failed at ${width}x${height}: ${JSON.stringify(layout)}`,
+      );
+    }
+    const positions = [
+      [
+        "top",
+        "document.documentElement.style.scrollBehavior = 'auto'; window.scrollTo(0, 0)",
+      ],
+      [
+        "middle",
+        "window.scrollTo(0, Math.max(0, document.documentElement.scrollHeight / 2 - innerHeight / 2))",
+      ],
+      ["lower", "window.scrollTo(0, document.documentElement.scrollHeight)"],
+    ] as const;
+    for (const [name, expression] of positions) {
+      await cdp.evaluate(expression);
+      await delay(100);
+      await fsp.writeFile(
+        path.join(evidence, `layout-${width}x${height}-${name}.png`),
+        await cdp.screenshot(),
+      );
+    }
+    record(`layout-${width}x${height}`, JSON.stringify(layout));
+  }
+  await cdp.send("Emulation.clearDeviceMetricsOverride");
 }
 
 async function closeApp(active: Launch): Promise<void> {
@@ -209,6 +267,7 @@ async function main(): Promise<void> {
   await fsp.writeFile(reference, "desktop bridge reference", "utf8");
   await fsp.writeFile(license, "desktop bridge license", "utf8");
   await fsp.writeFile(other, "desktop bridge other", "utf8");
+  await fsp.writeFile(crashInput, Buffer.alloc(128 * 1024 * 1024, 0x61));
   await fsp.writeFile(malformedPackage, "not a zip package", "utf8");
   await fsp.writeFile(
     selectionManifest,
@@ -216,10 +275,10 @@ async function main(): Promise<void> {
       {
         workspaceParents: [work],
         existingWorkspaces: [proofWorkspace],
-        assets: [input, output, reference, license, other],
+        assets: [input, output, reference, license, other, crashInput],
         packages: [validPackage, tamperedPackage, malformedPackage],
-        packageOutputs: [validPackage],
-        reportOutputs: [report],
+        packageOutputs: [validPackage, validPackage],
+        reportOutputs: [report, report],
       },
       null,
       2,
@@ -230,7 +289,8 @@ async function main(): Promise<void> {
   launch = await launchApp(mode === "dev" ? 9321 : 9322);
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
-  await navigate(cdp, "workspace");
+  await captureLayoutEvidence(cdp);
+  record("menu-free-unified-page");
   await click(cdp, "choose-create-parent");
   await waitFor(
     () => controlValue(cdp, "create-parent"),
@@ -240,7 +300,7 @@ async function main(): Promise<void> {
   await setControl(cdp, "workspace-folder-name", "已存在 工作区");
   await waitFor(
     () => controlText(cdp, "workspace-target-preview"),
-    (value) => value.includes("目标已存在，不会被修改"),
+    (value) => value.includes("目标已存在且不会修改"),
     "existing create target guidance",
   );
   const createDisabled = await cdp.evaluate<boolean>(
@@ -265,7 +325,7 @@ async function main(): Promise<void> {
     (value) => value.includes(proofWorkspace),
     "new workspace target preview",
   );
-  await setControl(cdp, "project-name", "AP-020 Electron 自动验收");
+  await setControl(cdp, "project-name", "AP-022 Electron 自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
 
@@ -304,7 +364,6 @@ async function main(): Promise<void> {
   }
   record("add-all-five-asset-roles");
 
-  await navigate(cdp, "event");
   await setControl(cdp, "event-type", "generation");
   await setControl(
     cdp,
@@ -314,7 +373,6 @@ async function main(): Promise<void> {
   await clickAndWait(cdp, "record-event", "事件已写入哈希链");
   record("record-event");
 
-  await navigate(cdp, "seal");
   await click(cdp, "choose-package-output");
   await waitFor(
     () => controlValue(cdp, "seal-output"),
@@ -323,10 +381,15 @@ async function main(): Promise<void> {
   );
   await clickAndWait(cdp, "seal-package", "证明包已封装");
   record("seal-package");
+  await click(cdp, "choose-package-output");
+  await waitFor(
+    () => controlValue(cdp, "seal-output"),
+    (value) => value.includes(validPackage),
+    "Host-issued duplicate package output",
+  );
   await clickAndWait(cdp, "seal-package", "OUTPUT_ALREADY_EXISTS");
   record("seal-no-clobber");
 
-  await navigate(cdp, "verify");
   await click(cdp, "choose-package");
   await waitFor(
     () => controlValue(cdp, "package-path"),
@@ -342,6 +405,12 @@ async function main(): Promise<void> {
     "Host-issued report output",
   );
   await clickAndWait(cdp, "save-report", "验证报告已保存");
+  await click(cdp, "choose-report-output");
+  await waitFor(
+    () => controlValue(cdp, "report-path"),
+    (value) => value.includes(report),
+    "Host-issued duplicate report output",
+  );
   await clickAndWait(cdp, "save-report", "REPORT_ALREADY_EXISTS");
   record("report-save-no-clobber");
   await clickAndWait(cdp, "inspect-package", "未执行完整性验证");
@@ -384,11 +453,127 @@ async function main(): Promise<void> {
   }
   record("malformed-package-rejection");
 
-  await navigate(cdp, "settings");
+  const beforeCrash = await cdp.evaluate<{
+    generation: number;
+    processId?: number;
+  }>(
+    `(async () => {
+      const diagnostics = await window.aigcProof.getDiagnostics();
+      if (!diagnostics.ok) throw new Error(diagnostics.error.code);
+      return diagnostics.data.utility;
+    })()`,
+  );
+  const crashJobs = await cdp.evaluate<{
+    runningId: string;
+    queuedId: string;
+  }>(`(async () => {
+    const state = await window.aigcProof.getState();
+    if (!state.ok || !state.data.recentWorkspaces[0]) throw new Error('Recent workspace unavailable.');
+    const asset = await window.aigcProof.chooseAsset();
+    if (!asset) throw new Error('Crash-test asset unavailable.');
+    const started = await window.aigcProof.startJob({
+      operation: 'addAsset',
+      input: {
+        workspace: state.data.recentWorkspaces[0].reference,
+        source: asset,
+        role: 'other',
+      },
+    });
+    if (!started.ok) throw new Error(started.error.code);
+    const queued = await window.aigcProof.startJob({
+      operation: 'loadWorkspace',
+      input: { workspace: state.data.recentWorkspaces[0].reference },
+    });
+    if (!queued.ok) throw new Error(queued.error.code);
+    const cancelled = await window.aigcProof.cancelJob({ job: queued.data.reference });
+    if (!cancelled.ok || cancelled.data.state !== 'cancelled') throw new Error('Queued cancellation failed.');
+    return { runningId: started.data.reference.id, queuedId: queued.data.reference.id };
+  })()`);
+  await waitFor(
+    () =>
+      cdp.evaluate<{ running?: string; queued?: string }>(`(async () => {
+        const jobs = await window.aigcProof.getJobs();
+        if (!jobs.ok) throw new Error(jobs.error.code);
+        return {
+          running: jobs.data.find((job) => job.reference.id === ${js(crashJobs.runningId)})?.state,
+          queued: jobs.data.find((job) => job.reference.id === ${js(crashJobs.queuedId)})?.state,
+        };
+      })()`),
+    (value) => value.running === "running" && value.queued === "cancelled",
+    "running job and queued cancellation",
+  );
+  const cancelRequested = await cdp.evaluate<string>(`(async () => {
+    const jobs = await window.aigcProof.getJobs();
+    if (!jobs.ok) throw new Error(jobs.error.code);
+    const running = jobs.data.find((job) => job.reference.id === ${js(crashJobs.runningId)});
+    if (!running) throw new Error('Running job missing.');
+    const cancelled = await window.aigcProof.cancelJob({ job: running.reference });
+    if (!cancelled.ok) throw new Error(cancelled.error.code);
+    return cancelled.data.state;
+  })()`);
+  if (cancelRequested !== "cancel_requested") {
+    throw new Error(`Running cancellation was not honest: ${cancelRequested}`);
+  }
+  record("queued-cancel-and-running-cancel-request", JSON.stringify(crashJobs));
+  await cdp.evaluate("window.aigcProofQa.crashUtility()");
+  const crashedJobId = crashJobs.runningId;
+  const crashedJob = await waitFor(
+    () =>
+      cdp.evaluate<{ state?: string; code?: string }>(`(async () => {
+        const jobs = await window.aigcProof.getJobs();
+        if (!jobs.ok) throw new Error(jobs.error.code);
+        const job = jobs.data.find((candidate) => candidate.reference.id === ${js(crashedJobId)});
+        return { state: job?.state, code: job?.error?.code };
+      })()`),
+    (value) => value.state === "failed",
+    "Utility crash converted to failed job",
+  );
+  if (crashedJob.code !== "UTILITY_PROCESS_LOST") {
+    throw new Error(
+      `Utility crash had unexpected code ${crashedJob.code ?? "missing"}.`,
+    );
+  }
+  const otherAssetDirectory = path.join(proofWorkspace, "assets", "other");
+  const leftovers = (await fsp.readdir(otherAssetDirectory)).filter((name) =>
+    name.startsWith(".aigc-proof-asset-"),
+  );
+  if (leftovers.length > 0) {
+    throw new Error(
+      `Utility crash left temporary asset files: ${leftovers.join(", ")}`,
+    );
+  }
+  record("utility-crash-no-replay-and-cleanup", crashedJobId);
+
+  await clickAndWait(cdp, "rebuild-recents", "最近项索引已从可携带文件重建");
+  const afterCrash = await cdp.evaluate<{
+    state: string;
+    generation: number;
+    processId?: number;
+  }>(
+    `(async () => {
+      const diagnostics = await window.aigcProof.getDiagnostics();
+      if (!diagnostics.ok) throw new Error(diagnostics.error.code);
+      return diagnostics.data.utility;
+    })()`,
+  );
+  if (
+    afterCrash.state !== "healthy" ||
+    afterCrash.generation <= beforeCrash.generation ||
+    afterCrash.processId === beforeCrash.processId
+  ) {
+    throw new Error(
+      `Utility did not restart safely: ${JSON.stringify({ beforeCrash, afterCrash })}`,
+    );
+  }
+  record(
+    "utility-compatible-restart",
+    JSON.stringify({ beforeCrash, afterCrash }),
+  );
+
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
     "0.2.0",
-    "1.0.0",
+    "1.1.0",
     "integration.aigcstudio",
     "execution.utility-process",
     "operation.safe-cancellation",
@@ -409,15 +594,6 @@ async function main(): Promise<void> {
   launch = await launchApp(mode === "dev" ? 9323 : 9324);
   await waitFor(
     () =>
-      launch!.cdp.evaluate<boolean>(
-        `document.querySelector('[data-testid="nav-settings"]')?.classList.contains('active') ?? false`,
-      ),
-    (value) => value,
-    "restored last workbench section",
-  );
-  await navigate(launch.cdp, "home");
-  await waitFor(
-    () =>
       launch!.cdp.evaluate<string>(
         `document.querySelector('[data-testid="recent-workspaces"]')?.textContent ?? ''`,
       ),
@@ -433,7 +609,6 @@ async function main(): Promise<void> {
     "persisted recent package",
   );
   record("sqlite-restart-persistence");
-  await navigate(launch.cdp, "settings");
   await clickAndWait(
     launch.cdp,
     "rebuild-recents",
@@ -449,35 +624,50 @@ async function main(): Promise<void> {
   record("clean-exit-second-run");
 
   const database = path.join(userData, "workbench.sqlite3");
-  const addon = requireNative(addonPath) as {
-    getApiInfo(): unknown;
-    getAppState(request: { database: string }): Promise<string>;
-  };
+  await fsp.writeFile(database, "corrupt disposable state", "utf8");
+  launch = await launchApp(mode === "dev" ? 9325 : 9326);
+  const recoveryState = await launch.cdp.evaluate<unknown>(`(async () => {
+    const state = await window.aigcProof.getState();
+    if (!state.ok) throw new Error(state.error.code);
+    return state.data;
+  })()`);
+  const recoveredFiles = (await fsp.readdir(userData)).filter((name) =>
+    name.startsWith("workbench.sqlite3.corrupt-"),
+  );
+  if (recoveredFiles.length === 0) {
+    throw new Error(
+      "Corrupt disposable SQLite state was not isolated and rebuilt.",
+    );
+  }
+  await closeApp(launch);
+  launch = undefined;
+  record("sqlite-corruption-recovery", recoveredFiles.join(","));
+
+  const testedAddon =
+    mode === "dev"
+      ? addonPath
+      : path.join(
+          workspaceRoot,
+          "app",
+          "AIGC-Proof-Workbench",
+          "resources",
+          "native",
+          "proof_napi.node",
+        );
+  const addon = requireNative(testedAddon) as { getApiInfo(): unknown };
   const nativeDiscovery = addon.getApiInfo();
-  const persisted = JSON.parse(
-    await addon.getAppState({ database }),
-  ) as unknown;
+  await fsp.rm(crashInput, { force: true });
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.2.0",
-    contractVersion: "1.0.0",
-    nativeApiVersion: "1.0.0",
+    workbenchVersion: "0.3.0",
+    contractVersion: "1.1.0",
+    nativeApiVersion: "1.1.0",
     engineVersion: "0.2.0",
     protocolVersion: "0.2.0",
     executable: testedExecutable,
     protocol: "file:",
-    nativeAddon:
-      mode === "dev"
-        ? addonPath
-        : path.join(
-            workspaceRoot,
-            "app",
-            "AIGC-Proof-Workbench",
-            "resources",
-            "native",
-            "proof_napi.node",
-          ),
+    nativeAddon: testedAddon,
     database,
     workspace: proofWorkspace,
     package: validPackage,
@@ -485,7 +675,8 @@ async function main(): Promise<void> {
     report,
     nativeDiscovery,
     steps,
-    persisted,
+    recoveryState,
+    recoveredFiles,
   };
   await fsp.writeFile(
     path.join(evidence, "qa-result.json"),

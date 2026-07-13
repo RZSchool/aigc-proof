@@ -1,12 +1,12 @@
 import path from "node:path";
 
 import { HostContractError } from "@aigc-proof/host-contracts";
-import { app, BrowserWindow, dialog, session } from "electron";
+import { app, BrowserWindow, dialog, Menu, session } from "electron";
 
-import { registerIpc } from "./ipc";
-import { loadNativeRuntime } from "./native";
+import { registerIpc, type RegisteredIpcRuntime } from "./ipc";
 import { loadQaSelectionProvider } from "./qa-selections";
 import { isAllowedNavigation, parseQaPort } from "./security";
+import { UtilitySupervisor } from "./utility-supervisor";
 
 const qaPort = parseQaPort(process.argv);
 if (qaPort !== undefined) {
@@ -26,7 +26,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 720,
     show: false,
-    title: "AIGC-Proof Workbench 0.2.0",
+    title: "AIGC-Proof Workbench 0.3.0",
     backgroundColor: "#f4f1ea",
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
@@ -34,6 +34,8 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       sandbox: true,
       devTools: qaPort !== undefined || developmentUrl !== undefined,
+      additionalArguments:
+        qaPort !== undefined ? ["--aigc-proof-preload-qa"] : [],
     },
   });
 
@@ -61,7 +63,11 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+let registeredRuntime: RegisteredIpcRuntime | undefined;
+let allowingQuit = false;
+
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
@@ -71,18 +77,16 @@ app.whenReady().then(async () => {
     callback({ cancel: !allowed });
   });
   try {
-    const runtime = loadNativeRuntime();
+    const utility = new UtilitySupervisor();
     const qaSelections = await loadQaSelectionProvider(
       process.argv,
       qaPort !== undefined,
     );
-    const state = await registerIpc(runtime, qaSelections);
-    if (!state.ok) {
-      throw new HostContractError(
-        "NATIVE_BRIDGE_RESPONSE_INVALID",
-        `${state.error.code}: ${state.error.message}`,
-      );
-    }
+    registeredRuntime = await registerIpc(
+      utility,
+      qaSelections,
+      qaPort !== undefined,
+    );
     createWindow();
   } catch (error) {
     const code =
@@ -106,3 +110,11 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => app.quit());
+app.on("before-quit", (event) => {
+  if (allowingQuit || !registeredRuntime) return;
+  event.preventDefault();
+  void registeredRuntime.close().finally(() => {
+    allowingQuit = true;
+    app.quit();
+  });
+});

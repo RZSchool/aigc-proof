@@ -13,15 +13,16 @@ detection, and malicious-package tests passed. It remains pre-release until revi
 work are completed. Later stages require separate protocol review and do not retroactively add
 assurance to unsigned 0.2 packages.
 
-The desktop workbench has an independent application version. Workbench 0.2.0 is an offline
-Electron/React client of the unchanged 0.2.0 Rust engine, using `ProofHostApi` 1.0.0, fail-closed
-native API 1.0.0 discovery, typed opaque references, a typed preload/IPC boundary, napi-rs, and
-disposable SQLite application state. Application releases do not advance protocol assurance. The
+The desktop workbench has an independent application version. Workbench 0.3.0 is an offline
+Electron/React client of the unchanged 0.2.0 Rust engine, using `ProofHostApi` 1.1.0, fail-closed
+native API 1.1.0 discovery, typed opaque references, bounded Main-owned jobs, a supervised
+Utility-only napi-rs boundary, and disposable SQLite application state. Its full workflow is one
+menu-free scrollable page. Application releases do not advance protocol assurance. The
 earlier Win32 preview was retired from primary use only after packaged replacement acceptance
 succeeded.
 
 COSE/signatures, official identity services, RFC 3161, C2PA, S3-backed services, and WASM remain
-future reviewed phases; they are not bundled into Workbench 0.2.0.
+future reviewed phases; they are not bundled into Workbench 0.3.0.
 
 ## Rights Protection product track
 

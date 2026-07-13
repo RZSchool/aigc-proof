@@ -5,5 +5,8 @@ export * from "@aigc-proof/host-contracts";
 declare global {
   interface Window {
     aigcProof: ProofHostApi;
+    aigcProofQa?: {
+      crashUtility(): Promise<void>;
+    };
   }
 }

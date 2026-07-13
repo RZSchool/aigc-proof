@@ -4,20 +4,24 @@ param()
 $ErrorActionPreference = "Stop"
 $desktop = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent (Split-Path -Parent $desktop)
-$workspace = Split-Path -Parent $repo
 $toolchain = Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-gnu"
 $cargo = Join-Path $toolchain "bin\cargo.exe"
 $rustc = Join-Path $toolchain "bin\rustc.exe"
+$targetDirectory = Join-Path $repo "target\windows-gnu"
 if (-not (Test-Path -LiteralPath $cargo -PathType Leaf) -or
     -not (Test-Path -LiteralPath $rustc -PathType Leaf)) {
     throw "Rust 1.85.0 x86_64-pc-windows-gnu is required under $toolchain."
 }
-$llvmBin = Join-Path $workspace ".tools\llvm-mingw-20260407-ucrt-x86_64\bin"
-$clang = Join-Path $llvmBin "x86_64-w64-mingw32-clang.exe"
-$archiveTool = Join-Path $llvmBin "x86_64-w64-mingw32-llvm-ar.exe"
-if (-not (Test-Path -LiteralPath $clang -PathType Leaf) -or
+$gccCommand = Get-Command "x86_64-w64-mingw32-gcc.exe" -ErrorAction SilentlyContinue
+if ($null -eq $gccCommand) {
+    throw "A MinGW-w64 GCC compatible with Rust's x86_64-pc-windows-gnu target is required."
+}
+$gcc = $gccCommand.Source
+$gccBin = Split-Path -Parent $gcc
+$archiveTool = Join-Path $gccBin "ar.exe"
+if (-not (Test-Path -LiteralPath $gcc -PathType Leaf) -or
     -not (Test-Path -LiteralPath $archiveTool -PathType Leaf)) {
-    throw "Portable llvm-mingw 20260407 is required under workspace-root .tools."
+    throw "The MinGW-w64 GCC compiler and archive tool are required."
 }
 
 function Invoke-CapturedProcess {
@@ -30,9 +34,10 @@ function Invoke-CapturedProcess {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $start.EnvironmentVariables["PATH"] = (Join-Path $toolchain "bin") + ";" + $env:PATH
+    $start.EnvironmentVariables["PATH"] = $gccBin + ";" + (Join-Path $toolchain "bin") + ";" + $env:PATH
     $start.EnvironmentVariables["RUSTC"] = $rustc
-    $start.EnvironmentVariables["CC_x86_64_pc_windows_gnu"] = $clang
+    $start.EnvironmentVariables["CARGO_TARGET_DIR"] = $targetDirectory
+    $start.EnvironmentVariables["CC_x86_64_pc_windows_gnu"] = $gcc
     $start.EnvironmentVariables["AR_x86_64_pc_windows_gnu"] = $archiveTool
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
@@ -48,7 +53,7 @@ function Invoke-CapturedProcess {
 }
 
 Invoke-CapturedProcess $cargo "build --workspace --locked --release -p proof-napi" $repo
-$library = Join-Path $repo "target\release\proof_napi.dll"
+$library = Join-Path $targetDirectory "release\proof_napi.dll"
 if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
     throw "Expected Node-API library was not produced: $library"
 }

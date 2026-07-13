@@ -1,15 +1,20 @@
 import {
   HOST_CONTRACT_VERSION,
+  HOST_CAPABILITIES,
   NATIVE_API_VERSION,
-  NATIVE_CAPABILITIES,
   NATIVE_ENGINE_VERSION,
   PROTOCOL_VERSION,
+  RUNTIME_LIMITS,
   UNAVAILABLE_FEATURES,
   WORKBENCH_VERSION,
   type Asset,
   type HostEnvelope,
   type HostReference,
   type Inspection,
+  type JobCreateRequest,
+  type JobEvent,
+  type JobResult,
+  type JobSnapshot,
   type ProofHostApi,
   type ReferenceKind,
   type VerificationReport,
@@ -53,6 +58,11 @@ export class DeterministicMockProofHost implements ProofHostApi {
   readonly packageReference = reference("package", "proof.aigcproof");
   readonly packageOutputReference = reference("package-output", "proof output");
   readonly reportOutputReference = reference("report-output", "report output");
+  readonly diagnosticReference = reference("diagnostic", "mock diagnostics");
+  #jobs: JobSnapshot[] = [];
+  #results = new Map<string, JobResult>();
+  #listeners = new Set<(event: JobEvent) => void>();
+  #jobEventSequence = 0;
   #workspace = emptyWorkspace();
   #state: WorkbenchState = {
     schemaVersion: 1,
@@ -64,19 +74,26 @@ export class DeterministicMockProofHost implements ProofHostApi {
   getDiagnostics() {
     return Promise.resolve(
       ok({
-        hostKind: "standalone" as const,
+        reference: this.diagnosticReference,
+        hostKind: "mock" as const,
         workbenchVersion: WORKBENCH_VERSION,
         contractVersion: HOST_CONTRACT_VERSION,
         nativeApiVersion: NATIVE_API_VERSION,
         engineVersion: NATIVE_ENGINE_VERSION,
         protocolVersion: PROTOCOL_VERSION,
         supportedProtocolVersions: [PROTOCOL_VERSION],
-        capabilities: [...NATIVE_CAPABILITIES],
+        capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true as const,
-          utilityProcessIsolation: false as const,
-          progressStreaming: false as const,
+          utilityProcessIsolation: true as const,
+          progressStreaming: true as const,
           safeCancellation: false as const,
+        },
+        limits: RUNTIME_LIMITS,
+        utility: {
+          state: "healthy" as const,
+          generation: 1,
+          processId: 4242,
         },
         unavailableFeatures: [...UNAVAILABLE_FEATURES],
       }),
@@ -224,6 +241,173 @@ export class DeterministicMockProofHost implements ProofHostApi {
   rebuildRecents() {
     return Promise.resolve(ok(this.#state));
   }
+  async startJob(request: JobCreateRequest) {
+    const createdAt = "2026-07-13T00:00:00Z";
+    const task = reference("task", `${request.operation} task`);
+    const queued: JobSnapshot = {
+      reference: task,
+      operation: request.operation,
+      state: "queued",
+      progress: {
+        sequence: 1,
+        phase: "queued",
+        completedUnits: 10,
+        totalUnits: 100,
+        message: "Mock job queued.",
+        interruptibility: "queued-cancellable",
+        observedAt: createdAt,
+      },
+      createdAt,
+    };
+    this.#jobs.unshift(queued);
+    this.emitJob(queued);
+    let execution: HostEnvelope<JobResult>;
+    switch (request.operation) {
+      case "initializeWorkspace": {
+        const response = await this.initializeWorkspace({
+          parent: request.input.parent,
+          folderName: request.input.folderName,
+          ...(request.input.projectName
+            ? { projectName: request.input.projectName }
+            : {}),
+        });
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "loadWorkspace": {
+        const response = await this.loadWorkspace(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "addAsset": {
+        const response = await this.addAsset(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "recordEvent": {
+        const response = await this.recordEvent(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "sealPackage": {
+        const response = await this.sealPackage(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "verifyPackage": {
+        const response = await this.verifyPackage(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "inspectPackage": {
+        const response = await this.inspectPackage(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "rebuildRecents": {
+        const response = await this.rebuildRecents();
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+    }
+    const finishedAt = "2026-07-13T00:00:01Z";
+    const finished: JobSnapshot = execution.ok
+      ? {
+          ...queued,
+          state: "succeeded",
+          progress: {
+            sequence: 2,
+            phase: "complete",
+            completedUnits: 100,
+            totalUnits: 100,
+            message: "Mock job completed.",
+            interruptibility: "atomic",
+            observedAt: finishedAt,
+          },
+          startedAt: createdAt,
+          finishedAt,
+          result: reference("result", `${request.operation} result`),
+        }
+      : {
+          ...queued,
+          state: "failed",
+          progress: {
+            sequence: 2,
+            phase: "complete",
+            completedUnits: 100,
+            totalUnits: 100,
+            message: "Mock job failed.",
+            interruptibility: "atomic",
+            observedAt: finishedAt,
+          },
+          startedAt: createdAt,
+          finishedAt,
+          error: execution.error,
+        };
+    this.#jobs[0] = finished;
+    if (execution.ok && finished.result) {
+      this.#results.set(finished.result.id, execution.data);
+    }
+    this.emitJob(finished);
+    return ok(finished);
+  }
+  getJobs() {
+    return Promise.resolve(ok([...this.#jobs]));
+  }
+  getJobResult(request: Parameters<ProofHostApi["getJobResult"]>[0]) {
+    const result = this.#results.get(request.result.id);
+    return Promise.resolve(
+      result
+        ? ok(result)
+        : {
+            ok: false as const,
+            error: {
+              code: "JOB_RESULT_NOT_READY",
+              kind: "job",
+              message: "Mock result not found.",
+            },
+          },
+    );
+  }
+  cancelJob(request: Parameters<ProofHostApi["cancelJob"]>[0]) {
+    const job = this.#jobs.find(
+      (candidate) => candidate.reference.id === request.job.id,
+    );
+    return Promise.resolve(
+      job
+        ? ok(job)
+        : {
+            ok: false as const,
+            error: {
+              code: "JOB_NOT_FOUND",
+              kind: "job",
+              message: "Mock job not found.",
+            },
+          },
+    );
+  }
+  subscribeJobEvents(
+    listener: Parameters<ProofHostApi["subscribeJobEvents"]>[0],
+  ) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
   closeApp() {
     return Promise.resolve();
   }
@@ -234,5 +418,10 @@ export class DeterministicMockProofHost implements ProofHostApi {
       displayPath: this.workspaceReference.displayPath!,
       workspace: this.#workspace,
     };
+  }
+
+  private emitJob(job: JobSnapshot): void {
+    const event = { sequence: ++this.#jobEventSequence, job };
+    for (const listener of this.#listeners) listener(event);
   }
 }

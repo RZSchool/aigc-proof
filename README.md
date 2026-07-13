@@ -47,10 +47,11 @@ The CLI is fully offline and performs no upload. Pass prompts and parameters thr
 ## Desktop workbench
 
 The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
-renderer uses `ProofHostApi` 1.0.0 through a Standalone adapter, typed allowlisted preload/IPC,
-and a fail-closed native compatibility handshake before reaching the napi-rs Node-API adapter.
-Workbench 0.2.0 and native engine 0.2.0 keep protocol 0.2.0 unchanged. SQLite stores disposable
-local UI state; portable proof files remain authoritative. See
+renderer uses `ProofHostApi` 1.1.0 through a Standalone adapter and typed allowlisted preload/IPC.
+Electron Main owns authority, a bounded job scheduler, and disposable SQLite state; a supervised
+Utility Process is the exclusive native-addon owner and fails closed on an incompatible native
+API 1.1.0 handshake. Workbench 0.3.0 presents the complete workflow on one scrollable page and
+keeps the native engine/protocol at 0.2.0. Portable proof files remain authoritative. See
 [Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
 
 ## Public/private boundary
