@@ -34,11 +34,11 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop Workbench 0.3.0
+## Desktop Workbench 0.4.0
 
 ~~~text
 React + TypeScript renderer (untrusted presentation)
-        | ProofHostApi 1.1.0
+        | ProofHostApi 1.2.0
         v
 Standalone Host adapter
         | typed window.aigcProof API
@@ -46,13 +46,18 @@ Standalone Host adapter
 context-isolated preload (allowlist only)
         | validated IPC
         v
-Electron Main (authority, bounded jobs, SQLite, lifecycle)
-        | versioned messages
+Electron Main (authority, SQLite v2, provider/process/staging lifecycle)
+        |                         \
+        |                          +--> reusable @aigc-proof/creation-core
+        |                               | fixed loopback provider contract
+        |                               v
+        |                         user-authorized ComfyUI v0.27.0
+        | versioned Utility messages
         v
-supervised Electron Utility Process (exclusive native owner)
-        | native API 1.1.0 + Node-API
+supervised Electron Utility Process (exclusive native-addon owner)
+        | native API 1.2.0 + Node-API
         v
-proof-napi (asynchronous adapter + bundled SQLite app state)
+proof-napi (asynchronous proof adapter)
         |
         v
 proof-core + proof-schema
@@ -66,7 +71,7 @@ access. Main validates every DTO, owns native dialogs and user-selected paths, a
 session/origin/kind/permission/expiry-bound opaque references whose display labels/paths have no
 authority. The supervised Utility Process is the only production process that loads
 `proof_napi.node`. Main registers proof IPC only after its versioned handshake reports compatible
-API 1.1.0, engine 0.2.0, protocol 0.2.0, capabilities, execution facts, and bounded limits. Rust
+API 1.2.0, engine 0.2.0, protocol 0.2.0, capabilities, execution facts, and bounded limits. Rust
 remains the sole protocol and archive-security implementation; Electron never shells out to the
 CLI.
 
@@ -81,6 +86,19 @@ SQLite stores workbench preferences, recents, indexes, and UI state. It is dispo
 metadata, not a proof format: losing it must not invalidate or make a workspace, report, or package
 unreadable. See [ADR 0001](adr/0001-electron-workbench.md).
 
+SQLite schema v2 also stores Standalone-owned provider inventory and creation-session lifecycle.
+It never replaces portable workspaces or packages. `@aigc-proof/creation-core` has no React,
+Electron, SQLite, or Standalone database dependency: it canonicalizes privacy-aware snapshots,
+builds the repository-owned six-core-node ComfyUI graph, validates loopback responses and image
+bytes, enforces lifecycle transitions, and maps successful observations into stable evidence.
+Main alone resolves Host references, selects installations, allocates staging, writes validated
+bytes, invokes proof jobs, and persists local state.
+
+The provider adapter accepts only a credential-free loopback HTTP/WebSocket origin, refuses
+redirects, validates the frozen v0.27.0 capability profile, and never accepts renderer workflow
+JSON, arbitrary commands, endpoints, or output paths. ComfyUI, Python/GPU runtimes, custom nodes,
+and checkpoints remain external user-managed components and are not copied into the package.
+
 Workspace creation and opening are separate typed flows. The renderer supplies only an existing
 parent plus a portable new-folder component for creation; Electron Main validates and joins them,
 previews the normalized target, checks existence, and then calls Rust. Existing targets are never
@@ -92,7 +110,7 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 ## Versioned standalone host and prospective integration
 
-`@aigc-proof/host-contracts` 1.1.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+`@aigc-proof/host-contracts` 1.2.0 is the reusable renderer-safe source of DTOs, strict Schemas,
 versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
 Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
 consumer/component tests but is not registered by the packaged product.

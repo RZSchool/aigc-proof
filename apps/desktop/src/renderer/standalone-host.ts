@@ -8,6 +8,47 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   getDiagnostics() {
     return this.bridge.getDiagnostics();
   }
+  chooseProviderInstallation() {
+    return this.bridge.chooseProviderInstallation();
+  }
+  inspectProviderInstallation(
+    request: Parameters<ProofHostApi["inspectProviderInstallation"]>[0],
+  ) {
+    return this.bridge.inspectProviderInstallation(request);
+  }
+  createCreationSession(
+    request: Parameters<ProofHostApi["createCreationSession"]>[0],
+  ) {
+    return this.bridge.createCreationSession(request);
+  }
+  getCreationSessions() {
+    return this.bridge.getCreationSessions();
+  }
+  freezeCreationSession(
+    request: Parameters<ProofHostApi["freezeCreationSession"]>[0],
+  ) {
+    return this.bridge.freezeCreationSession(request);
+  }
+  runCreationSession(
+    request: Parameters<ProofHostApi["runCreationSession"]>[0],
+  ) {
+    return this.bridge.runCreationSession(request);
+  }
+  cancelCreationSession(
+    request: Parameters<ProofHostApi["cancelCreationSession"]>[0],
+  ) {
+    return this.bridge.cancelCreationSession(request);
+  }
+  completeCreationProof(
+    request: Parameters<ProofHostApi["completeCreationProof"]>[0],
+  ) {
+    return this.bridge.completeCreationProof(request);
+  }
+  subscribeCreationEvents(
+    listener: Parameters<ProofHostApi["subscribeCreationEvents"]>[0],
+  ) {
+    return this.bridge.subscribeCreationEvents(listener);
+  }
   chooseWorkspaceParent() {
     return this.bridge.chooseWorkspaceParent();
   }

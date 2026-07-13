@@ -44,7 +44,10 @@ async function canonicalize(
   }
 
   const stat = await fs.stat(absolutePath).catch(() => undefined);
-  const expectsDirectory = kind === "workspace-parent" || kind === "workspace";
+  const expectsDirectory =
+    kind === "workspace-parent" ||
+    kind === "workspace" ||
+    kind === "provider-installation";
   if (!stat || (expectsDirectory ? !stat.isDirectory() : !stat.isFile())) {
     throw new HostContractError(
       "HOST_REFERENCE_PATH_CHANGED",

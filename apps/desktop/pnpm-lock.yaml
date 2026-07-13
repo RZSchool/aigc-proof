@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@aigc-proof/creation-core':
+        specifier: workspace:*
+        version: link:packages/creation-core
       '@aigc-proof/host-contracts':
         specifier: workspace:*
         version: link:packages/host-contracts
@@ -96,6 +99,15 @@ importers:
       vitest:
         specifier: 3.0.5
         version: 3.0.5(@types/debug@4.1.13)(@types/node@22.10.7)(jsdom@26.0.0)(tsx@4.19.2)
+
+  packages/creation-core:
+    dependencies:
+      '@aigc-proof/host-contracts':
+        specifier: workspace:*
+        version: link:../host-contracts
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
 
   packages/host-contracts:
     dependencies:

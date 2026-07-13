@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.3.0" as const;
-export const HOST_CONTRACT_VERSION = "1.1.0" as const;
-export const NATIVE_API_VERSION = "1.1.0" as const;
+export const WORKBENCH_VERSION = "0.4.0" as const;
+export const HOST_CONTRACT_VERSION = "1.2.0" as const;
+export const NATIVE_API_VERSION = "1.2.0" as const;
 export const NATIVE_ENGINE_VERSION = "0.2.0" as const;
 export const PROTOCOL_VERSION = "0.2.0" as const;
 
@@ -18,6 +18,10 @@ export const NATIVE_CAPABILITIES = [
 ] as const;
 
 export const HOST_CAPABILITIES = [
+  "creation.comfyui-local",
+  "creation.evidence-mapping",
+  "creation.session-lifecycle",
+  "creation.snapshot-sha256",
   "execution.bounded-jobs",
   "execution.phase-progress",
   "execution.queued-cancellation",
@@ -46,6 +50,8 @@ export const RUNTIME_LIMITS = Object.freeze({
 export const UNAVAILABLE_FEATURES = [
   "integration.aigcstudio",
   "host.asset-tokens",
+  "provider.cloud",
+  "provider.remote-endpoint",
   "operation.safe-cancellation",
   "assurance.creator-signature",
   "assurance.trusted-time",
@@ -57,6 +63,9 @@ export const UNAVAILABLE_FEATURES = [
 ] as const;
 
 export const HOST_ERROR_CODES = [
+  "CREATION_RELATIONSHIP_INVALID",
+  "CREATION_SESSION_NOT_FOUND",
+  "CREATION_STATE_INVALID",
   "HOST_CONTRACT_RESPONSE_INVALID",
   "HOST_REFERENCE_INVALID",
   "HOST_REFERENCE_UNKNOWN",
@@ -72,6 +81,15 @@ export const HOST_ERROR_CODES = [
   "JOB_RESULT_NOT_READY",
   "JOB_TRANSITION_INVALID",
   "JOB_TIMEOUT",
+  "PROVIDER_CANCELLED",
+  "PROVIDER_CAPABILITY_MISSING",
+  "PROVIDER_ENDPOINT_INVALID",
+  "PROVIDER_INSTALLATION_INVALID",
+  "PROVIDER_MALFORMED_OUTPUT",
+  "PROVIDER_PROCESS_LOST",
+  "PROVIDER_RESPONSE_INVALID",
+  "PROVIDER_TIMEOUT",
+  "PROVIDER_VERSION_INCOMPATIBLE",
   "UTILITY_HANDSHAKE_FAILED",
   "UTILITY_MESSAGE_INVALID",
   "UTILITY_PROCESS_LOST",
@@ -130,6 +148,8 @@ export const referenceKinds = [
   "task",
   "result",
   "diagnostic",
+  "provider-installation",
+  "creation-session",
 ] as const;
 export type ReferenceKind = (typeof referenceKinds)[number];
 
@@ -169,6 +189,12 @@ export const resultReferenceSchema = hostReferenceSchema
 export const diagnosticReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("diagnostic") })
   .strict();
+export const providerInstallationReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("provider-installation") })
+  .strict();
+export const creationSessionReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("creation-session") })
+  .strict();
 
 export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
   Omit<z.infer<typeof hostReferenceSchema>, "kind"> & { kind: K }
@@ -182,6 +208,9 @@ export type ReportOutputReference = HostReference<"report-output">;
 export type TaskReference = HostReference<"task">;
 export type ResultReference = HostReference<"result">;
 export type DiagnosticReference = HostReference<"diagnostic">;
+export type ProviderInstallationReference =
+  HostReference<"provider-installation">;
+export type CreationSessionReference = HostReference<"creation-session">;
 
 export type AssetRole = "input" | "output" | "reference" | "license" | "other";
 export type VerificationStatus = "valid" | "invalid" | "error";
@@ -276,6 +305,136 @@ export interface WorkbenchState {
   recentWorkspaces: Array<RecentItem<"workspace">>;
   recentPackages: Array<RecentItem<"package">>;
 }
+
+export const CREATION_SNAPSHOT_VERSION = "1.0.0" as const;
+export const CREATION_PROVIDER_ID = "comfyui-local" as const;
+export const CREATION_TEMPLATE_ID = "comfyui-core-text-to-image-v1" as const;
+export const CREATION_TEMPLATE_SHA256 =
+  "623d53adee2d221ea3fd62ffa2749466e742c948d190eed7c00f39db1cba4206" as const;
+
+export const creationParametersSchema = z
+  .object({
+    width: z.number().int().min(64).max(2048).multipleOf(8),
+    height: z.number().int().min(64).max(2048).multipleOf(8),
+    steps: z.number().int().min(1).max(100),
+    cfg: z.number().min(0).max(30),
+    sampler: z.enum(["euler", "euler_ancestral", "dpmpp_2m"]),
+    scheduler: z.enum(["normal", "karras", "simple"]),
+  })
+  .strict();
+export type CreationParameters = z.infer<typeof creationParametersSchema>;
+
+const digestSchema = z.string().regex(/^[0-9a-f]{64}$/u);
+export const creationSnapshotSchema = z
+  .object({
+    snapshot_version: z.literal(CREATION_SNAPSHOT_VERSION),
+    provider: z.literal(CREATION_PROVIDER_ID),
+    provider_version: semVerSchema,
+    workflow_template_id: z.literal(CREATION_TEMPLATE_ID),
+    workflow_template_sha256: z.literal(CREATION_TEMPLATE_SHA256),
+    checkpoint_observation: z.string().min(1).max(512),
+    seed: z
+      .number()
+      .int()
+      .min(0)
+      .max(2 ** 50),
+    parameters: creationParametersSchema,
+    prompt_disclosure: z.enum(["included", "digest-only"]),
+    prompt: z.string().max(32_768).optional(),
+    negative_prompt: z.string().max(32_768).optional(),
+    prompt_sha256: digestSchema,
+    negative_prompt_sha256: digestSchema,
+    parameters_sha256: digestSchema,
+    snapshot_sha256: digestSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const disclosed = value.prompt_disclosure === "included";
+    if (disclosed !== (value.prompt !== undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Prompt presence must match the disclosure choice.",
+      });
+    }
+    if (disclosed !== (value.negative_prompt !== undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Negative prompt presence must match the disclosure choice.",
+      });
+    }
+  });
+export type CreationSnapshot = z.infer<typeof creationSnapshotSchema>;
+
+export const creationSessionStates = [
+  "draft",
+  "frozen",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "proof_ready",
+  "complete",
+] as const;
+export type CreationSessionState = (typeof creationSessionStates)[number];
+
+export interface ProviderInstallationSummary {
+  reference: ProviderInstallationReference;
+  displayPath: string;
+  provider: typeof CREATION_PROVIDER_ID;
+  detectedVersion: string;
+  endpoint: "http://127.0.0.1:8188";
+  compatible: true;
+  checkpoints: string[];
+  customNodeCount: number;
+  license: {
+    name: "GNU General Public License v3.0";
+    spdx: "GPL-3.0-only";
+    sha256: string;
+  };
+}
+
+export interface CreationOutputSummary {
+  asset: Asset;
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  sizeBytes: number;
+  sha256: string;
+}
+
+export interface CreationSessionSummary {
+  reference: CreationSessionReference;
+  title: string;
+  state: CreationSessionState;
+  workspace: WorkspaceReference;
+  workspaceDisplayPath: string;
+  providerInstallation: ProviderInstallationReference;
+  providerVersion: string;
+  createdAt: string;
+  updatedAt: string;
+  snapshot?: CreationSnapshot | undefined;
+  providerJobId?: string | undefined;
+  progress?:
+    | {
+        completedUnits: number;
+        totalUnits: 100;
+        message: string;
+      }
+    | undefined;
+  output?: CreationOutputSummary | undefined;
+  package?: PackageReference | undefined;
+  packageDisplayPath?: string | undefined;
+  reportDisplayPath?: string | undefined;
+  verification?: VerificationReport | undefined;
+  error?: HostError | undefined;
+}
+
+export interface CreationSessionEvent {
+  sequence: number;
+  session: CreationSessionSummary;
+}
+
+export type CreationSessionEventListener = (
+  event: CreationSessionEvent,
+) => void;
 
 export interface HostError {
   code: string;
@@ -401,7 +560,7 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
   ) {
     throw new HostContractError(
       "NATIVE_CAPABILITY_INCONSISTENT",
-      "Native discovery limits contradict the required Host 1.1 runtime profile.",
+      "Native discovery limits contradict the required Host 1.2 runtime profile.",
     );
   }
   const version = parseSemVer(discovery.apiVersion)!;
@@ -423,8 +582,8 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
 export interface HostDiagnostics {
   reference: DiagnosticReference;
   hostKind: "standalone" | "mock" | "compatible-host";
-  workbenchVersion: "0.3.0";
-  contractVersion: "1.1.0";
+  workbenchVersion: "0.4.0";
+  contractVersion: "1.2.0";
   nativeApiVersion: string;
   engineVersion: string;
   protocolVersion: "0.2.0";
@@ -560,6 +719,41 @@ export const setPreferenceRequestSchema = z
   .object({
     key: z.enum(["language", "theme", "lastSection", "windowState"]),
     value: z.string().max(2_000),
+  })
+  .strict();
+export const inspectProviderInstallationRequestSchema = z
+  .object({ installation: providerInstallationReferenceSchema })
+  .strict();
+export const createCreationSessionRequestSchema = z
+  .object({
+    workspace: workspaceReferenceSchema,
+    installation: providerInstallationReferenceSchema,
+    title: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export const creationSessionRequestSchema = z
+  .object({ session: creationSessionReferenceSchema })
+  .strict();
+export const freezeCreationSessionRequestSchema = z
+  .object({
+    session: creationSessionReferenceSchema,
+    checkpointObservation: z.string().trim().min(1).max(512),
+    prompt: z.string().max(32_768),
+    negativePrompt: z.string().max(32_768),
+    promptDisclosure: z.enum(["included", "digest-only"]),
+    seed: z
+      .number()
+      .int()
+      .min(0)
+      .max(2 ** 50),
+    parameters: creationParametersSchema,
+  })
+  .strict();
+export const completeCreationProofRequestSchema = z
+  .object({
+    session: creationSessionReferenceSchema,
+    packageOutput: packageOutputReferenceSchema,
+    reportOutput: reportOutputReferenceSchema,
   })
   .strict();
 
@@ -699,6 +893,37 @@ export type JobEventListener = (event: JobEvent) => void;
 
 export interface ProofHostApi {
   getDiagnostics(): Promise<HostEnvelope<HostDiagnostics>>;
+  chooseProviderInstallation(): Promise<ProviderInstallationReference | null>;
+  inspectProviderInstallation(request: {
+    installation: ProviderInstallationReference;
+  }): Promise<HostEnvelope<ProviderInstallationSummary>>;
+  createCreationSession(request: {
+    workspace: WorkspaceReference;
+    installation: ProviderInstallationReference;
+    title: string;
+  }): Promise<HostEnvelope<CreationSessionSummary>>;
+  getCreationSessions(): Promise<HostEnvelope<CreationSessionSummary[]>>;
+  freezeCreationSession(request: {
+    session: CreationSessionReference;
+    checkpointObservation: string;
+    prompt: string;
+    negativePrompt: string;
+    promptDisclosure: "included" | "digest-only";
+    seed: number;
+    parameters: CreationParameters;
+  }): Promise<HostEnvelope<CreationSessionSummary>>;
+  runCreationSession(request: {
+    session: CreationSessionReference;
+  }): Promise<HostEnvelope<CreationSessionSummary>>;
+  cancelCreationSession(request: {
+    session: CreationSessionReference;
+  }): Promise<HostEnvelope<CreationSessionSummary>>;
+  completeCreationProof(request: {
+    session: CreationSessionReference;
+    packageOutput: PackageOutputReference;
+    reportOutput: ReportOutputReference;
+  }): Promise<HostEnvelope<CreationSessionSummary>>;
+  subscribeCreationEvents(listener: CreationSessionEventListener): () => void;
   chooseWorkspaceParent(): Promise<WorkspaceParentReference | null>;
   chooseExistingWorkspace(): Promise<WorkspaceReference | null>;
   chooseAsset(): Promise<AssetReference | null>;
@@ -900,6 +1125,72 @@ export const sealPackageResultSchema = z
 export const saveReportResultSchema = z
   .object({ displayPath: localDisplayPath })
   .strict();
+export const providerInstallationSummarySchema = z
+  .object({
+    reference: providerInstallationReferenceSchema,
+    displayPath: localDisplayPath,
+    provider: z.literal(CREATION_PROVIDER_ID),
+    detectedVersion: semVerSchema,
+    endpoint: z.literal("http://127.0.0.1:8188"),
+    compatible: z.literal(true),
+    checkpoints: z.array(z.string().min(1).max(512)).min(1).max(1_000),
+    customNodeCount: z.number().int().nonnegative(),
+    license: z
+      .object({
+        name: z.literal("GNU General Public License v3.0"),
+        spdx: z.literal("GPL-3.0-only"),
+        sha256: digestSchema,
+      })
+      .strict(),
+  })
+  .strict();
+export const creationOutputSummarySchema = z
+  .object({
+    asset: assetSchema,
+    mediaType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    sizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(100 * 1024 * 1024),
+    sha256: digestSchema,
+  })
+  .strict();
+export const creationSessionSummarySchema: z.ZodType<CreationSessionSummary> = z
+  .object({
+    reference: creationSessionReferenceSchema,
+    title: z.string().min(1).max(200),
+    state: z.enum(creationSessionStates),
+    workspace: workspaceReferenceSchema,
+    workspaceDisplayPath: localDisplayPath,
+    providerInstallation: providerInstallationReferenceSchema,
+    providerVersion: semVerSchema,
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    snapshot: creationSnapshotSchema.optional(),
+    providerJobId: z.string().min(1).max(160).optional(),
+    progress: z
+      .object({
+        completedUnits: z.number().int().min(0).max(100),
+        totalUnits: z.literal(100),
+        message: z.string().min(1).max(500),
+      })
+      .strict()
+      .optional(),
+    output: creationOutputSummarySchema.optional(),
+    package: packageReferenceSchema.optional(),
+    packageDisplayPath: localDisplayPath.optional(),
+    reportDisplayPath: localDisplayPath.optional(),
+    verification: verificationReportSchema.optional(),
+    error: hostErrorSchema.optional(),
+  })
+  .strict();
+export const creationSessionEventSchema = z
+  .object({
+    sequence: z.number().int().positive(),
+    session: creationSessionSummarySchema,
+  })
+  .strict();
 
 export const jobCreateRequestSchema = z.discriminatedUnion("operation", [
   z
@@ -1035,6 +1326,18 @@ export const jobResultSchema = z.discriminatedUnion("operation", [
 
 export const proofHostResponseSchemas = {
   getDiagnostics: hostEnvelopeSchemaFor(hostDiagnosticsSchema),
+  chooseProviderInstallation: providerInstallationReferenceSchema.nullable(),
+  inspectProviderInstallation: hostEnvelopeSchemaFor(
+    providerInstallationSummarySchema,
+  ),
+  createCreationSession: hostEnvelopeSchemaFor(creationSessionSummarySchema),
+  getCreationSessions: hostEnvelopeSchemaFor(
+    z.array(creationSessionSummarySchema),
+  ),
+  freezeCreationSession: hostEnvelopeSchemaFor(creationSessionSummarySchema),
+  runCreationSession: hostEnvelopeSchemaFor(creationSessionSummarySchema),
+  cancelCreationSession: hostEnvelopeSchemaFor(creationSessionSummarySchema),
+  completeCreationProof: hostEnvelopeSchemaFor(creationSessionSummarySchema),
   chooseWorkspaceParent: workspaceParentReferenceSchema.nullable(),
   chooseExistingWorkspace: workspaceReferenceSchema.nullable(),
   chooseAsset: assetReferenceSchema.nullable(),

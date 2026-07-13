@@ -1,0 +1,25 @@
+{
+  "template_version": "1.0.0",
+  "template_id": "comfyui-core-text-to-image-v1",
+  "allowed_node_classes": [
+    "CheckpointLoaderSimple",
+    "CLIPTextEncode",
+    "EmptyLatentImage",
+    "KSampler",
+    "VAEDecode",
+    "SaveImage"
+  ],
+  "bindings": [
+    "checkpoint",
+    "prompt",
+    "negative_prompt",
+    "seed",
+    "width",
+    "height",
+    "steps",
+    "cfg",
+    "sampler",
+    "scheduler",
+    "filename_prefix"
+  ]
+}

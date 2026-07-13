@@ -5,6 +5,27 @@ import { channels } from "../shared/channels";
 
 const api: ProofHostApi = {
   getDiagnostics: () => ipcRenderer.invoke(channels.getDiagnostics),
+  chooseProviderInstallation: () =>
+    ipcRenderer.invoke(channels.chooseProviderInstallation),
+  inspectProviderInstallation: (request) =>
+    ipcRenderer.invoke(channels.inspectProviderInstallation, request),
+  createCreationSession: (request) =>
+    ipcRenderer.invoke(channels.createCreationSession, request),
+  getCreationSessions: () => ipcRenderer.invoke(channels.getCreationSessions),
+  freezeCreationSession: (request) =>
+    ipcRenderer.invoke(channels.freezeCreationSession, request),
+  runCreationSession: (request) =>
+    ipcRenderer.invoke(channels.runCreationSession, request),
+  cancelCreationSession: (request) =>
+    ipcRenderer.invoke(channels.cancelCreationSession, request),
+  completeCreationProof: (request) =>
+    ipcRenderer.invoke(channels.completeCreationProof, request),
+  subscribeCreationEvents: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: unknown) =>
+      listener(value as Parameters<typeof listener>[0]);
+    ipcRenderer.on(channels.creationEvent, handler);
+    return () => ipcRenderer.off(channels.creationEvent, handler);
+  },
   chooseWorkspaceParent: () =>
     ipcRenderer.invoke(channels.chooseWorkspaceParent),
   chooseExistingWorkspace: () =>

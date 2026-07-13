@@ -37,9 +37,9 @@ describe("versioned Main/Utility messages", () => {
     const ready = {
       version: UTILITY_PROTOCOL_VERSION,
       type: "ready",
-      nativeApiVersion: "1.1.0",
+      nativeApiVersion: "1.2.0",
       discovery: {
-        apiVersion: "1.1.0",
+        apiVersion: "1.2.0",
         engineVersion: "0.2.0",
         supportedProtocolVersions: ["0.2.0"],
         capabilities: [...NATIVE_CAPABILITIES],

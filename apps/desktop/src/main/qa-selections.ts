@@ -12,6 +12,7 @@ const qaSelectionsSchema = z
     packages: z.array(selectedPath),
     packageOutputs: z.array(selectedPath),
     reportOutputs: z.array(selectedPath),
+    providerInstallations: z.array(selectedPath).default([]),
   })
   .strict();
 

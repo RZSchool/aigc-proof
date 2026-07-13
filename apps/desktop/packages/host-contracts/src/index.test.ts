@@ -37,8 +37,8 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(HOST_CONTRACT_VERSION).toBe("1.1.0");
-    expect(NATIVE_API_VERSION).toBe("1.1.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.2.0");
+    expect(NATIVE_API_VERSION).toBe("1.2.0");
     expect(NATIVE_ENGINE_VERSION).toBe("0.2.0");
     expect(PROTOCOL_VERSION).toBe("0.2.0");
   });
@@ -48,7 +48,7 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.1.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.2.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
@@ -89,7 +89,7 @@ describe("@aigc-proof/host-contracts", () => {
     ).toThrow();
   });
 
-  it("rejects malformed, missing, duplicate, and unsorted 1.1 capabilities", () => {
+  it("rejects malformed, missing, duplicate, and unsorted 1.2 capabilities", () => {
     const cases = [
       {},
       discovery({ apiVersion: undefined }),
@@ -132,9 +132,9 @@ describe("@aigc-proof/host-contracts", () => {
         displayLabel: "diagnostics",
       },
       hostKind: "standalone",
-      workbenchVersion: "0.3.0",
-      contractVersion: "1.1.0",
-      nativeApiVersion: "1.1.0",
+      workbenchVersion: "0.4.0",
+      contractVersion: "1.2.0",
+      nativeApiVersion: "1.2.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
@@ -167,6 +167,8 @@ describe("@aigc-proof/host-contracts", () => {
       task: reference("task", "g"),
       result: reference("result", "h"),
       diagnostic: reference("diagnostic", "i"),
+      provider: reference("provider-installation", "j"),
+      session: reference("creation-session", "k"),
     };
     const asset = {
       asset_id: "asset-1",
@@ -248,9 +250,9 @@ describe("@aigc-proof/host-contracts", () => {
     const diagnostics = {
       reference: references.diagnostic,
       hostKind: "standalone",
-      workbenchVersion: "0.3.0",
-      contractVersion: "1.1.0",
-      nativeApiVersion: "1.1.0",
+      workbenchVersion: "0.4.0",
+      contractVersion: "1.2.0",
+      nativeApiVersion: "1.2.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
@@ -278,8 +280,73 @@ describe("@aigc-proof/host-contracts", () => {
       finishedAt: "2026-07-13T00:00:01Z",
       result: references.result,
     };
+    const snapshot = {
+      snapshot_version: "1.0.0",
+      provider: "comfyui-local",
+      provider_version: "0.27.0",
+      workflow_template_id: "comfyui-core-text-to-image-v1",
+      workflow_template_sha256:
+        "623d53adee2d221ea3fd62ffa2749466e742c948d190eed7c00f39db1cba4206",
+      checkpoint_observation: "model.safetensors",
+      seed: 42,
+      parameters: {
+        width: 512,
+        height: 512,
+        steps: 20,
+        cfg: 7,
+        sampler: "euler",
+        scheduler: "normal",
+      },
+      prompt_disclosure: "included",
+      prompt: "mountain",
+      negative_prompt: "text",
+      prompt_sha256: "2".repeat(64),
+      negative_prompt_sha256: "3".repeat(64),
+      parameters_sha256: "4".repeat(64),
+      snapshot_sha256: "5".repeat(64),
+    };
+    const provider = {
+      reference: references.provider,
+      displayPath: "C:\\ComfyUI",
+      provider: "comfyui-local",
+      detectedVersion: "0.27.0",
+      endpoint: "http://127.0.0.1:8188",
+      compatible: true,
+      checkpoints: ["model.safetensors"],
+      customNodeCount: 0,
+      license: {
+        name: "GNU General Public License v3.0",
+        spdx: "GPL-3.0-only",
+        sha256: "6".repeat(64),
+      },
+    };
+    const session = {
+      reference: references.session,
+      title: "creation",
+      state: "frozen",
+      workspace: references.workspace,
+      workspaceDisplayPath: "C:\\workspace",
+      providerInstallation: references.provider,
+      providerVersion: "0.27.0",
+      createdAt: "2026-07-14T00:00:00Z",
+      updatedAt: "2026-07-14T00:00:01Z",
+      snapshot,
+      progress: {
+        completedUnits: 0,
+        totalUnits: 100,
+        message: "frozen",
+      },
+    };
     const valid: Record<string, unknown> = {
       getDiagnostics: { ok: true, data: diagnostics },
+      chooseProviderInstallation: references.provider,
+      inspectProviderInstallation: { ok: true, data: provider },
+      createCreationSession: { ok: true, data: session },
+      getCreationSessions: { ok: true, data: [session] },
+      freezeCreationSession: { ok: true, data: session },
+      runCreationSession: { ok: true, data: session },
+      cancelCreationSession: { ok: true, data: session },
+      completeCreationProof: { ok: true, data: session },
       chooseWorkspaceParent: references.parent,
       chooseExistingWorkspace: references.workspace,
       chooseAsset: references.asset,

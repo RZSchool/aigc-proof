@@ -8,13 +8,16 @@ Version 0.2 has no field encryption, selective disclosure, or automatic redactio
 
 Raw external absolute paths are not stored in the Manifest. original_name is retained, so filenames themselves may be sensitive.
 
-The Electron workbench remains offline and uses no telemetry, account, upload, remote font, CDN,
-or cloud API. Electron Main stores local preferences, recent workspace/package paths, indexes, and
-UI state in SQLite under the current user's application-data directory. Those absolute local paths
+The Electron workbench uses no telemetry, account, upload, remote font, CDN, or cloud API. Its
+optional creation provider communicates only with a user-authorized ComfyUI on loopback; remote
+endpoints, redirects, credentials, cloud/partner nodes, downloads, and updates are rejected.
+Electron Main stores local preferences, recent workspace/package paths, provider inventory,
+creation sessions, indexes, and UI state in SQLite under the current user's application-data
+directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.3.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 0.4.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
@@ -22,4 +25,11 @@ artifacts unless the existing portable format explicitly includes a filename.
 Main sends only validated job DTOs and authorized paths to the local supervised Utility Process;
 file bytes and SQLite contents are not copied through renderer IPC. Job history and recent items
 remain local disposable application state. Utility isolation, progress, and crash diagnostics do
-not introduce telemetry, upload, accounts, or network access.
+not introduce telemetry, upload, accounts, or external network access.
+
+Creation snapshots require an explicit prompt disclosure choice. `included` places prompt and
+negative-prompt text into portable event evidence. `digest-only` records their SHA-256 values and
+keeps the execution text in memory only; it is intentionally unavailable after restart. Provider
+evidence omits credentials, absolute external installation/output paths, environment dumps, and
+unbounded logs. Declared checkpoint names and original asset filenames can still be sensitive,
+and hashes may reveal equality with known content.

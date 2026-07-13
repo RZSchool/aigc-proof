@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AssetRole,
   BridgeEnvelope,
+  CreationSessionSummary,
   HostDiagnostics,
   HostReference,
   Inspection,
@@ -10,6 +11,8 @@ import type {
   PackageOutputReference,
   PackageReference,
   ProofHostApi,
+  ProviderInstallationReference,
+  ProviderInstallationSummary,
   ReportOutputReference,
   VerificationReport,
   WorkbenchState,
@@ -110,6 +113,39 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     useState<ReportOutputReference>();
   const [report, setReport] = useState<VerificationReport>();
   const [inspection, setInspection] = useState<Inspection>();
+  const [providerPath, setProviderPath] = useState("");
+  const [providerReference, setProviderReference] =
+    useState<ProviderInstallationReference>();
+  const [provider, setProvider] = useState<ProviderInstallationSummary>();
+  const [creationSessions, setCreationSessions] = useState<
+    CreationSessionSummary[]
+  >([]);
+  const [creationSession, setCreationSession] =
+    useState<CreationSessionSummary>();
+  const [creationTitle, setCreationTitle] = useState("本地创作会话");
+  const [creationPrompt, setCreationPrompt] = useState("");
+  const [creationNegativePrompt, setCreationNegativePrompt] = useState("");
+  const [creationCheckpoint, setCreationCheckpoint] = useState("");
+  const [creationSeed, setCreationSeed] = useState("42");
+  const [creationWidth, setCreationWidth] = useState("512");
+  const [creationHeight, setCreationHeight] = useState("512");
+  const [creationSteps, setCreationSteps] = useState("20");
+  const [creationCfg, setCreationCfg] = useState("7");
+  const [creationSampler, setCreationSampler] = useState<
+    "euler" | "euler_ancestral" | "dpmpp_2m"
+  >("euler");
+  const [creationScheduler, setCreationScheduler] = useState<
+    "normal" | "karras" | "simple"
+  >("normal");
+  const [creationDisclosure, setCreationDisclosure] = useState<
+    "included" | "digest-only"
+  >("included");
+  const [creationPackagePath, setCreationPackagePath] = useState("");
+  const [creationPackageOutput, setCreationPackageOutput] =
+    useState<PackageOutputReference>();
+  const [creationReportPath, setCreationReportPath] = useState("");
+  const [creationReportOutput, setCreationReportOutput] =
+    useState<ReportOutputReference>();
 
   useEffect(() => {
     let active = true;
@@ -130,6 +166,19 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     void proofHost.getJobs().then((response) => {
       if (active && response.ok) setJobs(response.data);
     });
+    void proofHost.getCreationSessions().then((response) => {
+      if (!active || !response.ok) return;
+      setCreationSessions(response.data);
+      setCreationSession(response.data[0]);
+      const completed = response.data.find(
+        (session) => session.state === "complete",
+      );
+      if (completed?.package && completed.packageDisplayPath) {
+        setPackageReference(completed.package);
+        setPackagePath(completed.packageDisplayPath);
+      }
+      if (completed?.verification) setReport(completed.verification);
+    });
     const unsubscribe = proofHost.subscribeJobEvents((event) => {
       if (!active) return;
       setJobs((current) => {
@@ -144,9 +193,24 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         });
       }
     });
+    const unsubscribeCreation = proofHost.subscribeCreationEvents((event) => {
+      if (!active) return;
+      setCreationSessions((current) => [
+        event.session,
+        ...current.filter(
+          (session) => session.createdAt !== event.session.createdAt,
+        ),
+      ]);
+      setCreationSession((current) =>
+        !current || current.createdAt === event.session.createdAt
+          ? event.session
+          : current,
+      );
+    });
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeCreation();
     };
   }, [proofHost]);
 
@@ -369,6 +433,108 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     });
   }
 
+  async function inspectProvider(): Promise<void> {
+    await run("正在核验本地 ComfyUI", async () => {
+      if (!providerReference)
+        throw new Error("请先选择 ComfyUI portable 安装目录。");
+      const response = await proofHost.inspectProviderInstallation({
+        installation: providerReference,
+      });
+      if (!response.ok) return showFailure(response);
+      setProvider(response.data);
+      setCreationCheckpoint(response.data.checkpoints[0] ?? "");
+      showSuccess("本地 ComfyUI 已通过冻结能力检查", response.data);
+    });
+  }
+
+  async function createSession(): Promise<void> {
+    await run("正在创建创作会话", async () => {
+      if (!workspace || !provider)
+        throw new Error("请先打开工作区并完成 ComfyUI 核验。");
+      const response = await proofHost.createCreationSession({
+        workspace: workspace.reference,
+        installation: provider.reference,
+        title: creationTitle.trim(),
+      });
+      if (!response.ok) return showFailure(response);
+      setCreationSession(response.data);
+      showSuccess("创作会话已创建", response.data);
+    });
+  }
+
+  async function freezeSession(): Promise<void> {
+    await run("正在冻结不可变创作快照", async () => {
+      if (!creationSession) throw new Error("请先创建创作会话。");
+      const response = await proofHost.freezeCreationSession({
+        session: creationSession.reference,
+        checkpointObservation: creationCheckpoint,
+        prompt: creationPrompt,
+        negativePrompt: creationNegativePrompt,
+        promptDisclosure: creationDisclosure,
+        seed: Number(creationSeed),
+        parameters: {
+          width: Number(creationWidth),
+          height: Number(creationHeight),
+          steps: Number(creationSteps),
+          cfg: Number(creationCfg),
+          sampler: creationSampler,
+          scheduler: creationScheduler,
+        },
+      });
+      if (!response.ok) return showFailure(response);
+      setCreationSession(response.data);
+      showSuccess("创作快照已冻结", response.data.snapshot);
+    });
+  }
+
+  async function runSession(): Promise<void> {
+    await run("ComfyUI 正在生成并自动接入证明", async () => {
+      if (!creationSession) throw new Error("请先冻结创作会话。");
+      const response = await proofHost.runCreationSession({
+        session: creationSession.reference,
+      });
+      if (!response.ok) return showFailure(response);
+      setCreationSession(response.data);
+      const refreshed = await proofHost.loadWorkspace({
+        workspace: response.data.workspace,
+      });
+      if (refreshed.ok) setWorkspace(refreshed.data);
+      showSuccess("生成输出已自动接入，证明证据链已就绪", response.data);
+    });
+  }
+
+  async function cancelSession(): Promise<void> {
+    if (!creationSession) return;
+    const response = await proofHost.cancelCreationSession({
+      session: creationSession.reference,
+    });
+    if (!response.ok) return showFailure(response);
+    setCreationSession(response.data);
+    showSuccess("已请求取消；不会生成成功输出证明", response.data);
+  }
+
+  async function completeCreationProof(): Promise<void> {
+    await run("正在封装、验证并保存创作证明", async () => {
+      if (!creationSession || !creationPackageOutput || !creationReportOutput)
+        throw new Error("请选择创作证明包和报告的新输出位置。");
+      const response = await proofHost.completeCreationProof({
+        session: creationSession.reference,
+        packageOutput: creationPackageOutput,
+        reportOutput: creationReportOutput,
+      });
+      if (!response.ok) return showFailure(response);
+      setCreationSession(response.data);
+      setCreationPackageOutput(undefined);
+      setCreationReportOutput(undefined);
+      if (response.data.package && response.data.packageDisplayPath) {
+        setPackageReference(response.data.package);
+        setPackagePath(response.data.packageDisplayPath);
+      }
+      if (response.data.verification) setReport(response.data.verification);
+      showSuccess("创作证明已完成并独立验证", response.data);
+    });
+  }
+
   return (
     <div className="workbench-page">
       <header className="app-header">
@@ -379,7 +545,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.3.0</span>
+            <span data-testid="workbench-version">Workbench 0.4.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -656,10 +822,383 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           </div>
         </section>
 
+        <section className="panel creation-panel" data-region="creation">
+          <PanelTitle
+            step="03"
+            title="本地创作 → 自动证明"
+            hint="固定核心节点工作流；生成输出由 Main 自动获取、校验和加入工作区，无需再次浏览文件"
+          />
+          <div className="creation-layout">
+            <div className="creation-column">
+              <h3>1. 核验本地 Provider</h3>
+              <p className="prerequisite">
+                仅连接 127.0.0.1:8188；不会下载、更新或打包
+                ComfyUI、Python、模型或自定义节点。
+              </p>
+              <Field label="ComfyUI portable 安装目录">
+                <div className="field-row">
+                  <input
+                    data-testid="provider-path"
+                    readOnly
+                    placeholder="选择包含 python_embeded 与 ComfyUI 的目录"
+                    value={providerPath}
+                  />
+                  <button
+                    className="secondary"
+                    data-testid="choose-provider"
+                    onClick={() =>
+                      void choose(setProviderReference, setProviderPath, () =>
+                        proofHost.chooseProviderInstallation(),
+                      )
+                    }
+                  >
+                    选择
+                  </button>
+                </div>
+              </Field>
+              <button
+                className="secondary"
+                data-testid="inspect-provider"
+                disabled={!providerReference}
+                onClick={() => void inspectProvider()}
+              >
+                检查版本、许可与能力
+              </button>
+              {provider && (
+                <div className="provider-card" data-testid="provider-card">
+                  <strong>ComfyUI {provider.detectedVersion} · 已兼容</strong>
+                  <span>{provider.endpoint}</span>
+                  <span>
+                    GPL-3.0-only · {provider.checkpoints.length} 个 checkpoint ·
+                    检测到 {provider.customNodeCount} 个非基线节点（不会调用）
+                  </span>
+                </div>
+              )}
+
+              <h3>2. 创建或恢复会话</h3>
+              <Field label="会话标题">
+                <input
+                  data-testid="creation-title"
+                  value={creationTitle}
+                  onChange={(event) => setCreationTitle(event.target.value)}
+                  maxLength={200}
+                />
+              </Field>
+              <button
+                className="primary"
+                data-testid="create-creation-session"
+                disabled={!workspace || !provider || !creationTitle.trim()}
+                onClick={() => void createSession()}
+              >
+                在当前工作区创建会话
+              </button>
+              <div className="session-list" data-testid="creation-sessions">
+                {creationSessions.length === 0 && <p>暂无本地创作会话。</p>}
+                {creationSessions.slice(0, 12).map((session) => (
+                  <button
+                    className={
+                      creationSession?.createdAt === session.createdAt
+                        ? "selected"
+                        : ""
+                    }
+                    key={session.createdAt}
+                    onClick={() => {
+                      setCreationSession(session);
+                      if (session.package && session.packageDisplayPath) {
+                        setPackageReference(session.package);
+                        setPackagePath(session.packageDisplayPath);
+                      }
+                      if (session.verification) setReport(session.verification);
+                    }}
+                  >
+                    <strong>{session.title}</strong>
+                    <span>
+                      {session.state} · {session.updatedAt}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="creation-column creation-form">
+              <h3>3. 冻结生成事实</h3>
+              <div className="creation-form-grid">
+                <Field label="Checkpoint 观察值">
+                  <select
+                    data-testid="creation-checkpoint"
+                    value={creationCheckpoint}
+                    onChange={(event) =>
+                      setCreationCheckpoint(event.target.value)
+                    }
+                  >
+                    {(provider?.checkpoints ?? []).map((checkpoint) => (
+                      <option key={checkpoint} value={checkpoint}>
+                        {checkpoint}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Seed">
+                  <input
+                    data-testid="creation-seed"
+                    inputMode="numeric"
+                    value={creationSeed}
+                    onChange={(event) => setCreationSeed(event.target.value)}
+                  />
+                </Field>
+                <Field label="宽度">
+                  <input
+                    data-testid="creation-width"
+                    inputMode="numeric"
+                    value={creationWidth}
+                    onChange={(event) => setCreationWidth(event.target.value)}
+                  />
+                </Field>
+                <Field label="高度">
+                  <input
+                    data-testid="creation-height"
+                    inputMode="numeric"
+                    value={creationHeight}
+                    onChange={(event) => setCreationHeight(event.target.value)}
+                  />
+                </Field>
+                <Field label="Steps">
+                  <input
+                    data-testid="creation-steps"
+                    inputMode="numeric"
+                    value={creationSteps}
+                    onChange={(event) => setCreationSteps(event.target.value)}
+                  />
+                </Field>
+                <Field label="CFG">
+                  <input
+                    data-testid="creation-cfg"
+                    inputMode="decimal"
+                    value={creationCfg}
+                    onChange={(event) => setCreationCfg(event.target.value)}
+                  />
+                </Field>
+                <Field label="Sampler">
+                  <select
+                    data-testid="creation-sampler"
+                    value={creationSampler}
+                    onChange={(event) =>
+                      setCreationSampler(
+                        event.target.value as
+                          | "euler"
+                          | "euler_ancestral"
+                          | "dpmpp_2m",
+                      )
+                    }
+                  >
+                    <option value="euler">euler</option>
+                    <option value="euler_ancestral">euler_ancestral</option>
+                    <option value="dpmpp_2m">dpmpp_2m</option>
+                  </select>
+                </Field>
+                <Field label="Scheduler">
+                  <select
+                    data-testid="creation-scheduler"
+                    value={creationScheduler}
+                    onChange={(event) =>
+                      setCreationScheduler(
+                        event.target.value as "normal" | "karras" | "simple",
+                      )
+                    }
+                  >
+                    <option value="normal">normal</option>
+                    <option value="karras">karras</option>
+                    <option value="simple">simple</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Prompt">
+                <textarea
+                  data-testid="creation-prompt"
+                  rows={4}
+                  value={creationPrompt}
+                  onChange={(event) => setCreationPrompt(event.target.value)}
+                  maxLength={32768}
+                />
+              </Field>
+              <Field label="Negative prompt">
+                <textarea
+                  data-testid="creation-negative-prompt"
+                  rows={3}
+                  value={creationNegativePrompt}
+                  onChange={(event) =>
+                    setCreationNegativePrompt(event.target.value)
+                  }
+                  maxLength={32768}
+                />
+              </Field>
+              <Field label="Prompt 披露">
+                <select
+                  data-testid="creation-disclosure"
+                  value={creationDisclosure}
+                  onChange={(event) =>
+                    setCreationDisclosure(
+                      event.target.value as "included" | "digest-only",
+                    )
+                  }
+                >
+                  <option value="included">随证据包含原文</option>
+                  <option value="digest-only">仅包含 SHA-256</option>
+                </select>
+                <small className="field-help">
+                  digest-only
+                  原文只在本次运行内存中使用，重启后不会保留，也无法继续未运行的冻结会话。
+                </small>
+              </Field>
+              <div className="actions">
+                <button
+                  className="primary"
+                  data-testid="freeze-creation-session"
+                  disabled={
+                    creationSession?.state !== "draft" ||
+                    !creationCheckpoint ||
+                    !creationPrompt
+                  }
+                  onClick={() => void freezeSession()}
+                >
+                  冻结快照
+                </button>
+                <button
+                  className="primary"
+                  data-testid="run-creation-session"
+                  disabled={
+                    !creationSession ||
+                    !["frozen", "failed", "cancelled"].includes(
+                      creationSession.state,
+                    )
+                  }
+                  onClick={() => void runSession()}
+                >
+                  运行真实 ComfyUI
+                </button>
+                <button
+                  className="quiet-button"
+                  data-testid="cancel-creation-session"
+                  disabled={creationSession?.state !== "running"}
+                  onClick={() => void cancelSession()}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {creationSession && (
+            <div className="creation-review" data-testid="creation-review">
+              <div>
+                <strong>{creationSession.title}</strong>
+                <span data-testid="creation-state">
+                  {creationSession.state}
+                </span>
+              </div>
+              <div className="progress-track">
+                <i
+                  style={{
+                    width: `${creationSession.progress?.completedUnits ?? 0}%`,
+                  }}
+                />
+              </div>
+              <p>{creationSession.progress?.message ?? "等待创作快照。"}</p>
+              {creationSession.snapshot && (
+                <code>
+                  snapshot {creationSession.snapshot.snapshot_sha256}\n prompt{" "}
+                  {creationSession.snapshot.prompt_disclosure} ·{" "}
+                  {creationSession.snapshot.prompt_sha256}\n template{" "}
+                  {creationSession.snapshot.workflow_template_sha256}
+                </code>
+              )}
+              {creationSession.output && (
+                <code data-testid="creation-output">
+                  output {creationSession.output.sha256} ·{" "}
+                  {formatBytes(creationSession.output.sizeBytes)} · 自动加入
+                  workspace
+                </code>
+              )}
+              {creationSession.error && (
+                <p className="error-line">
+                  [{creationSession.error.code}] {creationSession.error.message}
+                </p>
+              )}
+              <small>
+                Provider、模型与时间均为观察值；不代表身份、权属、原创性、授权、签名或可信时间。
+              </small>
+            </div>
+          )}
+
+          <div className="creation-complete">
+            <h3>4. 封装、立即验证并保存报告</h3>
+            <Field label="新的 .aigcproof 输出">
+              <div className="field-row">
+                <input
+                  readOnly
+                  data-testid="creation-package-path"
+                  value={creationPackagePath}
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-creation-package-output"
+                  onClick={() =>
+                    void choose(
+                      setCreationPackageOutput,
+                      setCreationPackagePath,
+                      () => proofHost.choosePackageOutput(),
+                    )
+                  }
+                >
+                  选择位置
+                </button>
+              </div>
+            </Field>
+            <Field label="新的 JSON 验证报告">
+              <div className="field-row">
+                <input
+                  readOnly
+                  data-testid="creation-report-path"
+                  value={creationReportPath}
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-creation-report-output"
+                  onClick={() =>
+                    void choose(
+                      setCreationReportOutput,
+                      setCreationReportPath,
+                      () => proofHost.chooseReportOutput(),
+                    )
+                  }
+                >
+                  选择位置
+                </button>
+              </div>
+            </Field>
+            <button
+              className="primary"
+              data-testid="complete-creation-proof"
+              disabled={
+                creationSession?.state !== "proof_ready" ||
+                !creationPackageOutput ||
+                !creationReportOutput
+              }
+              onClick={() => void completeCreationProof()}
+            >
+              封装 → 验证 → 保存报告
+            </button>
+            {creationSession?.state === "complete" &&
+              creationSession.verification && (
+                <VerificationCard report={creationSession.verification} />
+              )}
+          </div>
+        </section>
+
         <div className="workflow-pair">
           <section className="panel" data-region="event">
             <PanelTitle
-              step="03"
+              step="04"
               title="记录创作事件"
               hint="JSON 对象进入规范化事件哈希链"
             />
@@ -695,7 +1234,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
           <section className="panel" data-region="seal">
             <PanelTitle
-              step="04"
+              step="05"
               title="封装证明包"
               hint="重新校验工作区、同目录临时写入、自检并禁止覆盖"
             />
@@ -738,7 +1277,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <section className="panel" data-region="verify">
           <PanelTitle
-            step="05"
+            step="06"
             title="验证、元数据检查与报告"
             hint="完整性验证和仅检查元数据互不替代"
           />
@@ -825,7 +1364,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <section className="panel" data-region="jobs" data-testid="jobs-panel">
           <PanelTitle
-            step="06"
+            step="07"
             title="任务、进度与取消"
             hint="排队任务可立即取消；运行中的 Rust 原子阶段只记录取消请求并安全结束"
           />
@@ -874,7 +1413,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <section className="panel" data-region="settings">
           <PanelTitle
-            step="07"
+            step="08"
             title="本地设置与运行诊断"
             hint="SQLite 可删除重建，不是证明格式或证据"
           />

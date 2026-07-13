@@ -54,6 +54,29 @@ proof validity. Normal production launch exposes no CDP port or DevTools; the au
 enabled only by an explicit local test argument. Its deterministic selection manifest is rejected
 unless that same explicit QA mode is active and is not part of the production preload contract.
 
+## Local creation provider boundary
+
+Renderer input cannot select an endpoint, command, workflow JSON, node class, output path, or
+staging path. Main accepts only an authorized ComfyUI installation reference and constrained
+generation fields. The Node creation core rejects non-loopback origins, URL credentials,
+redirects, missing capabilities, incompatible versions, unsafe output components, oversized
+responses, malformed images, mutated snapshots, invalid relationships, and invalid lifecycle
+transitions. The fixed workflow contains only reviewed core checkpoint/prompt/latent/sampler/VAE/
+save nodes; custom-node presence is diagnostic only and grants no execution authority.
+
+Provider output is untrusted until Main validates its bounded image bytes and SHA-256 and writes a
+no-clobber file under app-owned staging. The provider never receives SQLite or formal proof output
+paths. Only a successfully completed output can map creation evidence; failed, timed-out, crashed,
+or cancelled runs cannot become `proof_ready` or `complete`. Main still relies on Rust to copy,
+hash, record, seal, inspect, and verify the portable evidence.
+
+ComfyUI and checkpoints are external local components. Their reported version, checkpoint name,
+job state, and time are observations, not verified software provenance, model-file hashes,
+identity, rights, authorization, originality, signature, or trusted time. A hostile local provider
+can return misleading but internally consistent content. The app does not protect a shared
+ComfyUI queue from other local clients; it therefore avoids global interruption unless it owns the
+managed child process.
+
 The workbench does not defend against a hostile local administrator, runtime binary replacement,
 or another process racing user-selected files beyond the core's existing no-clobber and recheck
 controls. The preview is unsigned, so the operating system may identify its publisher as unknown.

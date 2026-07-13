@@ -44,6 +44,12 @@ const validPackage = path.join(work, "有效 包.aigcproof");
 const tamperedPackage = path.join(work, "篡改 包.aigcproof");
 const malformedPackage = path.join(work, "损坏 包.aigcproof");
 const report = path.join(work, "验证 报告.json");
+const creationPackage = path.join(work, "创作 证明包.aigcproof");
+const creationReport = path.join(work, "创作 验证报告.json");
+const comfyUiInstallation = path.resolve(
+  process.env.AIGC_PROOF_COMFYUI_DIR ??
+    path.join(workspaceRoot, "..", "ComfyUI_windows_portable"),
+);
 const selectionManifest = path.join(evidence, "qa-selections.json");
 const addonPath = path.join(desktop, "native", "proof_napi.node");
 const steps: Array<{ name: string; result: string; detail?: string }> = [];
@@ -173,7 +179,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.3.0")
+  if (version !== "Workbench 0.4.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -208,7 +214,7 @@ async function captureLayoutEvidence(cdp: CdpClient): Promise<void> {
     }))()`);
     if (
       layout.horizontalOverflow ||
-      layout.regions !== 8 ||
+      layout.regions !== 9 ||
       layout.navs !== 0 ||
       layout.clippedActions !== 0
     ) {
@@ -260,6 +266,11 @@ async function closeApp(active: Launch): Promise<void> {
 async function main(): Promise<void> {
   await fsp.rm(evidence, { recursive: true, force: true });
   await fsp.mkdir(work, { recursive: true });
+  await Promise.all([
+    fsp.access(path.join(comfyUiInstallation, "python_embeded", "python.exe")),
+    fsp.access(path.join(comfyUiInstallation, "ComfyUI", "main.py")),
+    fsp.access(path.join(comfyUiInstallation, "ComfyUI", "LICENSE")),
+  ]);
   await fsp.mkdir(existingTarget);
   await fsp.writeFile(existingMarker, "must remain unchanged", "utf8");
   await fsp.writeFile(input, "desktop bridge input", "utf8");
@@ -277,8 +288,9 @@ async function main(): Promise<void> {
         existingWorkspaces: [proofWorkspace],
         assets: [input, output, reference, license, other, crashInput],
         packages: [validPackage, tamperedPackage, malformedPackage],
-        packageOutputs: [validPackage, validPackage],
-        reportOutputs: [report, report],
+        packageOutputs: [creationPackage, validPackage, validPackage],
+        reportOutputs: [creationReport, report, report],
+        providerInstallations: [comfyUiInstallation],
       },
       null,
       2,
@@ -325,7 +337,7 @@ async function main(): Promise<void> {
     (value) => value.includes(proofWorkspace),
     "new workspace target preview",
   );
-  await setControl(cdp, "project-name", "AP-022 Electron 自动验收");
+  await setControl(cdp, "project-name", "AP-024 creation-to-proof 自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
 
@@ -363,6 +375,114 @@ async function main(): Promise<void> {
     await clickAndWait(cdp, "add-asset", "资产已添加");
   }
   record("add-all-five-asset-roles");
+
+  await click(cdp, "choose-provider");
+  await waitFor(
+    () => controlValue(cdp, "provider-path"),
+    (value) => value.includes(comfyUiInstallation),
+    "Host-issued ComfyUI installation",
+  );
+  await clickAndWait(
+    cdp,
+    "inspect-provider",
+    "本地 ComfyUI 已通过冻结能力检查",
+    120_000,
+  );
+  const providerText = await controlText(cdp, "provider-card");
+  if (
+    !providerText.includes("ComfyUI 0.27.0") ||
+    !providerText.includes("GPL-3.0-only")
+  ) {
+    throw new Error(`Provider inventory is incomplete: ${providerText}`);
+  }
+  record("comfyui-v0.27.0-capability-license-inspection", providerText);
+
+  await setControl(cdp, "creation-title", "AP-024 真实本地创作");
+  await clickAndWait(cdp, "create-creation-session", "创作会话已创建");
+  await setControl(
+    cdp,
+    "creation-prompt",
+    "a small red paper boat on a quiet lake, minimal composition",
+  );
+  await setControl(cdp, "creation-negative-prompt", "text, watermark, logo");
+  await setControl(cdp, "creation-seed", "240724");
+  await setControl(cdp, "creation-width", "512");
+  await setControl(cdp, "creation-height", "512");
+  await setControl(cdp, "creation-steps", "12");
+  await setControl(cdp, "creation-cfg", "7");
+  await setControl(cdp, "creation-disclosure", "included");
+  await clickAndWait(cdp, "freeze-creation-session", "创作快照已冻结");
+  record("immutable-creation-snapshot-frozen");
+  await clickAndWait(
+    cdp,
+    "run-creation-session",
+    "生成输出已自动接入",
+    10 * 60 * 1000,
+  );
+  const creationOutputText = await controlText(cdp, "creation-output");
+  if (!creationOutputText.includes("自动加入 workspace")) {
+    throw new Error("Generated output was not automatically ingested.");
+  }
+  record("real-comfyui-output-auto-ingested", creationOutputText);
+
+  await click(cdp, "choose-creation-package-output");
+  await waitFor(
+    () => controlValue(cdp, "creation-package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued creation package output",
+  );
+  await click(cdp, "choose-creation-report-output");
+  await waitFor(
+    () => controlValue(cdp, "creation-report-path"),
+    (value) => value.includes(creationReport),
+    "Host-issued creation report output",
+  );
+  await clickAndWait(
+    cdp,
+    "complete-creation-proof",
+    "创作证明已完成并独立验证",
+    180_000,
+  );
+  await Promise.all([fsp.access(creationPackage), fsp.access(creationReport)]);
+  const completedCreation = await cdp.evaluate<{
+    state: string;
+    status?: string;
+    output?: string;
+    snapshot?: string;
+    checkpoint?: string;
+    providerVersion?: string;
+  }>(`(async () => {
+    const sessions = await window.aigcProof.getCreationSessions();
+    if (!sessions.ok || !sessions.data[0]) throw new Error('Creation session missing.');
+    return {
+      state: sessions.data[0].state,
+      status: sessions.data[0].verification?.status,
+      output: sessions.data[0].output?.sha256,
+      snapshot: sessions.data[0].snapshot?.snapshot_sha256,
+      checkpoint: sessions.data[0].snapshot?.checkpoint_observation,
+      providerVersion: sessions.data[0].providerVersion,
+    };
+  })()`);
+  if (
+    completedCreation.state !== "complete" ||
+    completedCreation.status !== "valid" ||
+    !completedCreation.output ||
+    !completedCreation.snapshot ||
+    completedCreation.providerVersion !== "0.27.0"
+  ) {
+    throw new Error(
+      `Creation proof completion is invalid: ${JSON.stringify(completedCreation)}`,
+    );
+  }
+  await cdp.evaluate(
+    `document.querySelector('[data-testid="creation-review"]')?.scrollIntoView({ block: "center" })`,
+  );
+  await delay(100);
+  await fsp.writeFile(
+    path.join(evidence, "creation-proof-complete.png"),
+    await cdp.screenshot(),
+  );
+  record("creation-seal-verify-report", JSON.stringify(completedCreation));
 
   await setControl(cdp, "event-type", "generation");
   await setControl(
@@ -416,7 +536,7 @@ async function main(): Promise<void> {
   await clickAndWait(cdp, "inspect-package", "未执行完整性验证");
   record("inspect-metadata-only");
 
-  const zip = new AdmZip(validPackage);
+  const zip = new AdmZip(creationPackage);
   const asset = zip
     .getEntries()
     .find((entry) => entry.entryName.startsWith("assets/"));
@@ -573,7 +693,8 @@ async function main(): Promise<void> {
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
     "0.2.0",
-    "1.1.0",
+    "1.2.0",
+    "creation.comfyui-local",
     "integration.aigcstudio",
     "execution.utility-process",
     "operation.safe-cancellation",
@@ -609,6 +730,35 @@ async function main(): Promise<void> {
     "persisted recent package",
   );
   record("sqlite-restart-persistence");
+  const reopenedCreation = await launch.cdp.evaluate<{
+    state: string;
+    status?: string;
+    packageStatus?: string;
+  }>(`(async () => {
+    const sessions = await window.aigcProof.getCreationSessions();
+    const session = sessions.ok ? sessions.data.find((item) => item.title === 'AP-024 真实本地创作') : undefined;
+    if (!session?.package) throw new Error('Persisted creation package reference missing.');
+    const verified = await window.aigcProof.verifyPackage({ package: session.package });
+    if (!verified.ok) throw new Error(verified.error.code);
+    return {
+      state: session.state,
+      status: session.verification?.status,
+      packageStatus: verified.data.status,
+    };
+  })()`);
+  if (
+    reopenedCreation.state !== "complete" ||
+    reopenedCreation.status !== "valid" ||
+    reopenedCreation.packageStatus !== "valid"
+  ) {
+    throw new Error(
+      `Restarted creation verification failed: ${JSON.stringify(reopenedCreation)}`,
+    );
+  }
+  record(
+    "creation-restart-reopen-and-reverify",
+    JSON.stringify(reopenedCreation),
+  );
   await clickAndWait(
     launch.cdp,
     "rebuild-recents",
@@ -660,9 +810,9 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.3.0",
-    contractVersion: "1.1.0",
-    nativeApiVersion: "1.1.0",
+    workbenchVersion: "0.4.0",
+    contractVersion: "1.2.0",
+    nativeApiVersion: "1.2.0",
     engineVersion: "0.2.0",
     protocolVersion: "0.2.0",
     executable: testedExecutable,
@@ -671,9 +821,15 @@ async function main(): Promise<void> {
     database,
     workspace: proofWorkspace,
     package: validPackage,
+    creationPackage,
     tamperedPackage,
     report,
+    creationReport,
+    comfyUiInstallation,
     nativeDiscovery,
+    providerInventory: providerText,
+    completedCreation,
+    reopenedCreation,
     steps,
     recoveryState,
     recoveredFiles,

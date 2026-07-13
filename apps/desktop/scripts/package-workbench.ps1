@@ -108,7 +108,9 @@ foreach ($generatedDirectory in $generatedDirectories) {
     }
 }
 Invoke-NodeTool "tsc" "-p packages\host-contracts\tsconfig.json"
+Invoke-NodeTool "tsc" "-p packages\creation-core\tsconfig.json"
 Invoke-NodeTool "tsc" "--noEmit -p packages\host-contracts\tsconfig.json"
+Invoke-NodeTool "tsc" "--noEmit -p packages\creation-core\tsconfig.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.renderer.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.main.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.preload.json"
@@ -116,6 +118,7 @@ Invoke-NodeTool "tsc" "--noEmit -p tsconfig.utility.json"
 Invoke-NodeTool "tsc" "--noEmit -p tsconfig.qa.json"
 Invoke-NodeTool "eslint" "."
 Invoke-NodeTool "vitest" "run --config packages\host-contracts\vitest.config.ts"
+Invoke-NodeTool "vitest" "run --config packages\creation-core\vitest.config.ts"
 Invoke-NodeTool "vitest" "run"
 Invoke-NodeTool "tsc" "-p tsconfig.main.json"
 Invoke-NodeTool "tsc" "-p tsconfig.utility.json"
@@ -144,9 +147,9 @@ $rustcVersion = Get-VersionText (Join-Path $env:USERPROFILE ".rustup\toolchains\
 $gccPath = (Get-Command "x86_64-w64-mingw32-gcc.exe" -ErrorAction Stop).Source
 $gccVersion = Get-VersionText $gccPath "--version"
 $metadata = [ordered]@{
-    workbench_version = "0.3.0"
-    host_contract_version = "1.1.0"
-    native_api_version = "1.1.0"
+    workbench_version = "0.4.0"
+    host_contract_version = "1.2.0"
+    native_api_version = "1.2.0"
     native_engine_version = "0.2.0"
     protocol_version = "0.2.0"
     platform = "Windows x64"
@@ -157,6 +160,12 @@ $metadata = [ordered]@{
     app_asar_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $asar).Hash.ToLowerInvariant()
     native_addon_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $addon).Hash.ToLowerInvariant()
     host_contract_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $desktop "packages\host-contracts\dist\index.js")).Hash.ToLowerInvariant()
+    creation_core_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $desktop "packages\creation-core\dist\index.js")).Hash.ToLowerInvariant()
+    creation_workflow_template_sha256 = "623d53adee2d221ea3fd62ffa2749466e742c948d190eed7c00f39db1cba4206"
+    creation_snapshot_schema_sha256 = "a4ceabdf7f40d166f4977da87e5820eda6e251ce3bc974571948913187e0e824"
+    comfyui_compatibility_baseline = "0.27.0"
+    comfyui_license = "GPL-3.0-only; external user-managed component"
+    comfyui_distribution = "user-authorized external installation; not packaged"
     rust_toolchain = $rustcVersion
     c_toolchain = $gccVersion
     node = $nodeVersion

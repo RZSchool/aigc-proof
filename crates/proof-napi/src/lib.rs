@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.1.0";
+pub const NATIVE_API_VERSION: &str = "1.2.0";
 pub const NATIVE_ENGINE_VERSION: &str = "0.2.0";
 pub const SUPPORTED_PROTOCOL_VERSION: &str = "0.2.0";
 pub const NATIVE_CAPABILITIES: &[&str] = &[
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.1.0");
+        assert_eq!(info.api_version, "1.2.0");
         assert_eq!(info.engine_version, "0.2.0");
         assert_eq!(info.supported_protocol_versions, ["0.2.0"]);
         assert_eq!(

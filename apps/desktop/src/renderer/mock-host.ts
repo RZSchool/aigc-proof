@@ -8,6 +8,8 @@ import {
   UNAVAILABLE_FEATURES,
   WORKBENCH_VERSION,
   type Asset,
+  type CreationSessionEvent,
+  type CreationSessionSummary,
   type HostEnvelope,
   type HostReference,
   type Inspection,
@@ -16,6 +18,7 @@ import {
   type JobResult,
   type JobSnapshot,
   type ProofHostApi,
+  type ProviderInstallationSummary,
   type ReferenceKind,
   type VerificationReport,
   type WorkbenchState,
@@ -59,10 +62,21 @@ export class DeterministicMockProofHost implements ProofHostApi {
   readonly packageOutputReference = reference("package-output", "proof output");
   readonly reportOutputReference = reference("report-output", "report output");
   readonly diagnosticReference = reference("diagnostic", "mock diagnostics");
+  readonly providerReference = reference(
+    "provider-installation",
+    "ComfyUI portable",
+  );
+  readonly creationReference = reference(
+    "creation-session",
+    "Mock creation session",
+  );
   #jobs: JobSnapshot[] = [];
   #results = new Map<string, JobResult>();
   #listeners = new Set<(event: JobEvent) => void>();
+  #creationListeners = new Set<(event: CreationSessionEvent) => void>();
   #jobEventSequence = 0;
+  #creationEventSequence = 0;
+  #creationSession: CreationSessionSummary | undefined;
   #workspace = emptyWorkspace();
   #state: WorkbenchState = {
     schemaVersion: 1,
@@ -98,6 +112,168 @@ export class DeterministicMockProofHost implements ProofHostApi {
         unavailableFeatures: [...UNAVAILABLE_FEATURES],
       }),
     );
+  }
+  chooseProviderInstallation() {
+    return Promise.resolve(this.providerReference);
+  }
+  inspectProviderInstallation(
+    _request: Parameters<ProofHostApi["inspectProviderInstallation"]>[0],
+  ) {
+    void _request;
+    const summary: ProviderInstallationSummary = {
+      reference: this.providerReference,
+      displayPath: this.providerReference.displayPath!,
+      provider: "comfyui-local",
+      detectedVersion: "0.27.0",
+      endpoint: "http://127.0.0.1:8188",
+      compatible: true,
+      checkpoints: ["mock-model.safetensors"],
+      customNodeCount: 0,
+      license: {
+        name: "GNU General Public License v3.0",
+        spdx: "GPL-3.0-only",
+        sha256: "a".repeat(64),
+      },
+    };
+    return Promise.resolve(ok(summary));
+  }
+  createCreationSession(
+    request: Parameters<ProofHostApi["createCreationSession"]>[0],
+  ) {
+    this.#creationSession = {
+      reference: this.creationReference,
+      title: request.title,
+      state: "draft",
+      workspace: this.workspaceReference,
+      workspaceDisplayPath: this.workspaceReference.displayPath!,
+      providerInstallation: this.providerReference,
+      providerVersion: "0.27.0",
+      createdAt: "2026-07-14T00:00:00Z",
+      updatedAt: "2026-07-14T00:00:00Z",
+    };
+    this.emitCreation(this.#creationSession);
+    return Promise.resolve(ok(this.#creationSession));
+  }
+  getCreationSessions() {
+    return Promise.resolve(
+      ok(this.#creationSession ? [this.#creationSession] : []),
+    );
+  }
+  freezeCreationSession(
+    request: Parameters<ProofHostApi["freezeCreationSession"]>[0],
+  ) {
+    if (!this.#creationSession) throw new Error("Mock session missing.");
+    const snapshot = {
+      snapshot_version: "1.0.0" as const,
+      provider: "comfyui-local" as const,
+      provider_version: "0.27.0",
+      workflow_template_id: "comfyui-core-text-to-image-v1" as const,
+      workflow_template_sha256:
+        "623d53adee2d221ea3fd62ffa2749466e742c948d190eed7c00f39db1cba4206" as const,
+      checkpoint_observation: request.checkpointObservation,
+      seed: request.seed,
+      parameters: request.parameters,
+      prompt_disclosure: request.promptDisclosure,
+      ...(request.promptDisclosure === "included"
+        ? { prompt: request.prompt, negative_prompt: request.negativePrompt }
+        : {}),
+      prompt_sha256: "b".repeat(64),
+      negative_prompt_sha256: "c".repeat(64),
+      parameters_sha256: "d".repeat(64),
+      snapshot_sha256: "e".repeat(64),
+    };
+    this.#creationSession = {
+      ...this.#creationSession,
+      state: "frozen",
+      snapshot,
+      updatedAt: "2026-07-14T00:00:01Z",
+      progress: {
+        completedUnits: 0,
+        totalUnits: 100,
+        message: "Mock snapshot frozen.",
+      },
+    };
+    this.emitCreation(this.#creationSession);
+    return Promise.resolve(ok(this.#creationSession));
+  }
+  runCreationSession(
+    _request: Parameters<ProofHostApi["runCreationSession"]>[0],
+  ) {
+    void _request;
+    if (!this.#creationSession) throw new Error("Mock session missing.");
+    const asset: Asset = {
+      asset_id: "mock-created-output",
+      role: "output",
+      package_path: "assets/mock-created-output.png",
+      original_name: "created.png",
+      media_type: "image/png",
+      size_bytes: 16,
+      sha256: "f".repeat(64),
+    };
+    this.#workspace = {
+      ...this.#workspace,
+      assets: [...this.#workspace.assets, asset],
+    };
+    this.#creationSession = {
+      ...this.#creationSession,
+      state: "proof_ready",
+      providerJobId: "mock-provider-job",
+      output: {
+        asset,
+        mediaType: "image/png",
+        sizeBytes: 16,
+        sha256: asset.sha256,
+      },
+      updatedAt: "2026-07-14T00:00:02Z",
+      progress: {
+        completedUnits: 100,
+        totalUnits: 100,
+        message: "Mock output automatically ingested.",
+      },
+    };
+    this.emitCreation(this.#creationSession);
+    return Promise.resolve(ok(this.#creationSession));
+  }
+  cancelCreationSession(
+    _request: Parameters<ProofHostApi["cancelCreationSession"]>[0],
+  ) {
+    void _request;
+    if (!this.#creationSession) throw new Error("Mock session missing.");
+    this.#creationSession = {
+      ...this.#creationSession,
+      state: "cancelled",
+      updatedAt: "2026-07-14T00:00:03Z",
+    };
+    this.emitCreation(this.#creationSession);
+    return Promise.resolve(ok(this.#creationSession));
+  }
+  async completeCreationProof(
+    _request: Parameters<ProofHostApi["completeCreationProof"]>[0],
+  ) {
+    void _request;
+    if (!this.#creationSession) throw new Error("Mock session missing.");
+    const verified = await this.verifyPackage({
+      package: this.packageReference,
+    });
+    if (!verified.ok) return verified;
+    const verification = verified.data;
+    this.#creationSession = {
+      ...this.#creationSession,
+      state: "complete",
+      package: this.packageReference,
+      packageDisplayPath: this.packageReference.displayPath!,
+      reportDisplayPath: this.reportOutputReference.displayPath!,
+      verification,
+      updatedAt: "2026-07-14T00:00:04Z",
+    };
+    this.emitCreation(this.#creationSession);
+    return ok(this.#creationSession);
+  }
+  subscribeCreationEvents(
+    listener: Parameters<ProofHostApi["subscribeCreationEvents"]>[0],
+  ) {
+    this.#creationListeners.add(listener);
+    return () => this.#creationListeners.delete(listener);
   }
   chooseWorkspaceParent() {
     return Promise.resolve(this.workspaceParent);
@@ -423,5 +599,10 @@ export class DeterministicMockProofHost implements ProofHostApi {
   private emitJob(job: JobSnapshot): void {
     const event = { sequence: ++this.#jobEventSequence, job };
     for (const listener of this.#listeners) listener(event);
+  }
+
+  private emitCreation(session: CreationSessionSummary): void {
+    const event = { sequence: ++this.#creationEventSequence, session };
+    for (const listener of this.#creationListeners) listener(event);
   }
 }

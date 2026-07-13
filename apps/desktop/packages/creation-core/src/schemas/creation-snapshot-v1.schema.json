@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigc-proof.local/schemas/creation-snapshot-v1.schema.json",
+  "title": "AIGC-Proof creation snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshot_version",
+    "provider",
+    "provider_version",
+    "workflow_template_id",
+    "workflow_template_sha256",
+    "checkpoint_observation",
+    "seed",
+    "parameters",
+    "prompt_disclosure",
+    "prompt_sha256",
+    "negative_prompt_sha256",
+    "parameters_sha256",
+    "snapshot_sha256"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "prompt_disclosure": { "const": "included" } },
+        "required": ["prompt_disclosure"]
+      },
+      "then": { "required": ["prompt", "negative_prompt"] }
+    },
+    {
+      "if": {
+        "properties": { "prompt_disclosure": { "const": "digest-only" } },
+        "required": ["prompt_disclosure"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["prompt"] },
+            { "required": ["negative_prompt"] }
+          ]
+        }
+      }
+    }
+  ],
+  "properties": {
+    "snapshot_version": { "const": "1.0.0" },
+    "provider": { "const": "comfyui-local" },
+    "provider_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "workflow_template_id": { "const": "comfyui-core-text-to-image-v1" },
+    "workflow_template_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "checkpoint_observation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "seed": { "type": "integer", "minimum": 0, "maximum": 1125899906842624 },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "steps", "cfg", "sampler", "scheduler"],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2048,
+          "multipleOf": 8
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2048,
+          "multipleOf": 8
+        },
+        "steps": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "cfg": { "type": "number", "minimum": 0, "maximum": 30 },
+        "sampler": { "enum": ["euler", "euler_ancestral", "dpmpp_2m"] },
+        "scheduler": { "enum": ["normal", "karras", "simple"] }
+      }
+    },
+    "prompt_disclosure": { "enum": ["included", "digest-only"] },
+    "prompt": { "type": "string", "maxLength": 32768 },
+    "negative_prompt": { "type": "string", "maxLength": 32768 },
+    "prompt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "negative_prompt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "parameters_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

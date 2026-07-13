@@ -44,6 +44,7 @@ async function main(): Promise<void> {
       (file) =>
         file.endsWith(".map") ||
         file.includes("qa-results") ||
+        file.endsWith("deterministic-test.js") ||
         /\.(?:ts|tsx|rs|cc|cpp|py|pdb)$/iu.test(file),
     )
   ) {
@@ -59,7 +60,7 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.3.0") {
+  if (packagedManifest.version !== "0.4.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
@@ -69,6 +70,17 @@ async function main(): Promise<void> {
     !mainSource.includes("contextIsolation: true")
   ) {
     throw new Error("Packaged Main security defaults are missing.");
+  }
+  if (
+    files.some((file) =>
+      /(?:python_embeded\/|comfyui\/main\.py$|\.safetensors$|custom_nodes\/)/iu.test(
+        file,
+      ),
+    )
+  ) {
+    throw new Error(
+      "Package improperly redistributes ComfyUI, Python, model weights, or custom nodes.",
+    );
   }
   if (!renderer.includes("connect-src 'none'")) {
     throw new Error("Packaged renderer CSP is not offline-only.");
@@ -114,7 +126,7 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.1.0",
+    contractVersion: "1.2.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
     protocolVersion: "0.2.0",

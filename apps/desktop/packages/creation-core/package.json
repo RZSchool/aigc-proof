@@ -1,0 +1,17 @@
+{
+  "name": "@aigc-proof/creation-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Host-neutral creation-session and local ComfyUI adapter core",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@aigc-proof/host-contracts": "workspace:*",
+    "zod": "3.25.76"
+  }
+}

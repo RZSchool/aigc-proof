@@ -11,6 +11,7 @@ import {
   type WorkspaceReference,
 } from "../shared/contracts";
 import { App } from "./App";
+import { DeterministicMockProofHost } from "./mock-host";
 
 const state = {
   schemaVersion: 1,
@@ -54,9 +55,9 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.3.0",
-        contractVersion: "1.1.0",
-        nativeApiVersion: "1.1.0",
+        workbenchVersion: "0.4.0",
+        contractVersion: "1.2.0",
+        nativeApiVersion: "1.2.0",
         engineVersion: "0.2.0",
         protocolVersion: "0.2.0",
         supportedProtocolVersions: ["0.2.0"],
@@ -73,6 +74,8 @@ beforeEach(() => {
       },
     }),
     getState: vi.fn().mockResolvedValue({ ok: true, data: state }),
+    getCreationSessions: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+    subscribeCreationEvents: vi.fn().mockReturnValue(() => undefined),
     setPreference: vi.fn().mockResolvedValue({ ok: true, data: state }),
     chooseWorkspaceParent: vi.fn(),
     chooseExistingWorkspace: vi.fn(),
@@ -108,10 +111,10 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "创建者身份未验证",
     );
-    expect(screen.getByText("Workbench 0.3.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.4.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
     expect(document.querySelector("nav")).not.toBeInTheDocument();
   });
 
@@ -119,7 +122,7 @@ describe("workbench shell", () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
     expect(card).toHaveTextContent("0.2.0");
-    expect(card).toHaveTextContent("1.1.0");
+    expect(card).toHaveTextContent("1.2.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -223,5 +226,40 @@ describe("workbench shell", () => {
     expect(window.aigcProof.previewWorkspaceTarget).not.toHaveBeenCalled();
     expect(window.aigcProof.initializeWorkspace).not.toHaveBeenCalled();
     expect(window.aigcProof.loadWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("keeps real-product creation-to-proof controls on the same page and auto-ingests mock output", async () => {
+    const user = userEvent.setup();
+    const host = new DeterministicMockProofHost();
+    render(<App host={host} />);
+
+    await user.click(screen.getByTestId("choose-create-parent"));
+    await user.type(screen.getByTestId("workspace-folder-name"), "creation");
+    await waitFor(() =>
+      expect(screen.getByTestId("init-workspace")).toBeEnabled(),
+    );
+    await user.click(screen.getByTestId("init-workspace"));
+    await user.click(screen.getByTestId("choose-provider"));
+    await user.click(screen.getByTestId("inspect-provider"));
+    await screen.findByTestId("provider-card");
+    await user.click(screen.getByTestId("create-creation-session"));
+    await user.type(screen.getByTestId("creation-prompt"), "local prompt");
+    await user.click(screen.getByTestId("freeze-creation-session"));
+    await user.click(screen.getByTestId("run-creation-session"));
+
+    expect(await screen.findByTestId("creation-output")).toHaveTextContent(
+      "自动加入 workspace",
+    );
+    await user.click(screen.getByTestId("choose-creation-package-output"));
+    await user.click(screen.getByTestId("choose-creation-report-output"));
+    await user.click(screen.getByTestId("complete-creation-proof"));
+    await waitFor(() =>
+      expect(screen.getByTestId("creation-state")).toHaveTextContent(
+        "complete",
+      ),
+    );
+    expect(screen.getByTestId("unified-workflow")).toContainElement(
+      screen.getByTestId("creation-review"),
+    );
   });
 });

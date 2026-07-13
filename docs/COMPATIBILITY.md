@@ -30,33 +30,42 @@ Rust-1.86-only line.
 
 Unsigned 0.2 packages must never be reinterpreted as signed, identity-verified, officially verified, or trusted-time evidence by later versions.
 
-Workbench 0.3.0 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
+Workbench 0.4.0 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
 public Rust core as the CLI, and its SQLite database is application metadata only. Workspaces,
 packages, and JSON reports remain portable across clients without SQLite. Windows x64 is the
 required packaged-workbench platform; Linux remains a required core/CLI regression platform and
 macOS evidence is informational unless actually executed.
 
-Workbench 0.3.0 preserves the separate create and open path semantics introduced in 0.1.1.
+Workbench 0.4.0 preserves the separate create and open path semantics introduced in 0.1.1.
 Creation accepts an existing parent and a new portable folder component; Electron Main resolves
 the final target and preserves the core's strict no-overwrite rule. Opening continues to require
 an existing valid workspace.
 
-Workbench 0.3.0 replaces Main-owned native loading with a supervised Utility Process and adds
-bounded asynchronous jobs, phase progress, truthful cancellation states, and a one-page UI. These
-are application/runtime changes only; they do not change workspace files, `.aigcproof` packages,
-reports, protocol 0.2.0, or assurance.
+Workbench 0.4.0 retains the supervised Utility Process, bounded asynchronous proof jobs, phase
+progress, truthful cancellation states, and one-page UI from 0.3. It adds Host/native API 1.2,
+SQLite schema v2 creation sessions, and a reusable creation core with a loopback-only ComfyUI
+v0.27.0 compatibility profile. These are application/runtime and evidence-orchestration changes
+only; they do not change workspace files, `.aigcproof` packages, reports, protocol 0.2.0, or
+assurance.
 
-## Workbench 0.3.0 compatibility matrix
+The ComfyUI profile is exact and capability-based for this release: the installation and server
+must report v0.27.0; required loopback routes, WebSocket, six core node classes, and at least one
+checkpoint must exist. ComfyUI, Python, custom nodes, and models remain separately installed and
+licensed. Their presence or observation does not change proof assurance.
+
+## Workbench 0.4.0 compatibility matrix
 
 | Layer | Version | Compatibility behavior |
 | --- | --- | --- |
-| Workbench application | 0.3.0 | Product/UI/runtime version; does not change proof assurance |
-| `ProofHostApi` contract | 1.1.0 | 1.1 adds bounded jobs, progress, cancellation states, runtime limits and Utility diagnostics; unknown major fails closed |
-| Native API | 1.1.0 | Main validates the Utility discovery handshake before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities/limits fail closed |
+| Workbench application | 0.4.0 | Product/UI/runtime version; does not change proof assurance |
+| `ProofHostApi` contract | 1.2.0 | 1.2 adds creation sessions, provider inventory, snapshots, progress, automatic proof completion, stable capabilities/errors; unknown major fails closed |
+| Native API | 1.2.0 | Main validates the Utility discovery handshake before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities/limits fail closed |
+| Creation core | 1.0.0 | Host/UI/database-independent lifecycle, snapshot, fixed workflow, provider adapter and evidence mapping |
+| ComfyUI profile | 0.27.0 | External local installation; exact version plus reviewed capabilities required; never bundled |
 | Native engine | 0.2.0 | Exact engine expected by this Workbench |
 | Proof protocol | 0.2.0 | Exact supported portable workspace/package/report semantics |
 
-Native API 1.1.0 advertises only reviewed workspace, asset, event, package, verification,
+Native API 1.2.0 advertises only reviewed workspace, asset, event, package, verification,
 inspection and execution capabilities. It truthfully reports napi-rs asynchronous tasks, Utility
 Process isolation, and phase progress as available, while safe interruption of running atomic Rust
 operations remains unavailable. Display paths returned with Host references are never

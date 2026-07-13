@@ -18,11 +18,18 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.1.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 1.2.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
     replay, Main-owned SQLite, and one menu-free scrollable workflow page.
+16. Host-neutral `@aigc-proof/creation-core` with immutable canonical snapshots, deterministic
+    creation-event mapping, strict lifecycle transitions, and a fixed core-node ComfyUI workflow.
+17. Loopback-only ComfyUI v0.27.0 adapter with bounded capability discovery, WebSocket progress,
+    automatic image validation/ingestion, truthful cancel/failure behavior, and no arbitrary
+    workflow, command, remote endpoint, provider path, or Renderer authority.
+18. SQLite schema v2 provider/session persistence and one-page creation-to-proof controls that
+    seal, immediately verify, save a report, and reopen the completed portable proof after restart.
 
 Verification status:
 - Rust toolchain: Rust 1.85.0, rustfmt, and Clippy installed and confirmed
@@ -158,6 +165,53 @@ The final Windows x64 artifact is 205,586,944 bytes with SHA-256
 is `dcee5e87bc2823b32ab53ebcac7a84e758a89eb6ee53011b3cbfdfa8c8e03050`. Final structured
 evidence and six reviewed layout screenshots are under
 `app/AIGC-Proof-Workbench/acceptance-evidence-final/`.
+
+Independent creation-to-proof Workbench (AP-024, 2026-07-14): passed through Workbench 0.4.0 at
+workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Host contract and native API 1.2.0 add
+typed provider-installation and creation-session operations while the proof engine and protocol
+remain unsigned Internal Integrity 0.2.0. The new reusable Node creation core is independent of
+Electron, React, Standalone SQLite, and the Standalone renderer. It freezes canonical prompt/
+parameter disclosure snapshots, enforces truthful draft/frozen/running/succeeded/proof-ready/
+complete transitions, and maps only successful provider/job/output relationships into six ordered
+proof events.
+
+The accepted real provider was the existing user-authorized
+`E:\workspace\ComfyUI_windows_portable` installation at exact ComfyUI v0.27.0, using its existing
+`DreamShaper_8_pruned.safetensors` checkpoint. AIGC-Proof neither downloaded nor packaged
+ComfyUI, Python, GPU runtimes, custom nodes, or model weights. The adapter used only loopback
+HTTP/WebSocket, the repository-owned seven-node text-to-image graph built from six reviewed core
+node classes, and automatic bounded PNG retrieval. Custom nodes were inventoried for diagnostics
+but never invoked. The fixed workflow-template SHA-256 is
+`623d53adee2d221ea3fd62ffa2749466e742c948d190eed7c00f39db1cba4206`; the strict snapshot-Schema
+SHA-256 is `a4ceabdf7f40d166f4977da87e5820eda6e251ce3bc974571948913187e0e824`.
+
+Final frozen install, Prettier, all TypeScript configurations, ESLint, 6 Host-contract tests,
+16 creation-core snapshot/lifecycle/provider/security/consumer tests, and 57 Desktop
+unit/component/security/process tests passed, including deterministic recovery of interrupted
+`running`/`succeeded` sessions as retryable failures. The exact packaged EXE passed Electron/CDP
+at both required layouts with no navigation/menu or clipping, then created/opened a workspace, added all
+five asset roles, inspected the real provider, froze the immutable snapshot, generated a real
+296.1 KB output, automatically ingested it, recorded the creation chain, sealed and immediately
+verified a no-clobber proof, saved a report, restarted, reopened the complete session, reverified
+the package, rejected tampering and malformed input, recovered SQLite, and exited cleanly. The
+real output SHA-256 is `0597a30fc4082f5ca9770b24ae76c3102c327fcffd5ae604af1ba5282abcb401`;
+the resulting creation package SHA-256 is
+`508c5c53c0b0406a4fc7b8e8235e43b78ae9c92be7e2875e49880d4c480600ec`. Independent native Windows
+CLI verification accepted that same package and rejected its tampered copy with
+`ASSET_HASH_MISMATCH`.
+
+Linux Rust 1.85.0 and native Windows GNU Rust 1.85.0/MinGW-w64 GCC 15.2.0 both passed formatting,
+locked check, warnings-denied Clippy, all applicable CLI/core/Schema/Node-API/security tests,
+documentation, and real CLI smoke workflows. Package-boundary QA found 426 files, zero source
+maps, Utility-only native-addon loading, and no test generator or ComfyUI/Python/model/custom-node
+redistribution. A separate normal packaged launch created a visible window, exposed no QA/CDP
+port, and exited cleanly. The final EXE is 205,586,944 bytes with SHA-256
+`7ef1cf7d2915ac66c870e12e0c172617f9fcd64d631da4ee5a10adb3bad78638`; ASAR SHA-256 is
+`a5a76a0fcdf3d68038b70c5316ca649f738100b4a2a09c26457a903e60b3e5f4`; native-addon SHA-256 is
+`4895f030045aa629e74842c8797357f67c929ff75b6df4d5be2c800551df61fd`. Final structured evidence,
+cross-verification reports, and reviewed screenshots are under
+`app/AIGC-Proof-Workbench/acceptance-evidence-final/`. macOS was not executed and is not claimed
+as passed.
 
 Not implemented:
 - Creator identity verification
