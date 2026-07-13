@@ -33,13 +33,22 @@ the same local workspace. Cross-platform behavior must be tested against the pin
 The renderer is treated as untrusted presentation. It cannot access Node.js, arbitrary IPC,
 filesystem APIs, SQLite, or native modules. The preload allowlists typed methods; Main validates
 every DTO, owns dialogs and paths, denies renderer permissions/new windows/unexpected navigation,
-and calls a fixed Node-API surface. Rust revalidates all protocol inputs and performs every proof
-operation off the renderer and Main event loops.
+and calls a fixed Node-API surface. Renderer operations carry expiring, kind-specific opaque
+references. Main rejects malformed, forged, unknown, expired, mismatched-kind, and changed-path
+references; any display label/path is ignored as authority. Rust revalidates all protocol inputs
+and performs every proof operation off the renderer and Main event loops.
+
+Main validates the native discovery response before proof IPC registration. Missing/malformed
+discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities
+fails closed with a stable startup diagnostic. The current addon uses napi-rs asynchronous tasks
+in Main; it does not claim Utility Process crash isolation, progress streaming, or safe
+cancellation.
 
 The SQLite database is not evidence and must not be trusted as the only copy of workspace or
 package data. Corrupt or missing app state may remove preferences and recents, but must not change
 proof validity. Normal production launch exposes no CDP port or DevTools; the automatic QA port is
-enabled only by an explicit local test argument.
+enabled only by an explicit local test argument. Its deterministic selection manifest is rejected
+unless that same explicit QA mode is active and is not part of the production preload contract.
 
 The workbench does not defend against a hostile local administrator, runtime binary replacement,
 or another process racing user-selected files beyond the core's existing no-clobber and recheck

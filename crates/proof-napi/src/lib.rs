@@ -18,6 +18,59 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+pub const NATIVE_API_VERSION: &str = "1.0.0";
+pub const NATIVE_ENGINE_VERSION: &str = "0.2.0";
+pub const SUPPORTED_PROTOCOL_VERSION: &str = "0.2.0";
+pub const NATIVE_CAPABILITIES: &[&str] = &[
+    "proof.asset.add",
+    "proof.event.record",
+    "proof.package.inspect",
+    "proof.package.seal",
+    "proof.package.verify",
+    "proof.workspace.create",
+    "proof.workspace.open",
+    "workbench.state.preferences",
+    "workbench.state.recents",
+];
+
+#[derive(Debug, Clone, Serialize)]
+#[napi(object)]
+pub struct NativeExecutionFacts {
+    pub napi_async_tasks: bool,
+    pub utility_process_isolation: bool,
+    pub progress_streaming: bool,
+    pub safe_cancellation: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[napi(object)]
+pub struct NativeApiInfo {
+    pub api_version: String,
+    pub engine_version: String,
+    pub supported_protocol_versions: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub execution: NativeExecutionFacts,
+}
+
+#[napi]
+pub fn get_api_info() -> NativeApiInfo {
+    NativeApiInfo {
+        api_version: NATIVE_API_VERSION.to_owned(),
+        engine_version: NATIVE_ENGINE_VERSION.to_owned(),
+        supported_protocol_versions: vec![SUPPORTED_PROTOCOL_VERSION.to_owned()],
+        capabilities: NATIVE_CAPABILITIES
+            .iter()
+            .map(|capability| (*capability).to_owned())
+            .collect(),
+        execution: NativeExecutionFacts {
+            napi_async_tasks: true,
+            utility_process_isolation: false,
+            progress_streaming: false,
+            safe_cancellation: false,
+        },
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Operation {
     InitializeWorkspace(InitializeWorkspaceRequest),
@@ -364,6 +417,26 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn discovery_is_exact_deterministic_and_truthful() {
+        let info = get_api_info();
+        assert_eq!(info.api_version, "1.0.0");
+        assert_eq!(info.engine_version, "0.2.0");
+        assert_eq!(info.supported_protocol_versions, ["0.2.0"]);
+        assert_eq!(
+            info.capabilities,
+            NATIVE_CAPABILITIES
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert!(info.capabilities.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(info.execution.napi_async_tasks);
+        assert!(!info.execution.utility_process_isolation);
+        assert!(!info.execution.progress_streaming);
+        assert!(!info.execution.safe_cancellation);
+    }
 
     fn data(operation: Operation) -> Value {
         let envelope: Value = serde_json::from_str(&run_operation(&operation)).unwrap();

@@ -13,3 +13,8 @@ or cloud API. Electron Main stores local preferences, recent workspace/package p
 UI state in SQLite under the current user's application-data directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
+
+Workbench 0.2.0 exposes selected locations to the renderer only as opaque Host references plus
+display labels/paths. Display information may still reveal sensitive local names to the local UI,
+logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
+artifacts unless the existing portable format explicitly includes a filename.

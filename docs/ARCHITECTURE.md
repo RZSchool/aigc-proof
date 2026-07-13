@@ -34,17 +34,20 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop workbench 0.1.1 preview
+## Desktop workbench 0.2.0 preview
 
 ~~~text
 React + TypeScript renderer (untrusted presentation)
+        | ProofHostApi 1.0.0
+        v
+Standalone Host adapter
         | typed window.aigcProof API
         v
 context-isolated preload (allowlist only)
         | validated IPC
         v
 Electron Main (dialogs, paths, lifecycle, security policy)
-        | Node-API
+        | version/capability handshake + Node-API
         v
 proof-napi (asynchronous adapter + bundled SQLite app state)
         |
@@ -56,9 +59,11 @@ portable workspace files / .aigcproof packages / JSON reports
 ~~~
 
 The renderer has no Node.js, filesystem, SQLite, native-module, or generic IPC access. Main
-validates every DTO, owns native dialogs and user-selected paths, and calls only the fixed addon
-surface. Rust remains the sole protocol and archive-security implementation; Electron never shells
-out to the CLI.
+validates every DTO, owns native dialogs and user-selected paths, and resolves short-lived typed
+opaque references whose display labels/paths have no authority. It registers proof IPC only after
+`proof_napi.node` reports compatible API 1.0.0, engine 0.2.0, protocol 0.2.0, deterministic
+capabilities, and truthful execution facts. Rust remains the sole protocol and archive-security
+implementation; Electron never shells out to the CLI.
 
 SQLite stores workbench preferences, recents, indexes, and UI state. It is disposable application
 metadata, not a proof format: losing it must not invalidate or make a workspace, report, or package
@@ -73,14 +78,17 @@ The previous Win32 tactical preview was retired only after the packaged Electron
 passed its automatic developer acceptance. Electron is now the sole built and documented primary
 desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
-## Current standalone and prospective host integration
+## Versioned standalone host and prospective integration
 
-The implemented `window.aigcProof` preload surface and `proof_napi.node` operations belong to the
-standalone Workbench. They are not a frozen cross-host contract. A possible future AIGCStudio
-product shape may use its own proof UI while sharing `proof-core` / `proof-schema`, but would first
-need a reviewed Host API, authorized asset or session-token mediation, version/capability
-negotiation, process-isolation policy, Host-owned state and staging, and dual-product packaged
-acceptance. None of those adaptations or the AIGCStudio integration is implemented today.
+`@aigc-proof/host-contracts` 1.0.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
+Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
+consumer/component tests but is not registered by the packaged product.
+
+A possible future AIGCStudio product may use its own proof UI while implementing the same reviewed
+interface semantics and sharing `proof-core` / `proof-schema`. Its Bridge, asset-token/catalog
+mediation, database/task/staging ownership, Utility Process policy, and dual-product packaged
+acceptance remain unimplemented and require separate schemes.
 
 See [Cross-host Integration Synchronization](INTEGRATION-SYNC.md) for the implemented,
 standalone-only, and prospective boundaries. The external architecture used for comparison is a

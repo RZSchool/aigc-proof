@@ -36,9 +36,14 @@ const existingTarget = path.join(work, "已存在 工作区");
 const existingMarker = path.join(existingTarget, "用户 文件.txt");
 const input = path.join(work, "输入 文件.txt");
 const output = path.join(work, "输出 文件.txt");
+const reference = path.join(work, "参考 文件.txt");
+const license = path.join(work, "许可 文件.txt");
+const other = path.join(work, "其他 文件.txt");
 const validPackage = path.join(work, "有效 包.aigcproof");
 const tamperedPackage = path.join(work, "篡改 包.aigcproof");
+const malformedPackage = path.join(work, "损坏 包.aigcproof");
 const report = path.join(work, "验证 报告.json");
+const selectionManifest = path.join(evidence, "qa-selections.json");
 const addonPath = path.join(desktop, "native", "proof_napi.node");
 const steps: Array<{ name: string; result: string; detail?: string }> = [];
 let launch: Launch | undefined;
@@ -88,6 +93,12 @@ async function controlText(cdp: CdpClient, testId: string): Promise<string> {
   );
 }
 
+async function controlValue(cdp: CdpClient, testId: string): Promise<string> {
+  return cdp.evaluate(
+    `document.querySelector('[data-testid=${js(testId)}]') instanceof HTMLInputElement ? document.querySelector('[data-testid=${js(testId)}]').value : ''`,
+  );
+}
+
 async function clickAndWait(
   cdp: CdpClient,
   testId: string,
@@ -126,6 +137,7 @@ async function launchApp(port: number): Promise<Launch> {
   const args = [
     ...(mode === "dev" ? [desktop] : []),
     `--aigc-proof-qa-port=${port}`,
+    `--qa-selection-manifest=${selectionManifest}`,
     `--user-data-dir=${userData}`,
   ];
   const stdout = fs.createWriteStream(
@@ -165,7 +177,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.1.1")
+  if (version !== "Workbench 0.2.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   return { process: child, cdp, protocol, executable };
 }
@@ -194,12 +206,37 @@ async function main(): Promise<void> {
   await fsp.writeFile(existingMarker, "must remain unchanged", "utf8");
   await fsp.writeFile(input, "desktop bridge input", "utf8");
   await fsp.writeFile(output, "desktop bridge output", "utf8");
+  await fsp.writeFile(reference, "desktop bridge reference", "utf8");
+  await fsp.writeFile(license, "desktop bridge license", "utf8");
+  await fsp.writeFile(other, "desktop bridge other", "utf8");
+  await fsp.writeFile(malformedPackage, "not a zip package", "utf8");
+  await fsp.writeFile(
+    selectionManifest,
+    `${JSON.stringify(
+      {
+        workspaceParents: [work],
+        existingWorkspaces: [proofWorkspace],
+        assets: [input, output, reference, license, other],
+        packages: [validPackage, tamperedPackage, malformedPackage],
+        packageOutputs: [validPackage],
+        reportOutputs: [report],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 
   launch = await launchApp(mode === "dev" ? 9321 : 9322);
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
   await navigate(cdp, "workspace");
-  await setControl(cdp, "create-parent", work);
+  await click(cdp, "choose-create-parent");
+  await waitFor(
+    () => controlValue(cdp, "create-parent"),
+    (value) => value.includes(work),
+    "Host-issued workspace parent",
+  );
   await setControl(cdp, "workspace-folder-name", "已存在 工作区");
   await waitFor(
     () => controlText(cdp, "workspace-target-preview"),
@@ -228,11 +265,16 @@ async function main(): Promise<void> {
     (value) => value.includes(proofWorkspace),
     "new workspace target preview",
   );
-  await setControl(cdp, "project-name", "AP-016 Electron 自动验收");
+  await setControl(cdp, "project-name", "AP-020 Electron 自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
 
-  await setControl(cdp, "open-workspace-path", proofWorkspace);
+  await click(cdp, "choose-open-workspace");
+  await waitFor(
+    () => controlValue(cdp, "open-workspace-path"),
+    (value) => value.includes(proofWorkspace),
+    "Host-issued existing workspace",
+  );
   await clickAndWait(cdp, "open-workspace", "工作区已打开");
   record("open-existing-workspace-separate-flow");
   await cdp.evaluate(
@@ -247,12 +289,20 @@ async function main(): Promise<void> {
   for (const [source, role] of [
     [input, "input"],
     [output, "output"],
+    [reference, "reference"],
+    [license, "license"],
+    [other, "other"],
   ] as const) {
-    await setControl(cdp, "asset-path", source);
+    await click(cdp, "choose-asset");
+    await waitFor(
+      () => controlValue(cdp, "asset-path"),
+      (value) => value.includes(source),
+      `Host-issued ${role} asset`,
+    );
     await setControl(cdp, "asset-role", role);
     await clickAndWait(cdp, "add-asset", "资产已添加");
   }
-  record("add-input-output");
+  record("add-all-five-asset-roles");
 
   await navigate(cdp, "event");
   await setControl(cdp, "event-type", "generation");
@@ -265,17 +315,32 @@ async function main(): Promise<void> {
   record("record-event");
 
   await navigate(cdp, "seal");
-  await setControl(cdp, "seal-output", validPackage);
+  await click(cdp, "choose-package-output");
+  await waitFor(
+    () => controlValue(cdp, "seal-output"),
+    (value) => value.includes(validPackage),
+    "Host-issued package output",
+  );
   await clickAndWait(cdp, "seal-package", "证明包已封装");
   record("seal-package");
   await clickAndWait(cdp, "seal-package", "OUTPUT_ALREADY_EXISTS");
   record("seal-no-clobber");
 
   await navigate(cdp, "verify");
-  await setControl(cdp, "package-path", validPackage);
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(validPackage),
+    "Host-issued valid package",
+  );
   await clickAndWait(cdp, "verify-package", '"status": "valid"');
   record("verify-valid");
-  await setControl(cdp, "report-path", report);
+  await click(cdp, "choose-report-output");
+  await waitFor(
+    () => controlValue(cdp, "report-path"),
+    (value) => value.includes(report),
+    "Host-issued report output",
+  );
   await clickAndWait(cdp, "save-report", "验证报告已保存");
   await clickAndWait(cdp, "save-report", "REPORT_ALREADY_EXISTS");
   record("report-save-no-clobber");
@@ -291,11 +356,49 @@ async function main(): Promise<void> {
   bytes[0] = (bytes[0] ?? 0) ^ 1;
   zip.updateFile(asset.entryName, bytes);
   zip.writeZip(tamperedPackage);
-  await setControl(cdp, "package-path", tamperedPackage);
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(tamperedPackage),
+    "Host-issued tampered package",
+  );
   await clickAndWait(cdp, "verify-package", '"status": "invalid"');
   record("tamper-rejection");
   await fsp.writeFile(
     path.join(evidence, "tamper-rejection.png"),
+    await cdp.screenshot(),
+  );
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(malformedPackage),
+    "Host-issued malformed package",
+  );
+  const malformedResult = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"status": "invalid"',
+  );
+  if (!malformedResult.includes('"code": "MALFORMED_ZIP"')) {
+    throw new Error("Malformed package did not report MALFORMED_ZIP.");
+  }
+  record("malformed-package-rejection");
+
+  await navigate(cdp, "settings");
+  const diagnostics = await controlText(cdp, "diagnostics-card");
+  for (const expected of [
+    "0.2.0",
+    "1.0.0",
+    "integration.aigcstudio",
+    "execution.utility-process",
+    "operation.safe-cancellation",
+  ]) {
+    if (!diagnostics.includes(expected))
+      throw new Error(`Diagnostics omitted ${expected}.`);
+  }
+  record("version-capability-diagnostics");
+  await fsp.writeFile(
+    path.join(evidence, "capability-diagnostics.png"),
     await cdp.screenshot(),
   );
 
@@ -304,19 +407,31 @@ async function main(): Promise<void> {
   record("clean-exit-first-run");
 
   launch = await launchApp(mode === "dev" ? 9323 : 9324);
+  await waitFor(
+    () =>
+      launch!.cdp.evaluate<boolean>(
+        `document.querySelector('[data-testid="nav-settings"]')?.classList.contains('active') ?? false`,
+      ),
+    (value) => value,
+    "restored last workbench section",
+  );
   await navigate(launch.cdp, "home");
-  const recentWorkspace = await launch.cdp.evaluate<string>(
-    `document.querySelector('[data-testid="recent-workspaces"]')?.textContent ?? ''`,
+  await waitFor(
+    () =>
+      launch!.cdp.evaluate<string>(
+        `document.querySelector('[data-testid="recent-workspaces"]')?.textContent ?? ''`,
+      ),
+    (value) => value.includes(proofWorkspace),
+    "persisted recent workspace",
   );
-  const recentPackage = await launch.cdp.evaluate<string>(
-    `document.querySelector('[data-testid="recent-packages"]')?.textContent ?? ''`,
+  await waitFor(
+    () =>
+      launch!.cdp.evaluate<string>(
+        `document.querySelector('[data-testid="recent-packages"]')?.textContent ?? ''`,
+      ),
+    (value) => value.includes(validPackage),
+    "persisted recent package",
   );
-  if (
-    !recentWorkspace.includes(proofWorkspace) ||
-    !recentPackage.includes(validPackage)
-  ) {
-    throw new Error("SQLite recent items did not persist across restart.");
-  }
   record("sqlite-restart-persistence");
   await navigate(launch.cdp, "settings");
   await clickAndWait(
@@ -335,15 +450,20 @@ async function main(): Promise<void> {
 
   const database = path.join(userData, "workbench.sqlite3");
   const addon = requireNative(addonPath) as {
+    getApiInfo(): unknown;
     getAppState(request: { database: string }): Promise<string>;
   };
+  const nativeDiscovery = addon.getApiInfo();
   const persisted = JSON.parse(
     await addon.getAppState({ database }),
   ) as unknown;
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.1.1",
+    workbenchVersion: "0.2.0",
+    contractVersion: "1.0.0",
+    nativeApiVersion: "1.0.0",
+    engineVersion: "0.2.0",
     protocolVersion: "0.2.0",
     executable: testedExecutable,
     protocol: "file:",
@@ -363,6 +483,7 @@ async function main(): Promise<void> {
     package: validPackage,
     tamperedPackage,
     report,
+    nativeDiscovery,
     steps,
     persisted,
   };

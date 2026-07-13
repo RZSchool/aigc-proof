@@ -13,6 +13,7 @@ describe("typed preload source", () => {
     expect(source).toContain("chooseWorkspaceParent");
     expect(source).toContain("chooseExistingWorkspace");
     expect(source).toContain("previewWorkspaceTarget");
+    expect(source).toContain("getDiagnostics");
     expect(source).toContain(
       'contextBridge.exposeInMainWorld("aigcProof", api)',
     );

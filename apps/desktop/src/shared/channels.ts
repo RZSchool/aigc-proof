@@ -1,4 +1,5 @@
 export const channels = {
+  getDiagnostics: "host:get-diagnostics",
   chooseWorkspaceParent: "dialog:choose-workspace-parent",
   chooseExistingWorkspace: "dialog:choose-existing-workspace",
   chooseAsset: "dialog:choose-asset",

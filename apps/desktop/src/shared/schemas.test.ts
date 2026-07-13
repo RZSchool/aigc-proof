@@ -7,18 +7,27 @@ import {
   workspaceTargetRequest,
 } from "./schemas";
 
+const parent = {
+  id: `ref_${"a".repeat(32)}`,
+  kind: "workspace-parent",
+  displayLabel: "proof",
+  displayPath: "C:\\proof",
+};
+const workspace = { ...parent, id: `ref_${"b".repeat(32)}`, kind: "workspace" };
+const source = { ...parent, id: `ref_${"c".repeat(32)}`, kind: "asset" };
+
 describe("IPC request schemas", () => {
   it("rejects unexpected renderer fields", () => {
     expect(() =>
       initializeWorkspaceRequest.parse({
-        parent: "C:\\proof",
+        parent,
         folderName: "project",
         command: "calc.exe",
       }),
     ).toThrow();
     expect(() =>
       initializeWorkspaceRequest.parse({
-        parent: "C:\\proof",
+        parent,
         folderName: "project",
         path: "C:\\proof\\renderer-chosen-target",
       }),
@@ -28,7 +37,7 @@ describe("IPC request schemas", () => {
   it("accepts only one portable new-workspace folder component", () => {
     expect(
       workspaceTargetRequest.parse({
-        parent: "C:\\workspace with space",
+        parent,
         folderName: "项目 test",
       }),
     ).toBeTruthy();
@@ -45,7 +54,7 @@ describe("IPC request schemas", () => {
     ]) {
       expect(() =>
         workspaceTargetRequest.parse({
-          parent: "C:\\workspace",
+          parent,
           folderName,
         }),
       ).toThrow();
@@ -54,10 +63,10 @@ describe("IPC request schemas", () => {
 
   it("allows only the five protocol asset roles", () => {
     expect(
-      addAssetRequest.parse({ workspace: "w", source: "f", role: "license" }),
+      addAssetRequest.parse({ workspace, source, role: "license" }),
     ).toBeTruthy();
     expect(() =>
-      addAssetRequest.parse({ workspace: "w", source: "f", role: "admin" }),
+      addAssetRequest.parse({ workspace, source, role: "admin" }),
     ).toThrow();
   });
 

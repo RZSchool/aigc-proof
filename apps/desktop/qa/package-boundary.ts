@@ -1,7 +1,15 @@
+import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 import { extractFile, listPackage } from "@electron/asar";
+import {
+  NATIVE_API_VERSION,
+  NATIVE_CAPABILITIES,
+  NATIVE_ENGINE_VERSION,
+  PROTOCOL_VERSION,
+  validateNativeDiscovery,
+} from "@aigc-proof/host-contracts";
 
 const desktop = path.resolve(__dirname, "..");
 const repo = path.resolve(desktop, "../..");
@@ -13,6 +21,7 @@ const packageRoot = path.resolve(
 const executable = path.join(packageRoot, "AIGC-Proof.exe");
 const asar = path.join(packageRoot, "resources", "app.asar");
 const addon = path.join(packageRoot, "resources", "native", "proof_napi.node");
+const requireNative = createRequire(__filename);
 
 async function main(): Promise<void> {
   await Promise.all([fs.access(executable), fs.access(asar), fs.access(addon)]);
@@ -40,7 +49,7 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.1.1") {
+  if (packagedManifest.version !== "0.2.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
@@ -54,6 +63,18 @@ async function main(): Promise<void> {
   if (!renderer.includes("connect-src 'none'")) {
     throw new Error("Packaged renderer CSP is not offline-only.");
   }
+  const native = requireNative(addon) as { getApiInfo(): unknown };
+  const discovery = validateNativeDiscovery(native.getApiInfo());
+  if (
+    discovery.apiVersion !== NATIVE_API_VERSION ||
+    discovery.engineVersion !== NATIVE_ENGINE_VERSION ||
+    discovery.supportedProtocolVersions.join(",") !== PROTOCOL_VERSION ||
+    discovery.capabilities.join(",") !== NATIVE_CAPABILITIES.join(",")
+  ) {
+    throw new Error(
+      "Packaged native discovery does not match the reviewed contract.",
+    );
+  }
   const result = {
     result: "PASS",
     packageRoot,
@@ -61,7 +82,11 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
+    contractVersion: "1.0.0",
+    nativeApiVersion: discovery.apiVersion,
+    engineVersion: discovery.engineVersion,
     protocolVersion: "0.2.0",
+    capabilities: discovery.capabilities,
     packagedFiles: files.length,
     sourceMaps: 0,
   };

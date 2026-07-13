@@ -30,13 +30,28 @@ Rust-1.86-only line.
 
 Unsigned 0.2 packages must never be reinterpreted as signed, identity-verified, officially verified, or trusted-time evidence by later versions.
 
-Workbench 0.1.1 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
+Workbench 0.2.0 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
 public Rust core as the CLI, and its SQLite database is application metadata only. Workspaces,
 packages, and JSON reports remain portable across clients without SQLite. Windows x64 is the
 required packaged-workbench platform; Linux remains a required core/CLI regression platform and
 macOS evidence is informational unless actually executed.
 
-Workbench 0.1.1 separates create and open path semantics. Creation accepts an existing parent and
+Workbench 0.2.0 separates create and open path semantics. Creation accepts an existing parent and
 a new portable folder component; Electron Main resolves the final target and preserves the core's
 strict no-overwrite rule. Opening continues to require an existing valid workspace. This UX/API
 change does not change workspace files, `.aigcproof` packages, reports, or protocol 0.2.0.
+
+## Workbench 0.2.0 compatibility matrix
+
+| Layer | Version | Compatibility behavior |
+| --- | --- | --- |
+| Workbench application | 0.2.0 | Product/UI version; does not change proof assurance |
+| `ProofHostApi` contract | 1.0.0 | Unknown major fails closed; compatible 1.x minor additions are capability-gated; patches preserve semantics |
+| Native API | 1.0.0 | Main validates discovery before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities fail closed |
+| Native engine | 0.2.0 | Exact engine expected by this Workbench |
+| Proof protocol | 0.2.0 | Exact supported portable workspace/package/report semantics |
+
+Native API 1.0.0 advertises only the reviewed workspace, asset, event, package, verification,
+inspection, and disposable state capabilities. It truthfully reports napi-rs asynchronous tasks
+and reports Utility Process isolation, progress streaming, and safe cancellation as unavailable.
+Display paths returned with Host references are never compatibility or authorization credentials.

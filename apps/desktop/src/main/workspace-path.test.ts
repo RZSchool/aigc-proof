@@ -21,17 +21,12 @@ describe("workspace target resolution", () => {
     const parent = path.join(root, "父目录 with space");
     await fs.mkdir(parent);
 
-    const result = await resolveWorkspaceTarget({
-      parent,
-      folderName: "新 项目",
-    });
+    const result = await resolveWorkspaceTarget(parent, "新 项目");
 
     expect(result).toEqual({
       ok: true,
       data: {
-        parent: path.normalize(parent),
-        folderName: "新 项目",
-        path: path.join(parent, "新 项目"),
+        displayPath: path.join(parent, "新 项目"),
         exists: false,
       },
     });
@@ -50,7 +45,7 @@ describe("workspace target resolution", () => {
     "bad?name",
     "x".repeat(121),
   ])("rejects the non-portable folder name %j", async (folderName) => {
-    const result = await resolveWorkspaceTarget({ parent: root, folderName });
+    const result = await resolveWorkspaceTarget(root, folderName);
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.error.code).toBe("WORKSPACE_FOLDER_NAME_INVALID");
@@ -62,10 +57,7 @@ describe("workspace target resolution", () => {
     await fs.mkdir(target);
     await fs.writeFile(marker, "preserve me", "utf8");
 
-    const result = await resolveWorkspaceTarget({
-      parent: root,
-      folderName: "existing",
-    });
+    const result = await resolveWorkspaceTarget(root, "existing");
 
     expect(result.ok && result.data.exists).toBe(true);
     expect(await fs.readFile(marker, "utf8")).toBe("preserve me");
@@ -73,10 +65,7 @@ describe("workspace target resolution", () => {
 
   it("rejects a missing or relative parent directory", async () => {
     for (const parent of ["relative-parent", path.join(root, "missing")]) {
-      const result = await resolveWorkspaceTarget({
-        parent,
-        folderName: "workspace",
-      });
+      const result = await resolveWorkspaceTarget(parent, "workspace");
       expect(result.ok).toBe(false);
       if (!result.ok)
         expect(result.error.code).toBe("WORKSPACE_PARENT_INVALID");

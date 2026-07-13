@@ -3,12 +3,21 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AssetRole,
   BridgeEnvelope,
+  HostDiagnostics,
+  HostReference,
   Inspection,
+  PackageOutputReference,
+  PackageReference,
+  ProofHostApi,
+  ReportOutputReference,
   VerificationReport,
   WorkbenchState,
+  WorkspaceParentReference,
+  WorkspaceReference,
   WorkspaceSummary,
   WorkspaceTargetPreview,
 } from "../shared/contracts";
+import { StandaloneProofHostAdapter } from "./standalone-host";
 
 type Section = "home" | "workspace" | "event" | "seal" | "verify" | "settings";
 
@@ -51,7 +60,11 @@ function errorGuidance(code: string, fallback: string): string {
   }
 }
 
-export function App() {
+export function App({ host }: { host?: ProofHostApi } = {}) {
+  const proofHost = useMemo(
+    () => host ?? new StandaloneProofHostAdapter(window.aigcProof),
+    [host],
+  );
   const [section, setSection] = useState<Section>("home");
   const [busy, setBusy] = useState<string>();
   const [result, setResult] = useState(
@@ -61,24 +74,36 @@ export function App() {
     "idle",
   );
   const [state, setState] = useState<WorkbenchState>();
+  const [diagnostics, setDiagnostics] = useState<HostDiagnostics>();
   const [workspacePath, setWorkspacePath] = useState("");
   const [createParent, setCreateParent] = useState("");
+  const [createParentReference, setCreateParentReference] =
+    useState<WorkspaceParentReference>();
   const [workspaceFolderName, setWorkspaceFolderName] = useState("");
   const [workspaceTarget, setWorkspaceTarget] =
     useState<WorkspaceTargetPreview>();
   const [workspaceTargetError, setWorkspaceTargetError] = useState("");
   const [openWorkspacePath, setOpenWorkspacePath] = useState("");
+  const [openWorkspaceReference, setOpenWorkspaceReference] =
+    useState<WorkspaceReference>();
   const [projectName, setProjectName] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceSummary>();
   const [assetPath, setAssetPath] = useState("");
+  const [assetReference, setAssetReference] =
+    useState<HostReference<"asset">>();
   const [assetRole, setAssetRole] = useState<AssetRole>("input");
   const [eventType, setEventType] = useState("generation");
   const [payloadJson, setPayloadJson] = useState(
     '{\n  "model": "local-model"\n}',
   );
   const [sealOutput, setSealOutput] = useState("");
+  const [sealOutputReference, setSealOutputReference] =
+    useState<PackageOutputReference>();
   const [packagePath, setPackagePath] = useState("");
+  const [packageReference, setPackageReference] = useState<PackageReference>();
   const [reportPath, setReportPath] = useState("");
+  const [reportOutputReference, setReportOutputReference] =
+    useState<ReportOutputReference>();
   const [report, setReport] = useState<VerificationReport>();
   const [inspection, setInspection] = useState<Inspection>();
 
@@ -88,7 +113,7 @@ export function App() {
   );
 
   useEffect(() => {
-    void window.aigcProof.getState().then((response) => {
+    void proofHost.getState().then((response) => {
       if (response.ok) {
         setState(response.data);
         const saved = response.data.preferences.lastSection as
@@ -105,20 +130,24 @@ export function App() {
         );
       }
     });
-  }, []);
+    void proofHost.getDiagnostics().then((response) => {
+      if (response.ok) setDiagnostics(response.data);
+      else showFailure(response);
+    });
+  }, [proofHost]);
 
   useEffect(() => {
     let active = true;
-    if (!createParent || !workspaceFolderName) {
+    if (!createParentReference || !workspaceFolderName) {
       setWorkspaceTarget(undefined);
       setWorkspaceTargetError("");
       return () => {
         active = false;
       };
     }
-    void window.aigcProof
+    void proofHost
       .previewWorkspaceTarget({
-        parent: createParent,
+        parent: createParentReference,
         folderName: workspaceFolderName,
       })
       .then((response) => {
@@ -134,13 +163,13 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [createParent, workspaceFolderName]);
+  }, [createParentReference, proofHost, workspaceFolderName]);
 
   function showFailure<T>(response: BridgeEnvelope<T>): void {
     if (!response.ok) {
       setResultKind("error");
       setResult(
-        `[${response.error.code}] ${errorGuidance(response.error.code, response.error.message)}${response.error.path ? `\n${response.error.path}` : ""}`,
+        `[${response.error.code}] ${errorGuidance(response.error.code, response.error.message)}${response.error.displayPath ? `\n${response.error.displayPath}` : ""}`,
       );
     }
   }
@@ -162,7 +191,7 @@ export function App() {
     setResult(`${label}…`);
     try {
       await operation();
-      const refreshed = await window.aigcProof.getState();
+      const refreshed = await proofHost.getState();
       if (refreshed.ok) setState(refreshed.data);
     } catch (error) {
       setResultKind("error");
@@ -172,45 +201,57 @@ export function App() {
     }
   }
 
-  async function choose(
-    setter: (value: string) => void,
-    picker: () => Promise<string | null>,
+  async function choose<K extends HostReference>(
+    setReference: (value: K) => void,
+    setDisplay: (value: string) => void,
+    picker: () => Promise<K | null>,
   ) {
     const selected = await picker();
-    if (selected) setter(selected);
+    if (selected) {
+      setReference(selected);
+      setDisplay(selected.displayPath ?? selected.displayLabel);
+    }
   }
 
   async function initializeWorkspace(): Promise<void> {
     await run("正在初始化工作区", async () => {
-      const response = await window.aigcProof.initializeWorkspace({
-        parent: createParent,
+      if (!createParentReference) throw new Error("请先选择父文件夹。");
+      const response = await proofHost.initializeWorkspace({
+        parent: createParentReference,
         folderName: workspaceFolderName,
         ...(projectName.trim() ? { projectName: projectName.trim() } : {}),
       });
       if (!response.ok) return showFailure(response);
       setWorkspace(response.data);
-      setWorkspacePath(response.data.path);
-      setOpenWorkspacePath(response.data.path);
+      setWorkspacePath(response.data.displayPath);
+      setOpenWorkspacePath(response.data.displayPath);
+      setOpenWorkspaceReference(response.data.reference);
       showSuccess("工作区已创建", response.data);
     });
   }
 
-  async function openWorkspace(path = openWorkspacePath): Promise<void> {
+  async function openWorkspace(
+    reference = openWorkspaceReference,
+  ): Promise<void> {
     await run("正在打开工作区", async () => {
-      const response = await window.aigcProof.loadWorkspace({ path });
+      if (!reference) throw new Error("请先选择已有工作区。");
+      const response = await proofHost.loadWorkspace({ workspace: reference });
       if (!response.ok) return showFailure(response);
       setWorkspace(response.data);
-      setWorkspacePath(response.data.path);
-      setOpenWorkspacePath(response.data.path);
+      setWorkspacePath(response.data.displayPath);
+      setOpenWorkspacePath(response.data.displayPath);
+      setOpenWorkspaceReference(response.data.reference);
       showSuccess("工作区已打开", response.data);
     });
   }
 
   async function addAsset(): Promise<void> {
     await run("正在流式复制并计算 SHA-256", async () => {
-      const response = await window.aigcProof.addAsset({
-        workspace: workspacePath,
-        source: assetPath,
+      if (!workspace || !assetReference)
+        throw new Error("请选择工作区和资产。");
+      const response = await proofHost.addAsset({
+        workspace: workspace.reference,
+        source: assetReference,
         role: assetRole,
       });
       if (!response.ok) return showFailure(response);
@@ -237,8 +278,9 @@ export function App() {
       return;
     }
     await run("正在记录事件", async () => {
-      const response = await window.aigcProof.recordEvent({
-        workspace: workspacePath,
+      if (!workspace) throw new Error("请先打开工作区。");
+      const response = await proofHost.recordEvent({
+        workspace: workspace.reference,
         eventType,
         payloadJson,
       });
@@ -249,20 +291,24 @@ export function App() {
 
   async function sealPackage(): Promise<void> {
     await run("正在封装并自检证明包", async () => {
-      const response = await window.aigcProof.sealPackage({
-        workspace: workspacePath,
-        output: sealOutput,
+      if (!workspace || !sealOutputReference)
+        throw new Error("请选择工作区和输出位置。");
+      const response = await proofHost.sealPackage({
+        workspace: workspace.reference,
+        output: sealOutputReference,
       });
       if (!response.ok) return showFailure(response);
-      setPackagePath(response.data.path);
+      setPackagePath(response.data.displayPath);
+      setPackageReference(response.data.package);
       showSuccess("证明包已封装（禁止覆盖）", response.data);
     });
   }
 
   async function verifyPackage(): Promise<void> {
     await run("正在验证包内完整性", async () => {
-      const response = await window.aigcProof.verifyPackage({
-        path: packagePath,
+      if (!packageReference) throw new Error("请先选择证明包。");
+      const response = await proofHost.verifyPackage({
+        package: packageReference,
       });
       if (!response.ok) return showFailure(response);
       setReport(response.data);
@@ -273,8 +319,9 @@ export function App() {
 
   async function inspectPackage(): Promise<void> {
     await run("正在读取元数据（不执行验证）", async () => {
-      const response = await window.aigcProof.inspectPackage({
-        path: packagePath,
+      if (!packageReference) throw new Error("请先选择证明包。");
+      const response = await proofHost.inspectPackage({
+        package: packageReference,
       });
       if (!response.ok) return showFailure(response);
       setInspection(response.data);
@@ -289,18 +336,19 @@ export function App() {
       return;
     }
     await run("正在保存验证报告", async () => {
-      const response = await window.aigcProof.saveReport({
-        path: reportPath,
+      if (!reportOutputReference) throw new Error("请选择报告保存位置。");
+      const response = await proofHost.saveReport({
+        output: reportOutputReference,
         report,
       });
       if (!response.ok) return showFailure(response);
-      showSuccess("验证报告已保存（禁止覆盖）", response.data.path);
+      showSuccess("验证报告已保存（禁止覆盖）", response.data.displayPath);
     });
   }
 
   async function navigate(next: Section): Promise<void> {
     setSection(next);
-    const response = await window.aigcProof.setPreference({
+    const response = await proofHost.setPreference({
       key: "lastSection",
       value: next,
     });
@@ -313,7 +361,7 @@ export function App() {
         <div className="brand-mark">AP</div>
         <div className="brand-copy">
           <strong>AIGC-Proof</strong>
-          <span data-testid="workbench-version">Workbench 0.1.1</span>
+          <span data-testid="workbench-version">Workbench 0.2.0</span>
         </div>
         <nav aria-label="工作台区域">
           {sections.map((item) => (
@@ -330,7 +378,7 @@ export function App() {
         </nav>
         <button
           className="quiet-button exit"
-          onClick={() => void window.aigcProof.closeApp()}
+          onClick={() => void proofHost.closeApp()}
         >
           退出工作台
         </button>
@@ -385,17 +433,18 @@ export function App() {
                     title="最近工作区"
                     testId="recent-workspaces"
                     items={state?.recentWorkspaces ?? []}
-                    onSelect={(path) => {
+                    onSelect={(reference) => {
                       void navigate("workspace");
-                      void openWorkspace(path);
+                      void openWorkspace(reference as WorkspaceReference);
                     }}
                   />
                   <RecentList
                     title="最近证明包"
                     testId="recent-packages"
                     items={state?.recentPackages ?? []}
-                    onSelect={(path) => {
-                      setPackagePath(path);
+                    onSelect={(reference, displayPath) => {
+                      setPackageReference(reference as PackageReference);
+                      setPackagePath(displayPath);
                       void navigate("verify");
                     }}
                   />
@@ -419,15 +468,15 @@ export function App() {
                         readOnly
                         placeholder="请选择一个已存在的父文件夹"
                         value={createParent}
-                        onChange={(e) => setCreateParent(e.target.value)}
                       />
                       <button
                         className="secondary"
                         data-testid="choose-create-parent"
                         onClick={() =>
                           void choose(
+                            setCreateParentReference,
                             setCreateParent,
-                            window.aigcProof.chooseWorkspaceParent,
+                            () => proofHost.chooseWorkspaceParent(),
                           )
                         }
                       >
@@ -463,7 +512,7 @@ export function App() {
                   >
                     <strong>将创建到</strong>
                     <span>
-                      {workspaceTarget?.path ||
+                      {workspaceTarget?.displayPath ||
                         workspaceTargetError ||
                         "选择父文件夹并输入新名称后显示完整路径。"}
                     </span>
@@ -498,15 +547,15 @@ export function App() {
                         readOnly
                         placeholder="请选择已有工作区"
                         value={openWorkspacePath}
-                        onChange={(e) => setOpenWorkspacePath(e.target.value)}
                       />
                       <button
                         className="secondary"
                         data-testid="choose-open-workspace"
                         onClick={() =>
                           void choose(
+                            setOpenWorkspaceReference,
                             setOpenWorkspacePath,
-                            window.aigcProof.chooseExistingWorkspace,
+                            () => proofHost.chooseExistingWorkspace(),
                           )
                         }
                       >
@@ -518,7 +567,7 @@ export function App() {
                     <button
                       className="secondary"
                       data-testid="open-workspace"
-                      disabled={!!busy || !openWorkspacePath}
+                      disabled={!!busy || !openWorkspaceReference}
                       onClick={() => void openWorkspace()}
                     >
                       打开所选工作区
@@ -535,15 +584,15 @@ export function App() {
                     <div className="field-row">
                       <input
                         data-testid="asset-path"
+                        readOnly
                         value={assetPath}
-                        onChange={(e) => setAssetPath(e.target.value)}
                       />
                       <button
                         className="secondary"
+                        data-testid="choose-asset"
                         onClick={() =>
-                          void choose(
-                            setAssetPath,
-                            window.aigcProof.chooseAsset,
+                          void choose(setAssetReference, setAssetPath, () =>
+                            proofHost.chooseAsset(),
                           )
                         }
                       >
@@ -569,7 +618,7 @@ export function App() {
                   <button
                     className="primary"
                     data-testid="add-asset"
-                    disabled={!!busy || !workspace}
+                    disabled={!!busy || !workspace || !assetReference}
                     onClick={() => void addAsset()}
                   >
                     添加到工作区
@@ -602,10 +651,7 @@ export function App() {
                   hint="JSON 对象将进入规范化事件哈希链"
                 />
                 <Field label="当前工作区">
-                  <input
-                    value={workspacePath}
-                    onChange={(e) => setWorkspacePath(e.target.value)}
-                  />
+                  <input readOnly value={workspacePath} />
                 </Field>
                 <Field label="事件类型">
                   <input
@@ -625,7 +671,7 @@ export function App() {
                 <button
                   className="primary"
                   data-testid="record-event"
-                  disabled={!!busy}
+                  disabled={!!busy || !workspace}
                   onClick={() => void recordEvent()}
                 >
                   记录事件
@@ -641,24 +687,21 @@ export function App() {
                   hint="封装前重新校验工作区，目标文件禁止覆盖"
                 />
                 <Field label="工作区">
-                  <input
-                    value={workspacePath}
-                    onChange={(e) => setWorkspacePath(e.target.value)}
-                  />
+                  <input readOnly value={workspacePath} />
                 </Field>
                 <Field label="输出文件">
                   <div className="field-row">
                     <input
                       data-testid="seal-output"
+                      readOnly
                       value={sealOutput}
-                      onChange={(e) => setSealOutput(e.target.value)}
                     />
                     <button
                       className="secondary"
+                      data-testid="choose-package-output"
                       onClick={() =>
-                        void choose(
-                          setSealOutput,
-                          window.aigcProof.choosePackageOutput,
+                        void choose(setSealOutputReference, setSealOutput, () =>
+                          proofHost.choosePackageOutput(),
                         )
                       }
                     >
@@ -669,7 +712,7 @@ export function App() {
                 <button
                   className="primary"
                   data-testid="seal-package"
-                  disabled={!!busy}
+                  disabled={!!busy || !workspace || !sealOutputReference}
                   onClick={() => void sealPackage()}
                 >
                   封装并自检
@@ -688,15 +731,15 @@ export function App() {
                   <div className="field-row">
                     <input
                       data-testid="package-path"
+                      readOnly
                       value={packagePath}
-                      onChange={(e) => setPackagePath(e.target.value)}
                     />
                     <button
                       className="secondary"
+                      data-testid="choose-package"
                       onClick={() =>
-                        void choose(
-                          setPackagePath,
-                          window.aigcProof.choosePackage,
+                        void choose(setPackageReference, setPackagePath, () =>
+                          proofHost.choosePackage(),
                         )
                       }
                     >
@@ -708,7 +751,7 @@ export function App() {
                   <button
                     className="primary"
                     data-testid="verify-package"
-                    disabled={!!busy}
+                    disabled={!!busy || !packageReference}
                     onClick={() => void verifyPackage()}
                   >
                     验证包内完整性
@@ -716,7 +759,7 @@ export function App() {
                   <button
                     className="secondary"
                     data-testid="inspect-package"
-                    disabled={!!busy}
+                    disabled={!!busy || !packageReference}
                     onClick={() => void inspectPackage()}
                   >
                     仅检查元数据
@@ -737,15 +780,17 @@ export function App() {
                   <div className="field-row">
                     <input
                       data-testid="report-path"
+                      readOnly
                       value={reportPath}
-                      onChange={(e) => setReportPath(e.target.value)}
                     />
                     <button
                       className="secondary"
+                      data-testid="choose-report-output"
                       onClick={() =>
                         void choose(
+                          setReportOutputReference,
                           setReportPath,
-                          window.aigcProof.chooseReportOutput,
+                          () => proofHost.chooseReportOutput(),
                         )
                       }
                     >
@@ -756,7 +801,7 @@ export function App() {
                 <button
                   className="secondary"
                   data-testid="save-report"
-                  disabled={!!busy || !report}
+                  disabled={!!busy || !report || !reportOutputReference}
                   onClick={() => void saveReport()}
                 >
                   保存最近验证报告
@@ -778,7 +823,7 @@ export function App() {
                     onChange={(event) => {
                       document.documentElement.dataset.theme =
                         event.target.value;
-                      void window.aigcProof
+                      void proofHost
                         .setPreference({
                           key: "theme",
                           value: event.target.value,
@@ -797,7 +842,7 @@ export function App() {
                   data-testid="rebuild-recents"
                   onClick={() =>
                     void run("正在重建最近项索引", async () => {
-                      const response = await window.aigcProof.rebuildRecents();
+                      const response = await proofHost.rebuildRecents();
                       if (!response.ok) return showFailure(response);
                       setState(response.data);
                       showSuccess(
@@ -812,6 +857,7 @@ export function App() {
                 <p className="privacy-note">
                   删除或损坏此数据库不会改变任何工作区、证明包或验证报告的有效性。
                 </p>
+                {diagnostics && <DiagnosticsCard diagnostics={diagnostics} />}
               </section>
             )}
           </div>
@@ -879,8 +925,11 @@ function RecentList({
 }: {
   title: string;
   testId: string;
-  items: WorkbenchState["recentWorkspaces"];
-  onSelect: (path: string) => void;
+  items: Array<
+    | WorkbenchState["recentWorkspaces"][number]
+    | WorkbenchState["recentPackages"][number]
+  >;
+  onSelect: (reference: HostReference, displayPath: string) => void;
 }) {
   return (
     <div className="recent-card" data-testid={testId}>
@@ -890,14 +939,51 @@ function RecentList({
       ) : (
         items.map((item) => (
           <button
-            key={item.path}
-            onClick={() => onSelect(item.path)}
-            title={item.path}
+            key={item.reference.id}
+            onClick={() => onSelect(item.reference, item.displayPath)}
+            title={item.displayPath}
           >
-            {item.path}
+            {item.displayPath}
           </button>
         ))
       )}
+    </div>
+  );
+}
+
+function DiagnosticsCard({ diagnostics }: { diagnostics: HostDiagnostics }) {
+  return (
+    <div className="diagnostics-card" data-testid="diagnostics-card">
+      <h3>版本与能力诊断</h3>
+      <dl>
+        <div>
+          <dt>Workbench</dt>
+          <dd>{diagnostics.workbenchVersion}</dd>
+        </div>
+        <div>
+          <dt>Host Contract / Native API</dt>
+          <dd>
+            {diagnostics.contractVersion} / {diagnostics.nativeApiVersion}
+          </dd>
+        </div>
+        <div>
+          <dt>Engine / Protocol</dt>
+          <dd>
+            {diagnostics.engineVersion} / {diagnostics.protocolVersion}
+          </dd>
+        </div>
+      </dl>
+      <strong>已实现能力</strong>
+      <code data-testid="implemented-capabilities">
+        {diagnostics.capabilities.join("\n")}
+      </code>
+      <strong>明确不可用</strong>
+      <code data-testid="unavailable-features">
+        {diagnostics.unavailableFeatures.join("\n")}
+      </code>
+      <small>
+        以上信息是本地兼容性诊断，不是认证、身份、签名、可信时间或官方验证。
+      </small>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "aigc-proof-workbench",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Offline AIGC-Proof 0.2 Electron workbench",
   "main": "dist/main/main.js",
@@ -11,13 +11,14 @@
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.qa.json",
+    "typecheck": "pnpm build:contracts && pnpm --filter @aigc-proof/host-contracts typecheck && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.main.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.qa.json",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "pnpm --filter @aigc-proof/host-contracts test && vitest run",
+    "build:contracts": "pnpm --filter @aigc-proof/host-contracts build",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload/preload.js",
-    "build": "pnpm build:main && pnpm build:preload && pnpm build:renderer",
+    "build": "pnpm build:contracts && pnpm build:main && pnpm build:preload && pnpm build:renderer",
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:electron": "electron .",
     "package:dir": "electron-builder --win dir --x64",
@@ -26,6 +27,7 @@
     "qa:package-boundary": "tsx qa/package-boundary.ts"
   },
   "dependencies": {
+    "@aigc-proof/host-contracts": "workspace:*",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "zod": "3.25.76"

@@ -1,8 +1,11 @@
 import path from "node:path";
 
-import { app, BrowserWindow, session } from "electron";
+import { HostContractError } from "@aigc-proof/host-contracts";
+import { app, BrowserWindow, dialog, session } from "electron";
 
 import { registerIpc } from "./ipc";
+import { loadNativeRuntime } from "./native";
+import { loadQaSelectionProvider } from "./qa-selections";
 import { isAllowedNavigation, parseQaPort } from "./security";
 
 const qaPort = parseQaPort(process.argv);
@@ -23,7 +26,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 720,
     show: false,
-    title: "AIGC-Proof Workbench 0.1.1",
+    title: "AIGC-Proof Workbench 0.2.0",
     backgroundColor: "#f4f1ea",
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
@@ -67,11 +70,36 @@ app.whenReady().then(async () => {
     const allowed = isAllowedNavigation(details.url, developmentOrigin);
     callback({ cancel: !allowed });
   });
-  const state = await registerIpc();
-  if (!state.ok) {
-    throw new Error(`${state.error.code}: ${state.error.message}`);
+  try {
+    const runtime = loadNativeRuntime();
+    const qaSelections = await loadQaSelectionProvider(
+      process.argv,
+      qaPort !== undefined,
+    );
+    const state = await registerIpc(runtime, qaSelections);
+    if (!state.ok) {
+      throw new HostContractError(
+        "NATIVE_BRIDGE_RESPONSE_INVALID",
+        `${state.error.code}: ${state.error.message}`,
+      );
+    }
+    createWindow();
+  } catch (error) {
+    const code =
+      error instanceof HostContractError
+        ? error.code
+        : "NATIVE_DISCOVERY_INVALID";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Native compatibility check failed.";
+    dialog.showErrorBox(
+      "AIGC-Proof compatibility check failed",
+      `[${code}] ${message}\n\nProof operations were not registered.`,
+    );
+    app.exit(1);
+    return;
   }
-  createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

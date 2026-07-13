@@ -1,32 +1,30 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  BridgeEnvelope,
-  WorkspaceTargetPreview,
-} from "../shared/contracts";
-import { workspaceTargetRequest } from "../shared/schemas";
+import type { HostEnvelope } from "../shared/contracts";
+import { workspaceFolderName } from "../shared/schemas";
 
 function failure(
   code: string,
   message: string,
   selectedPath?: string,
-): BridgeEnvelope<never> {
+): HostEnvelope<never> {
   return {
     ok: false,
     error: {
       code,
       kind: "input",
       message,
-      ...(selectedPath ? { path: selectedPath } : {}),
+      ...(selectedPath ? { displayPath: selectedPath } : {}),
     },
   };
 }
 
 export async function resolveWorkspaceTarget(
-  raw: unknown,
-): Promise<BridgeEnvelope<WorkspaceTargetPreview>> {
-  const parsed = workspaceTargetRequest.safeParse(raw);
+  authorizedParent: string,
+  folderName: string,
+): Promise<HostEnvelope<{ displayPath: string; exists: boolean }>> {
+  const parsed = workspaceFolderName.safeParse(folderName);
   if (!parsed.success) {
     return failure(
       "WORKSPACE_FOLDER_NAME_INVALID",
@@ -34,7 +32,7 @@ export async function resolveWorkspaceTarget(
     );
   }
 
-  const parent = path.normalize(parsed.data.parent);
+  const parent = path.normalize(authorizedParent);
   if (!path.isAbsolute(parent)) {
     return failure(
       "WORKSPACE_PARENT_INVALID",
@@ -59,7 +57,7 @@ export async function resolveWorkspaceTarget(
     );
   }
 
-  const target = path.normalize(path.join(parent, parsed.data.folderName));
+  const target = path.normalize(path.join(parent, parsed.data));
   if (path.dirname(target) !== parent) {
     return failure(
       "WORKSPACE_FOLDER_NAME_INVALID",
@@ -84,9 +82,7 @@ export async function resolveWorkspaceTarget(
   return {
     ok: true,
     data: {
-      parent,
-      folderName: parsed.data.folderName,
-      path: target,
+      displayPath: target,
       exists,
     },
   };

@@ -5,6 +5,11 @@
 - Workbench version: 0.1.0 preview
 - Proof protocol version: 0.2.0 Internal Integrity
 
+AP-020 evolves this accepted boundary without changing its decision: Workbench 0.2.0 introduces
+`ProofHostApi` 1.0.0, a Standalone adapter, typed opaque Host references, and fail-closed native
+API/engine/capability discovery. Actual AIGCStudio integration and Utility Process isolation remain
+outside this ADR and unimplemented.
+
 ## Context
 
 The native Win32 desktop preview proved that the public Rust engine can support a directly

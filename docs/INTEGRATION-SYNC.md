@@ -39,6 +39,12 @@ typed, context-isolated preload reaches allowlisted IPC, while Electron Main own
 paths, dialogs, lifecycle, SQLite, and the fixed `proof_napi.node` load. The addon is a narrow
 asynchronous Node-API adapter over the Rust engine; Electron does not shell out to the CLI.
 
+Workbench 0.2.0 adds `@aigc-proof/host-contracts` 1.0.0 as the single renderer-safe source of
+`ProofHostApi`, DTOs, strict Schemas, versions, capabilities, and stable errors. The Standalone
+adapter and a deterministic consumer-test Mock implement that contract. Native API 1.0.0 now
+reports engine/protocol 0.2.0 plus deterministic capability and execution facts; Main validates
+the response and fails closed before proof IPC registration.
+
 Portable workspace files, `.aigcproof` packages, and JSON reports remain authoritative. The
 standalone application's SQLite state is disposable and cannot redefine those formats. These
 properties align with the shared-core and controlled-host-boundary principles without creating a
@@ -46,10 +52,11 @@ dependency between AIGC-Proof and AWPE.
 
 ## Valid standalone-only behavior
 
-`window.aigcProof` is the implemented Workbench preload API. It is not a frozen cross-host API.
-Main-owned native dialogs and user-selected local paths are legitimate in the standalone product;
-an asset identifier or session token requirement belongs to a future host boundary, not to the
-current offline Workbench.
+`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.0.0.
+Main-owned native dialogs and user-selected local paths are legitimate in the standalone product,
+but the renderer receives only kind-specific opaque references plus non-authoritative display
+information. An AIGCStudio asset identifier or session token belongs to its future adapter and is
+not implemented by the current offline Workbench.
 
 AIGC-Proof and AWPE are separate products with separate native modules. AIGC-Proof does not use
 wallpaper capabilities or external generation-worker protocols. Its offline proof operations do
@@ -62,7 +69,7 @@ review:
 
 ~~~text
 AIGCStudio proof UI
-        | prospective ProofHostApi
+        | ProofHostApi 1.0.0 through a prospective AIGCStudio adapter
         v
 context-isolated preload / allowlisted IPC
         v
@@ -81,32 +88,34 @@ Workbench React pages. If such a product shape is later authorized, both UIs mus
 public proof engine and reviewed interface semantics. Visual page reuse is optional; divergent
 protocol algorithms are not.
 
-Nothing in that diagram exists as an AIGCStudio integration today. In particular,
-`ProofHostApi`, Host asset-token mediation, Host proof task/staging services, cross-host version
-and capability negotiation, Utility Process isolation, and dual-product packaging have not been
-implemented or accepted.
+The reusable `ProofHostApi` and native discovery exist in the Standalone product, but nothing in
+that diagram has been implemented as an AIGCStudio runtime integration. In particular, the
+AIGCStudio adapter/Bridge, asset-token mediation, Host proof task/staging services, Host database
+ownership, Utility Process isolation, and dual-product packaging have not been implemented or
+accepted.
 
 ## Current-versus-prospective boundary
 
 | Concern | Standalone Workbench today | Prospective AIGCStudio host |
 | --- | --- | --- |
-| Renderer API | Typed `window.aigcProof`, implemented for Workbench | Reviewed `ProofHostApi`, not implemented |
-| Input authority | Main resolves user-selected local paths | Renderer submits Host-authorized references or session tokens; Main resolves paths, not implemented |
-| Native interface | Fixed addon and asynchronous proof operations | Explicit `apiVersion`, `engineVersion`, capabilities, and compatibility refusal, not implemented |
+| Renderer API | `ProofHostApi` 1.0.0 through typed `window.aigcProof` and Standalone adapter | AIGCStudio adapter/Bridge implementing the same semantics, not implemented |
+| Input authority | Main issues expiring typed references for selected paths and recent records; display paths are not authority | AIGCStudio asset/workspace/package references or session tokens, not implemented |
+| Native interface | API 1.0.0, engine 0.2.0, protocol list, capabilities, execution facts, and fail-closed compatibility | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated |
 | Native execution | Addon loaded by Workbench Main; Rust operations use napi-rs async tasks | Utility Process and crash-containment contract for expensive work, not implemented |
 | Application state | Disposable Workbench SQLite preferences, recents, indexes, and UI state | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |
 | Packaging evidence | Packaged standalone Workbench accepted | One contract/addon assembled into two products with separate UIs, not demonstrated |
 
-The current addon's implemented operations must not be used as evidence that the prospective
-contract exists. Likewise, the standalone SQLite database grants no permission to read or write
-an AIGCStudio database, asset catalog, staging area, or final publication location.
+The implemented contract and discovery must not be used as evidence that the prospective
+AIGCStudio adapter or its Host systems exist. Likewise, the standalone SQLite database grants no
+permission to read or write an AIGCStudio database, asset catalog, staging area, or final
+publication location.
 
 ## Gates before any future implementation
 
 A future integration needs its own scheme and, at minimum:
 
-1. a reviewed, machine-testable Host contract with version, engine version, capabilities, stable
-   errors, compatibility refusal, and shared test vectors;
+1. a reviewed AIGCStudio adapter profile for `ProofHostApi` 1.x, including its supported
+   capabilities, stable Host errors, compatibility refusal, and shared consumer vectors;
 2. renderer-safe asset/workspace/package references or scoped session tokens, with authorization
    and real-path resolution owned by AIGCStudio Main;
 3. explicit ownership for SQLite, asset catalog, task lifecycle, staging, cleanup, and publication;

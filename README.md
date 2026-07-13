@@ -47,9 +47,11 @@ The CLI is fully offline and performs no upload. Pass prompts and parameters thr
 ## Desktop workbench
 
 The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
-renderer reaches the Rust `proof-core` / `proof-schema` implementation only through a typed,
-allowlisted preload/IPC surface and napi-rs Node-API adapter. SQLite stores disposable local UI
-state; portable proof files remain authoritative. See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
+renderer uses `ProofHostApi` 1.0.0 through a Standalone adapter, typed allowlisted preload/IPC,
+and a fail-closed native compatibility handshake before reaching the napi-rs Node-API adapter.
+Workbench 0.2.0 and native engine 0.2.0 keep protocol 0.2.0 unchanged. SQLite stores disposable
+local UI state; portable proof files remain authoritative. See
+[Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
 
 ## Public/private boundary
 

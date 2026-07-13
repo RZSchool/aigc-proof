@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@aigc-proof/host-contracts':
+        specifier: workspace:*
+        version: link:packages/host-contracts
       react:
         specifier: 19.1.1
         version: 19.1.1
@@ -90,6 +93,19 @@ importers:
       vite:
         specifier: 6.1.0
         version: 6.1.0(@types/node@22.10.7)(tsx@4.19.2)
+      vitest:
+        specifier: 3.0.5
+        version: 3.0.5(@types/debug@4.1.13)(@types/node@22.10.7)(jsdom@26.0.0)(tsx@4.19.2)
+
+  packages/host-contracts:
+    dependencies:
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
       vitest:
         specifier: 3.0.5
         version: 3.0.5(@types/debug@4.1.13)(@types/node@22.10.7)(jsdom@26.0.0)(tsx@4.19.2)
@@ -243,7 +259,7 @@ packages:
     engines: {node: '>=12'}
 
   '@electron/node-gyp@https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2':
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
+    resolution: {gitHosted: true, integrity: sha512-MXgzlTDEEndJB3TBbvd5uFQO/8gaINo1Hfen8vef5rq/VHVPeB63uuv/uO5+8GFsAJ/rauu6XB79S6K4+aXc+w==, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
     version: 10.2.0-electron.1
     engines: {node: '>=12.13.0'}
     hasBin: true

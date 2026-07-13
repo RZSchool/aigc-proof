@@ -1,9 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-import type { AigcProofApi } from "../shared/contracts";
+import type { ProofHostApi } from "../shared/contracts";
 import { channels } from "../shared/channels";
 
-const api: AigcProofApi = {
+const api: ProofHostApi = {
+  getDiagnostics: () => ipcRenderer.invoke(channels.getDiagnostics),
   chooseWorkspaceParent: () =>
     ipcRenderer.invoke(channels.chooseWorkspaceParent),
   chooseExistingWorkspace: () =>

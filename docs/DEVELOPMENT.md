@@ -32,11 +32,19 @@ pnpm test
 pnpm build
 ~~~
 
+`@aigc-proof/host-contracts` is an independent pnpm workspace package. The root `typecheck`,
+`test`, and `build` commands include its strict DTO/Schema, SemVer, capability, opaque-reference,
+and consumer tests. It must remain importable without Electron, React, Node globals, filesystem,
+or native loading.
+
 `pnpm qa:dev` and `pnpm qa:packaged` drive the actual Electron renderer through the typed preload
 over a loopback CDP port enabled only by the dedicated QA flag. `pnpm qa:package-boundary` validates
 the packaged ASAR and native addon. On native Windows, `scripts/package-workbench.ps1` builds the
 addon and directly launchable folder, while `scripts/verify-packaged-workbench.ps1` checks normal
 launch, disabled CDP, and clean exit. Passing source tests alone is not packaged acceptance.
+Workbench startup validates native API 1.0.0 / engine 0.2.0 / protocol 0.2.0 discovery before IPC
+registration. The QA-only selection manifest is accepted only together with the explicit QA/CDP
+flag and drives normal typed picker operations; normal launch cannot use it.
 
 The smoke tests execute the real init/add/record/seal/verify/inspect binary flow and parse the
 persisted JSON report. The PowerShell path also supplies CRLF input and event JSON. Static review

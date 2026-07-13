@@ -524,6 +524,52 @@ main {
   color: var(--muted);
   line-height: 1.65;
 }
+
+.diagnostics-card {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  display: grid;
+  gap: 10px;
+}
+.diagnostics-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.diagnostics-card dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.diagnostics-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.diagnostics-card dt {
+  color: var(--muted);
+}
+.diagnostics-card dd {
+  margin: 0;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.diagnostics-card code {
+  padding: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper), transparent 12%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    11px/1.55 ui-monospace,
+    Consolas,
+    monospace;
+}
+.diagnostics-card small {
+  color: var(--muted);
+  line-height: 1.55;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
