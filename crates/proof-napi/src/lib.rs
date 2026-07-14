@@ -8,9 +8,10 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 use napi_derive::napi;
 use proof_core::{
-    AddAssetOptions, CoreError, InitWorkspaceOptions, RecordEventOptions, SealOptions,
-    VerificationLimits, add_asset, current_timestamp, init_workspace, inspect_package,
-    load_workspace, media_type_for_path, record_event, seal_workspace, verify_package,
+    AddAssetOptions, CoreError, ExportWorkspaceOutputOptions, InitWorkspaceOptions,
+    RecordEventOptions, SealOptions, VerificationLimits, add_asset, current_timestamp,
+    export_workspace_output, init_workspace, inspect_package, load_workspace,
+    match_image_to_package, media_type_for_path, record_event, seal_workspace, verify_package,
 };
 use proof_schema::{AssetRole, parse_json_strict};
 use rusqlite::Error as SqliteError;
@@ -18,12 +19,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.2.0";
+pub const NATIVE_API_VERSION: &str = "1.3.0";
 pub const NATIVE_ENGINE_VERSION: &str = "0.2.0";
 pub const SUPPORTED_PROTOCOL_VERSION: &str = "0.2.0";
 pub const NATIVE_CAPABILITIES: &[&str] = &[
     "execution.phase-progress",
     "proof.asset.add",
+    "proof.asset.export",
+    "proof.asset.match",
     "proof.event.record",
     "proof.package.inspect",
     "proof.package.seal",
@@ -97,6 +100,8 @@ enum Operation {
     InitializeWorkspace(InitializeWorkspaceRequest),
     LoadWorkspace(PathRequest),
     AddAsset(AddAssetRequest),
+    ExportWorkspaceOutput(ExportWorkspaceOutputRequest),
+    MatchImageToPackage(MatchImageToPackageRequest),
     RecordEvent(RecordEventRequest),
     SealPackage(SealPackageRequest),
     VerifyPackage(PathRequest),
@@ -127,6 +132,21 @@ pub struct AddAssetRequest {
     pub workspace: String,
     pub source: String,
     pub role: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct ExportWorkspaceOutputRequest {
+    pub workspace: String,
+    pub asset_id: String,
+    pub output: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct MatchImageToPackageRequest {
+    pub package: String,
+    pub image: String,
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +223,18 @@ pub fn load_workspace_summary(request: PathRequest) -> AsyncTask<BridgeTask> {
 #[napi]
 pub fn add_workspace_asset(request: AddAssetRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::AddAsset(request)))
+}
+
+#[napi]
+pub fn export_workspace_output_asset(
+    request: ExportWorkspaceOutputRequest,
+) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::ExportWorkspaceOutput(request)))
+}
+
+#[napi]
+pub fn match_image_to_proof_package(request: MatchImageToPackageRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::MatchImageToPackage(request)))
 }
 
 #[napi]
@@ -295,6 +327,29 @@ fn execute(operation: &Operation) -> Result<Value, BridgeFailure> {
             .map_err(BridgeFailure::core)?;
             let summary = load_workspace(&workspace).map_err(BridgeFailure::core)?;
             Ok(json!({ "asset": asset, "workspace": summary }))
+        }
+        Operation::ExportWorkspaceOutput(request) => {
+            let workspace = safe_path(&request.workspace, "workspace")?;
+            let output = safe_path(&request.output, "output")?;
+            let result = export_workspace_output(ExportWorkspaceOutputOptions {
+                workspace,
+                asset_id: request.asset_id.clone(),
+                output,
+            })
+            .map_err(BridgeFailure::core)?;
+            Ok(serde_json::to_value(result).map_err(BridgeFailure::serialization)?)
+        }
+        Operation::MatchImageToPackage(request) => {
+            let package = safe_path(&request.package, "package")?;
+            let image = safe_path(&request.image, "image")?;
+            let result = match_image_to_package(
+                &package,
+                &image,
+                &VerificationLimits::default(),
+                current_timestamp().map_err(BridgeFailure::core)?,
+            )
+            .map_err(BridgeFailure::core)?;
+            Ok(serde_json::to_value(result).map_err(BridgeFailure::serialization)?)
         }
         Operation::RecordEvent(request) => {
             let workspace = safe_path(&request.workspace, "workspace")?;
@@ -442,7 +497,7 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.2.0");
+        assert_eq!(info.api_version, "1.3.0");
         assert_eq!(info.engine_version, "0.2.0");
         assert_eq!(info.supported_protocol_versions, ["0.2.0"]);
         assert_eq!(
@@ -473,21 +528,25 @@ mod tests {
         let root = tempdir().unwrap();
         let workspace = root.path().join("项目 工作区");
         let input = root.path().join("输入 文件.txt");
-        let output_asset = root.path().join("output.txt");
+        let output_asset = root.path().join("output.png");
         let package = root.path().join("proof.aigcproof");
         fs::write(&input, b"bridge input").unwrap();
-        fs::write(&output_asset, b"bridge output").unwrap();
+        fs::write(&output_asset, b"\x89PNG\r\n\x1a\nbridge output").unwrap();
 
         data(Operation::InitializeWorkspace(InitializeWorkspaceRequest {
             path: workspace.to_string_lossy().into_owned(),
             project_name: Some("桥接测试".to_owned()),
         }));
+        let mut output_asset_id = None;
         for (source, role) in [(&input, "input"), (&output_asset, "output")] {
-            data(Operation::AddAsset(AddAssetRequest {
+            let added = data(Operation::AddAsset(AddAssetRequest {
                 workspace: workspace.to_string_lossy().into_owned(),
                 source: source.to_string_lossy().into_owned(),
                 role: role.to_owned(),
             }));
+            if role == "output" {
+                output_asset_id = added["asset"]["asset_id"].as_str().map(str::to_owned);
+            }
         }
         data(Operation::RecordEvent(RecordEventRequest {
             workspace: workspace.to_string_lossy().into_owned(),
@@ -506,6 +565,27 @@ mod tests {
             path: package.to_string_lossy().into_owned(),
         }));
         assert_eq!(inspection["verification_performed"], false);
+
+        let matched = data(Operation::MatchImageToPackage(MatchImageToPackageRequest {
+            package: package.to_string_lossy().into_owned(),
+            image: output_asset.to_string_lossy().into_owned(),
+        }));
+        assert_eq!(matched["status"], "verified_output_match");
+        assert_eq!(matched["matched_assets"][0]["role"], "output");
+
+        let exported = root.path().join("exported output.png");
+        let export = data(Operation::ExportWorkspaceOutput(
+            ExportWorkspaceOutputRequest {
+                workspace: workspace.to_string_lossy().into_owned(),
+                asset_id: output_asset_id.unwrap(),
+                output: exported.to_string_lossy().into_owned(),
+            },
+        ));
+        assert_eq!(export["sha256"], matched["file_sha256"]);
+        assert_eq!(
+            fs::read(&exported).unwrap(),
+            b"\x89PNG\r\n\x1a\nbridge output"
+        );
 
         let second: Value = serde_json::from_str(&run_operation(&Operation::SealPackage(
             SealPackageRequest {

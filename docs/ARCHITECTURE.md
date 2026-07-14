@@ -34,11 +34,11 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop Workbench 0.4.0
+## Desktop Workbench 0.5.0
 
 ~~~text
 React + TypeScript renderer (untrusted presentation)
-        | ProofHostApi 1.2.0
+        | ProofHostApi 1.3.0
         v
 Standalone Host adapter
         | typed window.aigcProof API
@@ -55,7 +55,7 @@ Electron Main (authority, SQLite v2, provider/process/staging lifecycle)
         | versioned Utility messages
         v
 supervised Electron Utility Process (exclusive native-addon owner)
-        | native API 1.2.0 + Node-API
+        | native API 1.3.0 + Node-API
         v
 proof-napi (asynchronous proof adapter)
         |
@@ -71,9 +71,17 @@ access. Main validates every DTO, owns native dialogs and user-selected paths, a
 session/origin/kind/permission/expiry-bound opaque references whose display labels/paths have no
 authority. The supervised Utility Process is the only production process that loads
 `proof_napi.node`. Main registers proof IPC only after its versioned handshake reports compatible
-API 1.2.0, engine 0.2.0, protocol 0.2.0, capabilities, execution facts, and bounded limits. Rust
+API 1.3.0, engine 0.2.0, protocol 0.2.0, capabilities, execution facts, and bounded limits. Rust
 remains the sole protocol and archive-security implementation; Electron never shells out to the
 CLI.
+
+Image matching and creation-output export follow the same boundary. Renderer submits only typed,
+operation-specific references. Main resolves them and the Utility invokes Rust once to fully
+verify the same package instance before streaming the selected PNG/JPEG/WebP and comparing size
+plus SHA-256 with verified Manifest assets. Export reads only the recorded workspace `output`,
+rehashes it, syncs a same-directory temporary file, and publishes without overwrite. Main creates
+bounded metadata-free thumbnails; original image bytes and reusable file authority never enter
+SQLite or Renderer code.
 
 Main schedules at most one running native job and sixteen queued jobs. Progress is a bounded
 sequence of real host phases rather than guessed byte percentages. Queued work can cancel before
@@ -110,7 +118,7 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 ## Versioned standalone host and prospective integration
 
-`@aigc-proof/host-contracts` 1.2.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+`@aigc-proof/host-contracts` 1.3.0 is the reusable renderer-safe source of DTOs, strict Schemas,
 versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
 Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
 consumer/component tests but is not registered by the packaged product.

@@ -1,14 +1,16 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.4.0" as const;
-export const HOST_CONTRACT_VERSION = "1.2.0" as const;
-export const NATIVE_API_VERSION = "1.2.0" as const;
+export const WORKBENCH_VERSION = "0.5.0" as const;
+export const HOST_CONTRACT_VERSION = "1.3.0" as const;
+export const NATIVE_API_VERSION = "1.3.0" as const;
 export const NATIVE_ENGINE_VERSION = "0.2.0" as const;
 export const PROTOCOL_VERSION = "0.2.0" as const;
 
 export const NATIVE_CAPABILITIES = [
   "execution.phase-progress",
   "proof.asset.add",
+  "proof.asset.export",
+  "proof.asset.match",
   "proof.event.record",
   "proof.package.inspect",
   "proof.package.seal",
@@ -27,6 +29,8 @@ export const HOST_CAPABILITIES = [
   "execution.queued-cancellation",
   "execution.utility-process",
   "proof.asset.add",
+  "proof.asset.export",
+  "proof.asset.match",
   "proof.event.record",
   "proof.package.inspect",
   "proof.package.seal",
@@ -142,6 +146,8 @@ export const referenceKinds = [
   "workspace-parent",
   "workspace",
   "asset",
+  "image",
+  "image-output",
   "package",
   "package-output",
   "report-output",
@@ -170,6 +176,12 @@ export const workspaceReferenceSchema = hostReferenceSchema
   .strict();
 export const assetReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("asset") })
+  .strict();
+export const imageReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("image") })
+  .strict();
+export const imageOutputReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("image-output") })
   .strict();
 export const packageReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("package") })
@@ -202,6 +214,8 @@ export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
 export type WorkspaceParentReference = HostReference<"workspace-parent">;
 export type WorkspaceReference = HostReference<"workspace">;
 export type AssetReference = HostReference<"asset">;
+export type ImageReference = HostReference<"image">;
+export type ImageOutputReference = HostReference<"image-output">;
 export type PackageReference = HostReference<"package">;
 export type PackageOutputReference = HostReference<"package-output">;
 export type ReportOutputReference = HostReference<"report-output">;
@@ -398,6 +412,35 @@ export interface CreationOutputSummary {
   mediaType: "image/png" | "image/jpeg" | "image/webp";
   sizeBytes: number;
   sha256: string;
+  previewDataUrl?: string | undefined;
+}
+
+export type ImageMatchStatus =
+  | "verified_output_match"
+  | "matched_non_output"
+  | "not_in_package"
+  | "package_invalid";
+
+export interface ImageMatchResult {
+  status: ImageMatchStatus;
+  verification: VerificationReport;
+  image: {
+    displayLabel: string;
+    displayPath: string;
+    mediaType?: "image/png" | "image/jpeg" | "image/webp" | undefined;
+    sizeBytes?: number | undefined;
+    sha256?: string | undefined;
+    previewDataUrl?: string | undefined;
+  };
+  matchedAssets: Asset[];
+}
+
+export interface ExportedCreationOutput {
+  image: ImageReference;
+  displayPath: string;
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  sizeBytes: number;
+  sha256: string;
 }
 
 export interface CreationSessionSummary {
@@ -582,8 +625,8 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
 export interface HostDiagnostics {
   reference: DiagnosticReference;
   hostKind: "standalone" | "mock" | "compatible-host";
-  workbenchVersion: "0.4.0";
-  contractVersion: "1.2.0";
+  workbenchVersion: "0.5.0";
+  contractVersion: "1.3.0";
   nativeApiVersion: string;
   engineVersion: string;
   protocolVersion: "0.2.0";
@@ -674,6 +717,25 @@ export const sealPackageRequestSchema = z
   .strict();
 export const packageRequestSchema = z
   .object({ package: packageReferenceSchema })
+  .strict();
+export const imageMatchRequestSchema = z
+  .object({
+    image: imageReferenceSchema,
+    package: packageReferenceSchema,
+  })
+  .strict();
+export const exportWorkspaceOutputRequestSchema = z
+  .object({
+    workspace: workspaceReferenceSchema,
+    assetId: z.string().min(1).max(160),
+    output: imageOutputReferenceSchema,
+  })
+  .strict();
+export const exportCreationOutputRequestSchema = z
+  .object({
+    session: creationSessionReferenceSchema,
+    output: imageOutputReferenceSchema,
+  })
   .strict();
 
 const verificationIssueSchema = z
@@ -781,6 +843,8 @@ export const jobOperations = [
   "initializeWorkspace",
   "loadWorkspace",
   "addAsset",
+  "exportWorkspaceOutput",
+  "matchImageToPackage",
   "recordEvent",
   "sealPackage",
   "verifyPackage",
@@ -854,6 +918,14 @@ export type JobCreateRequest =
       input: z.infer<typeof addAssetRequestSchema>;
     }
   | {
+      operation: "exportWorkspaceOutput";
+      input: z.infer<typeof exportWorkspaceOutputRequestSchema>;
+    }
+  | {
+      operation: "matchImageToPackage";
+      input: z.infer<typeof imageMatchRequestSchema>;
+    }
+  | {
       operation: "recordEvent";
       input: z.infer<typeof recordEventRequestSchema>;
     }
@@ -876,6 +948,8 @@ export type JobResult =
       operation: "addAsset";
       data: { asset: Asset; workspace: Workspace };
     }
+  | { operation: "exportWorkspaceOutput"; data: ExportedCreationOutput }
+  | { operation: "matchImageToPackage"; data: ImageMatchResult }
   | { operation: "recordEvent"; data: { event: EventRecord } }
   | {
       operation: "sealPackage";
@@ -927,6 +1001,10 @@ export interface ProofHostApi {
   chooseWorkspaceParent(): Promise<WorkspaceParentReference | null>;
   chooseExistingWorkspace(): Promise<WorkspaceReference | null>;
   chooseAsset(): Promise<AssetReference | null>;
+  chooseImage(): Promise<ImageReference | null>;
+  chooseCreationOutput(request: {
+    session: CreationSessionReference;
+  }): Promise<ImageOutputReference | null>;
   choosePackage(): Promise<PackageReference | null>;
   choosePackageOutput(): Promise<PackageOutputReference | null>;
   chooseReportOutput(): Promise<ReportOutputReference | null>;
@@ -947,6 +1025,14 @@ export interface ProofHostApi {
     source: AssetReference;
     role: AssetRole;
   }): Promise<HostEnvelope<{ asset: Asset; workspace: Workspace }>>;
+  exportCreationOutput(request: {
+    session: CreationSessionReference;
+    output: ImageOutputReference;
+  }): Promise<HostEnvelope<ExportedCreationOutput>>;
+  matchImageToPackage(request: {
+    image: ImageReference;
+    package: PackageReference;
+  }): Promise<HostEnvelope<ImageMatchResult>>;
   recordEvent(request: {
     workspace: WorkspaceReference;
     eventType: string;
@@ -1154,6 +1240,46 @@ export const creationOutputSummarySchema = z
       .positive()
       .max(100 * 1024 * 1024),
     sha256: digestSchema,
+    previewDataUrl: z
+      .string()
+      .max(512 * 1024)
+      .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/u)
+      .optional(),
+  })
+  .strict();
+export const imageMatchResultSchema = z
+  .object({
+    status: z.enum([
+      "verified_output_match",
+      "matched_non_output",
+      "not_in_package",
+      "package_invalid",
+    ]),
+    verification: verificationReportSchema,
+    image: z
+      .object({
+        displayLabel: z.string().min(1).max(512),
+        displayPath: localDisplayPath,
+        mediaType: z.enum(["image/png", "image/jpeg", "image/webp"]).optional(),
+        sizeBytes: z.number().int().nonnegative().optional(),
+        sha256: digestSchema.optional(),
+        previewDataUrl: z
+          .string()
+          .max(512 * 1024)
+          .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/u)
+          .optional(),
+      })
+      .strict(),
+    matchedAssets: z.array(assetSchema),
+  })
+  .strict();
+export const exportedCreationOutputSchema = z
+  .object({
+    image: imageReferenceSchema,
+    displayPath: localDisplayPath,
+    mediaType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    sizeBytes: z.number().int().positive(),
+    sha256: digestSchema,
   })
   .strict();
 export const creationSessionSummarySchema: z.ZodType<CreationSessionSummary> = z
@@ -1207,6 +1333,12 @@ export const jobCreateRequestSchema = z.discriminatedUnion("operation", [
     .strict(),
   z
     .object({ operation: z.literal("addAsset"), input: addAssetRequestSchema })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("matchImageToPackage"),
+      input: imageMatchRequestSchema,
+    })
     .strict(),
   z
     .object({
@@ -1297,6 +1429,18 @@ export const jobResultSchema = z.discriminatedUnion("operation", [
     .strict(),
   z
     .object({
+      operation: z.literal("exportWorkspaceOutput"),
+      data: exportedCreationOutputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("matchImageToPackage"),
+      data: imageMatchResultSchema,
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal("recordEvent"),
       data: recordEventResultSchema,
     })
@@ -1341,6 +1485,8 @@ export const proofHostResponseSchemas = {
   chooseWorkspaceParent: workspaceParentReferenceSchema.nullable(),
   chooseExistingWorkspace: workspaceReferenceSchema.nullable(),
   chooseAsset: assetReferenceSchema.nullable(),
+  chooseImage: imageReferenceSchema.nullable(),
+  chooseCreationOutput: imageOutputReferenceSchema.nullable(),
   choosePackage: packageReferenceSchema.nullable(),
   choosePackageOutput: packageOutputReferenceSchema.nullable(),
   chooseReportOutput: reportOutputReferenceSchema.nullable(),
@@ -1348,6 +1494,8 @@ export const proofHostResponseSchemas = {
   initializeWorkspace: hostEnvelopeSchemaFor(workspaceSummarySchema),
   loadWorkspace: hostEnvelopeSchemaFor(workspaceSummarySchema),
   addAsset: hostEnvelopeSchemaFor(addAssetResultSchema),
+  exportCreationOutput: hostEnvelopeSchemaFor(exportedCreationOutputSchema),
+  matchImageToPackage: hostEnvelopeSchemaFor(imageMatchResultSchema),
   recordEvent: hostEnvelopeSchemaFor(recordEventResultSchema),
   sealPackage: hostEnvelopeSchemaFor(sealPackageResultSchema),
   verifyPackage: hostEnvelopeSchemaFor(verificationReportSchema),

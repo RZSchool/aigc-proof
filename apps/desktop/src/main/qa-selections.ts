@@ -9,6 +9,8 @@ const qaSelectionsSchema = z
     workspaceParents: z.array(selectedPath),
     existingWorkspaces: z.array(selectedPath),
     assets: z.array(selectedPath),
+    images: z.array(selectedPath).default([]),
+    imageOutputs: z.array(selectedPath).default([]),
     packages: z.array(selectedPath),
     packageOutputs: z.array(selectedPath),
     reportOutputs: z.array(selectedPath),

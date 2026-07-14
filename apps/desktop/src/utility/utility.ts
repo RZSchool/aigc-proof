@@ -74,6 +74,10 @@ async function execute(job: UtilityJob): Promise<HostEnvelope<unknown>> {
       return invokeNative(addon.loadWorkspaceSummary(job.payload));
     case "addAsset":
       return invokeNative(addon.addWorkspaceAsset(job.payload));
+    case "exportWorkspaceOutput":
+      return invokeNative(addon.exportWorkspaceOutputAsset(job.payload));
+    case "matchImageToPackage":
+      return invokeNative(addon.matchImageToProofPackage(job.payload));
     case "recordEvent":
       return invokeNative(addon.recordWorkspaceEvent(job.payload));
     case "sealPackage":

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -39,6 +40,7 @@ const output = path.join(work, "输出 文件.txt");
 const reference = path.join(work, "参考 文件.txt");
 const license = path.join(work, "许可 文件.txt");
 const other = path.join(work, "其他 文件.txt");
+const manualInputImage = path.join(work, "手动 输入 图片.png");
 const crashInput = path.join(work, "崩溃 恢复 输入.bin");
 const validPackage = path.join(work, "有效 包.aigcproof");
 const tamperedPackage = path.join(work, "篡改 包.aigcproof");
@@ -46,6 +48,10 @@ const malformedPackage = path.join(work, "损坏 包.aigcproof");
 const report = path.join(work, "验证 报告.json");
 const creationPackage = path.join(work, "创作 证明包.aigcproof");
 const creationReport = path.join(work, "创作 验证报告.json");
+const exportedImage = path.join(work, "保存 生成图片.png");
+const mutatedImage = path.join(work, "修改后 生成图片.png");
+const reopenedExportedImage = path.join(work, "重启后 生成图片.png");
+const cliReport = path.join(work, "CLI 独立验证报告.json");
 const comfyUiInstallation = path.resolve(
   process.env.AIGC_PROOF_COMFYUI_DIR ??
     path.join(workspaceRoot, "..", "ComfyUI_windows_portable"),
@@ -62,6 +68,37 @@ function record(name: string, detail?: string): void {
 
 function js(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function runProcess(
+  executable: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { cwd: repo, windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else
+        reject(
+          new Error(
+            `${path.basename(executable)} exited ${code}: ${stderr || stdout}`,
+          ),
+        );
+    });
+  });
 }
 
 async function setControl(
@@ -179,7 +216,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.4.0")
+  if (version !== "Workbench 0.5.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -214,7 +251,7 @@ async function captureLayoutEvidence(cdp: CdpClient): Promise<void> {
     }))()`);
     if (
       layout.horizontalOverflow ||
-      layout.regions !== 9 ||
+      layout.regions !== 10 ||
       layout.navs !== 0 ||
       layout.clippedActions !== 0
     ) {
@@ -278,6 +315,13 @@ async function main(): Promise<void> {
   await fsp.writeFile(reference, "desktop bridge reference", "utf8");
   await fsp.writeFile(license, "desktop bridge license", "utf8");
   await fsp.writeFile(other, "desktop bridge other", "utf8");
+  await fsp.writeFile(
+    manualInputImage,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
   await fsp.writeFile(crashInput, Buffer.alloc(128 * 1024 * 1024, 0x61));
   await fsp.writeFile(malformedPackage, "not a zip package", "utf8");
   await fsp.writeFile(
@@ -286,8 +330,26 @@ async function main(): Promise<void> {
       {
         workspaceParents: [work],
         existingWorkspaces: [proofWorkspace],
-        assets: [input, output, reference, license, other, crashInput],
-        packages: [validPackage, tamperedPackage, malformedPackage],
+        assets: [
+          manualInputImage,
+          input,
+          output,
+          reference,
+          license,
+          other,
+          crashInput,
+        ],
+        images: [mutatedImage, manualInputImage, exportedImage, exportedImage],
+        imageOutputs: [exportedImage, exportedImage],
+        packages: [
+          creationPackage,
+          creationPackage,
+          validPackage,
+          tamperedPackage,
+          malformedPackage,
+          tamperedPackage,
+          malformedPackage,
+        ],
         packageOutputs: [creationPackage, validPackage, validPackage],
         reportOutputs: [creationReport, report, report],
         providerInstallations: [comfyUiInstallation],
@@ -337,7 +399,7 @@ async function main(): Promise<void> {
     (value) => value.includes(proofWorkspace),
     "new workspace target preview",
   );
-  await setControl(cdp, "project-name", "AP-024 creation-to-proof 自动验收");
+  await setControl(cdp, "project-name", "AP-025 图片对应验证自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
 
@@ -359,6 +421,7 @@ async function main(): Promise<void> {
   );
 
   for (const [source, role] of [
+    [manualInputImage, "input"],
     [input, "input"],
     [output, "output"],
     [reference, "reference"],
@@ -397,7 +460,7 @@ async function main(): Promise<void> {
   }
   record("comfyui-v0.27.0-capability-license-inspection", providerText);
 
-  await setControl(cdp, "creation-title", "AP-024 真实本地创作");
+  await setControl(cdp, "creation-title", "AP-025 真实本地创作");
   await clickAndWait(cdp, "create-creation-session", "创作会话已创建");
   await setControl(
     cdp,
@@ -451,6 +514,8 @@ async function main(): Promise<void> {
     snapshot?: string;
     checkpoint?: string;
     providerVersion?: string;
+    preview: boolean;
+    proofId?: string;
   }>(`(async () => {
     const sessions = await window.aigcProof.getCreationSessions();
     if (!sessions.ok || !sessions.data[0]) throw new Error('Creation session missing.');
@@ -461,6 +526,8 @@ async function main(): Promise<void> {
       snapshot: sessions.data[0].snapshot?.snapshot_sha256,
       checkpoint: sessions.data[0].snapshot?.checkpoint_observation,
       providerVersion: sessions.data[0].providerVersion,
+      preview: Boolean(sessions.data[0].output?.previewDataUrl),
+      proofId: sessions.data[0].verification?.proof_id,
     };
   })()`);
   if (
@@ -468,7 +535,9 @@ async function main(): Promise<void> {
     completedCreation.status !== "valid" ||
     !completedCreation.output ||
     !completedCreation.snapshot ||
-    completedCreation.providerVersion !== "0.27.0"
+    completedCreation.providerVersion !== "0.27.0" ||
+    !completedCreation.preview ||
+    !completedCreation.proofId
   ) {
     throw new Error(
       `Creation proof completion is invalid: ${JSON.stringify(completedCreation)}`,
@@ -483,6 +552,82 @@ async function main(): Promise<void> {
     await cdp.screenshot(),
   );
   record("creation-seal-verify-report", JSON.stringify(completedCreation));
+
+  await clickAndWait(
+    cdp,
+    "export-creation-output",
+    "生成图片副本已保存，可直接与证明包核验",
+  );
+  const exportedBytes = await fsp.readFile(exportedImage);
+  const exportedDigest = sha256(exportedBytes);
+  if (exportedDigest !== completedCreation.output) {
+    throw new Error(
+      `Exported image digest ${exportedDigest} differs from recorded output ${completedCreation.output}.`,
+    );
+  }
+  record("creation-output-visible-and-exact-export", exportedDigest);
+  await clickAndWait(cdp, "export-creation-output", "OUTPUT_ALREADY_EXISTS");
+  record("creation-output-export-no-clobber");
+  await clickAndWait(
+    cdp,
+    "match-image-package",
+    "图片与有效证明包中的生成输出完全一致",
+  );
+  const matchedOutputCard = await controlText(cdp, "image-match-result");
+  if (
+    !matchedOutputCard.includes("图片与包内生成输出完全一致") ||
+    !matchedOutputCard.includes("output") ||
+    !matchedOutputCard.includes(completedCreation.proofId)
+  ) {
+    throw new Error(
+      `Output-match result card is incomplete: ${matchedOutputCard}`,
+    );
+  }
+  await cdp.evaluate(
+    `document.querySelector('[data-testid="image-match-result"]')?.scrollIntoView({ block: "center" })`,
+  );
+  await delay(100);
+  await fsp.writeFile(
+    path.join(evidence, "image-output-match.png"),
+    await cdp.screenshot(),
+  );
+  record("exported-image-verified-output-match", matchedOutputCard);
+
+  await fsp.copyFile(exportedImage, mutatedImage);
+  await fsp.appendFile(mutatedImage, Buffer.from([0]));
+  await click(cdp, "choose-image");
+  await waitFor(
+    () => controlValue(cdp, "image-path"),
+    (value) => value.includes(mutatedImage),
+    "Host-issued mutated image",
+  );
+  await click(cdp, "choose-image-package");
+  await waitFor(
+    () => controlValue(cdp, "image-package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued creation package for mismatch",
+  );
+  await clickAndWait(cdp, "match-image-package", "图片不在该证明包中");
+  record("mutated-image-not-in-package");
+
+  await click(cdp, "choose-image");
+  await waitFor(
+    () => controlValue(cdp, "image-path"),
+    (value) => value.includes(manualInputImage),
+    "Host-issued non-output image",
+  );
+  await click(cdp, "choose-image-package");
+  await waitFor(
+    () => controlValue(cdp, "image-package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued creation package for non-output match",
+  );
+  await clickAndWait(
+    cdp,
+    "match-image-package",
+    "文件存在于包中，但不是生成输出",
+  );
+  record("matched-non-output-distinction");
 
   await setControl(cdp, "event-type", "generation");
   await setControl(
@@ -572,6 +717,36 @@ async function main(): Promise<void> {
     throw new Error("Malformed package did not report MALFORMED_ZIP.");
   }
   record("malformed-package-rejection");
+
+  for (const [selectedPackage, expectedLabel] of [
+    [tamperedPackage, "tampered"],
+    [malformedPackage, "malformed"],
+  ] as const) {
+    await click(cdp, "choose-image");
+    await waitFor(
+      () => controlValue(cdp, "image-path"),
+      (value) => value.includes(exportedImage),
+      `Host-issued image for ${expectedLabel} package`,
+    );
+    await click(cdp, "choose-image-package");
+    await waitFor(
+      () => controlValue(cdp, "image-package-path"),
+      (value) => value.includes(selectedPackage),
+      `Host-issued ${expectedLabel} package for image matching`,
+    );
+    await clickAndWait(
+      cdp,
+      "match-image-package",
+      "证明包无效，未作图片对应性判断",
+    );
+    const invalidCard = await controlText(cdp, "image-match-result");
+    if (!invalidCard.includes("证明包无效，不能判断图片对应关系")) {
+      throw new Error(
+        `${expectedLabel} package produced an unexpected image result: ${invalidCard}`,
+      );
+    }
+    record(`${expectedLabel}-package-no-image-match-claim`);
+  }
 
   const beforeCrash = await cdp.evaluate<{
     generation: number;
@@ -693,7 +868,9 @@ async function main(): Promise<void> {
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
     "0.2.0",
-    "1.2.0",
+    "1.3.0",
+    "proof.asset.export",
+    "proof.asset.match",
     "creation.comfyui-local",
     "integration.aigcstudio",
     "execution.utility-process",
@@ -711,6 +888,26 @@ async function main(): Promise<void> {
   await closeApp(launch);
   launch = undefined;
   record("clean-exit-first-run");
+
+  await fsp.writeFile(
+    selectionManifest,
+    `${JSON.stringify(
+      {
+        workspaceParents: [],
+        existingWorkspaces: [],
+        assets: [],
+        images: [],
+        imageOutputs: [reopenedExportedImage],
+        packages: [],
+        packageOutputs: [],
+        reportOutputs: [],
+        providerInstallations: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 
   launch = await launchApp(mode === "dev" ? 9323 : 9324);
   await waitFor(
@@ -736,7 +933,7 @@ async function main(): Promise<void> {
     packageStatus?: string;
   }>(`(async () => {
     const sessions = await window.aigcProof.getCreationSessions();
-    const session = sessions.ok ? sessions.data.find((item) => item.title === 'AP-024 真实本地创作') : undefined;
+    const session = sessions.ok ? sessions.data.find((item) => item.title === 'AP-025 真实本地创作') : undefined;
     if (!session?.package) throw new Error('Persisted creation package reference missing.');
     const verified = await window.aigcProof.verifyPackage({ package: session.package });
     if (!verified.ok) throw new Error(verified.error.code);
@@ -761,6 +958,23 @@ async function main(): Promise<void> {
   );
   await clickAndWait(
     launch.cdp,
+    "export-creation-output",
+    "生成图片副本已保存，可直接与证明包核验",
+  );
+  const reopenedDigest = sha256(await fsp.readFile(reopenedExportedImage));
+  if (reopenedDigest !== completedCreation.output) {
+    throw new Error(
+      `Restarted export digest ${reopenedDigest} differs from ${completedCreation.output}.`,
+    );
+  }
+  await clickAndWait(
+    launch.cdp,
+    "match-image-package",
+    "图片与有效证明包中的生成输出完全一致",
+  );
+  record("restart-export-and-output-match", reopenedDigest);
+  await clickAndWait(
+    launch.cdp,
     "rebuild-recents",
     "最近项索引已从可携带文件重建",
   );
@@ -772,6 +986,46 @@ async function main(): Promise<void> {
   await closeApp(launch);
   launch = undefined;
   record("clean-exit-second-run");
+
+  const cliExecutable = path.join(
+    repo,
+    "target",
+    "windows-gnu",
+    "release",
+    "aigc-proof.exe",
+  );
+  await fsp.access(cliExecutable);
+  const cliVerification = await runProcess(cliExecutable, [
+    "verify",
+    creationPackage,
+    "--json",
+    cliReport,
+  ]);
+  const cliReportValue = JSON.parse(await fsp.readFile(cliReport, "utf8")) as {
+    status?: string;
+    proof_id?: string;
+  };
+  const manifest = JSON.parse(
+    new AdmZip(creationPackage).readAsText("manifest.json"),
+  ) as {
+    assets?: Array<{ role?: string; sha256?: string }>;
+  };
+  const recordedOutputDigest = manifest.assets?.find(
+    (candidate) =>
+      candidate.role === "output" &&
+      candidate.sha256 === completedCreation.output,
+  )?.sha256;
+  if (
+    cliReportValue.status !== "valid" ||
+    cliReportValue.proof_id !== completedCreation.proofId ||
+    recordedOutputDigest !== completedCreation.output ||
+    !cliVerification.stdout.includes('"status": "valid"')
+  ) {
+    throw new Error(
+      `Independent CLI verification disagreed: ${JSON.stringify({ cliReportValue, recordedOutputDigest })}`,
+    );
+  }
+  record("independent-native-cli-verification-and-output-digest");
 
   const database = path.join(userData, "workbench.sqlite3");
   await fsp.writeFile(database, "corrupt disposable state", "utf8");
@@ -810,9 +1064,9 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.4.0",
-    contractVersion: "1.2.0",
-    nativeApiVersion: "1.2.0",
+    workbenchVersion: "0.5.0",
+    contractVersion: "1.3.0",
+    nativeApiVersion: "1.3.0",
     engineVersion: "0.2.0",
     protocolVersion: "0.2.0",
     executable: testedExecutable,
@@ -825,6 +1079,14 @@ async function main(): Promise<void> {
     tamperedPackage,
     report,
     creationReport,
+    exportedImage,
+    mutatedImage,
+    reopenedExportedImage,
+    exportedDigest,
+    reopenedDigest,
+    cliExecutable,
+    cliReport,
+    recordedOutputDigest,
     comfyUiInstallation,
     nativeDiscovery,
     providerInventory: providerText,

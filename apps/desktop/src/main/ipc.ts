@@ -19,14 +19,20 @@ import {
   WORKBENCH_VERSION,
   addAssetRequestSchema,
   addAssetResultSchema,
+  assetSchema,
   completeCreationProofRequestSchema,
   createCreationSessionRequestSchema,
+  creationOutputSummarySchema,
   creationSessionRequestSchema,
   creationSessionSummarySchema,
   creationSnapshotSchema,
+  exportCreationOutputRequestSchema,
+  exportedCreationOutputSchema,
   freezeCreationSessionRequestSchema,
   hostDiagnosticsSchema,
   hostErrorSchema,
+  imageMatchRequestSchema,
+  imageMatchResultSchema,
   initializeWorkspaceRequestSchema,
   inspectProviderInstallationRequestSchema,
   inspectionSchema,
@@ -46,6 +52,7 @@ import {
   type DiagnosticReference,
   type CreationSessionReference,
   type CreationSessionSummary,
+  type ExportedCreationOutput,
   type HostError,
   type HostEnvelope,
   type JobCreateRequest,
@@ -57,7 +64,7 @@ import {
   type WorkspaceParentReference,
   type WorkspaceSummary,
 } from "@aigc-proof/host-contracts";
-import { app, dialog, ipcMain, webContents } from "electron";
+import { app, dialog, ipcMain, nativeImage, webContents } from "electron";
 import { z, type ZodType } from "zod";
 
 import { channels } from "../shared/channels";
@@ -80,6 +87,34 @@ const nativeWorkspaceSummarySchema = z
   .strict();
 const nativeSealResultSchema = z
   .object({ path: localPathSchema, manifest: z.record(z.unknown()) })
+  .strict();
+const nativeImageMatchResultSchema = z
+  .object({
+    status: z.enum([
+      "verified_output_match",
+      "matched_non_output",
+      "not_in_package",
+      "package_invalid",
+    ]),
+    verification: verificationReportSchema,
+    file_media_type: z
+      .enum(["image/png", "image/jpeg", "image/webp"])
+      .optional(),
+    file_size_bytes: z.number().int().nonnegative().optional(),
+    file_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
+    matched_assets: z.array(assetSchema),
+  })
+  .strict();
+const nativeExportedOutputSchema = z
+  .object({
+    path: localPathSchema,
+    asset: assetSchema,
+    size_bytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
   .strict();
 const nativeValidatedRecentsSchema = z
   .object({
@@ -174,6 +209,59 @@ async function selectedSavePath(
   if (qaSelections) return qaSelections.take(qaKind);
   const result = await dialog.showSaveDialog(dialogOptions);
   return result.canceled ? null : (result.filePath ?? null);
+}
+
+async function boundedThumbnailDataUrl(
+  selectedPath: string,
+): Promise<string | undefined> {
+  try {
+    const metadata = await fs.lstat(selectedPath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) return undefined;
+    if (metadata.size <= 0 || metadata.size > 100 * 1024 * 1024)
+      return undefined;
+    const thumbnail = await nativeImage.createThumbnailFromPath(selectedPath, {
+      width: 420,
+      height: 320,
+    });
+    if (thumbnail.isEmpty()) return undefined;
+    const png = thumbnail.toPNG();
+    if (png.byteLength === 0 || png.byteLength > 384 * 1024) return undefined;
+    return `data:image/png;base64,${png.toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+
+async function creationOutputPath(
+  workspacePath: string,
+  packagePath: string,
+): Promise<string | undefined> {
+  try {
+    const candidate = path.resolve(workspacePath, packagePath);
+    const relative = path.relative(workspacePath, candidate);
+    if (
+      relative === "" ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative)
+    )
+      return undefined;
+    const metadata = await fs.lstat(candidate);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) return undefined;
+    const [workspaceReal, candidateReal] = await Promise.all([
+      fs.realpath(workspacePath),
+      fs.realpath(candidate),
+    ]);
+    const realRelative = path.relative(workspaceReal, candidateReal);
+    if (
+      realRelative === "" ||
+      realRelative.startsWith("..") ||
+      path.isAbsolute(realRelative)
+    )
+      return undefined;
+    return candidate;
+  } catch {
+    return undefined;
+  }
 }
 
 async function saveReportNoClobber(
@@ -300,7 +388,13 @@ export async function registerIpc(
       "workspace",
       stored.workspacePath,
       owner,
-      ["loadWorkspace", "addAsset", "recordEvent", "sealPackage"],
+      [
+        "loadWorkspace",
+        "addAsset",
+        "recordEvent",
+        "sealPackage",
+        "exportWorkspaceOutput",
+      ],
     );
     const providerInstallation = await registry.issue(
       "provider-installation",
@@ -309,12 +403,20 @@ export async function registerIpc(
       ["inspectProviderInstallation", "createCreationSession"],
     );
     const outputRecord = stored.outputJson
-      ? (JSON.parse(stored.outputJson) as Record<string, unknown>)
+      ? creationOutputSummarySchema.parse(JSON.parse(stored.outputJson))
+      : undefined;
+    const outputAsset = outputRecord?.asset;
+    const outputSource = outputAsset
+      ? await creationOutputPath(stored.workspacePath, outputAsset.package_path)
+      : undefined;
+    const outputPreview = outputSource
+      ? await boundedThumbnailDataUrl(outputSource)
       : undefined;
     const packageReference = stored.packagePath
       ? await registry.issue("package", stored.packagePath, owner, [
           "verifyPackage",
           "inspectPackage",
+          "matchImageToPackage",
         ])
       : undefined;
     return creationSessionSummarySchema.parse({
@@ -338,13 +440,14 @@ export async function registerIpc(
       ...(stored.progressJson
         ? { progress: JSON.parse(stored.progressJson) }
         : {}),
-      ...(outputRecord?.asset
+      ...(outputAsset
         ? {
             output: {
-              asset: outputRecord.asset,
+              asset: outputAsset,
               mediaType: outputRecord.mediaType,
               sizeBytes: outputRecord.sizeBytes,
               sha256: outputRecord.sha256,
+              ...(outputPreview ? { previewDataUrl: outputPreview } : {}),
             },
           }
         : {}),
@@ -395,8 +498,14 @@ export async function registerIpc(
                 item.path,
                 owner,
                 kind === "workspace"
-                  ? ["loadWorkspace", "addAsset", "recordEvent", "sealPackage"]
-                  : ["verifyPackage", "inspectPackage"],
+                  ? [
+                      "loadWorkspace",
+                      "addAsset",
+                      "recordEvent",
+                      "sealPackage",
+                      "exportWorkspaceOutput",
+                    ]
+                  : ["verifyPackage", "inspectPackage", "matchImageToPackage"],
               ),
               displayPath: item.path,
               lastOpenedAt: item.lastOpenedAt,
@@ -428,6 +537,7 @@ export async function registerIpc(
         "addAsset",
         "recordEvent",
         "sealPackage",
+        "exportWorkspaceOutput",
       ]),
       displayPath: native.path,
       workspace: native.workspace,
@@ -443,7 +553,7 @@ export async function registerIpc(
       let publish: (raw: unknown) => Promise<JobResult>;
       const oneUse: Array<{
         raw: unknown;
-        kind: "asset" | "package-output";
+        kind: "asset" | "image" | "image-output" | "package-output";
         permission: string;
       }> = [];
       switch (request.operation) {
@@ -531,6 +641,111 @@ export async function registerIpc(
           });
           break;
         }
+        case "exportWorkspaceOutput": {
+          const workspace = await registry.resolve(
+            request.input.workspace,
+            "workspace",
+            owner,
+            "exportWorkspaceOutput",
+          );
+          const output = await registry.resolve(
+            request.input.output,
+            "image-output",
+            owner,
+            "exportWorkspaceOutput",
+          );
+          utilityJob = {
+            operation: "exportWorkspaceOutput",
+            payload: {
+              workspace,
+              assetId: request.input.assetId,
+              output,
+            },
+          };
+          oneUse.push({
+            raw: request.input.output,
+            kind: "image-output",
+            permission: "exportWorkspaceOutput",
+          });
+          publish = async (raw) => {
+            const native = nativeExportedOutputSchema.parse(raw);
+            const mediaType = assetSchema.parse(native.asset).media_type;
+            const result: ExportedCreationOutput = {
+              image: await registry.issue(
+                "image",
+                native.path,
+                owner,
+                ["matchImageToPackage"],
+                undefined,
+                undefined,
+                true,
+              ),
+              displayPath: native.path,
+              mediaType: z
+                .enum(["image/png", "image/jpeg", "image/webp"])
+                .parse(mediaType),
+              sizeBytes: native.size_bytes,
+              sha256: native.sha256,
+            };
+            return {
+              operation: "exportWorkspaceOutput",
+              data: exportedCreationOutputSchema.parse(result),
+            };
+          };
+          break;
+        }
+        case "matchImageToPackage": {
+          const selectedPackage = await registry.resolve(
+            request.input.package,
+            "package",
+            owner,
+            "matchImageToPackage",
+          );
+          const selectedImage = await registry.resolve(
+            request.input.image,
+            "image",
+            owner,
+            "matchImageToPackage",
+          );
+          utilityJob = {
+            operation: "matchImageToPackage",
+            payload: { package: selectedPackage, image: selectedImage },
+          };
+          oneUse.push({
+            raw: request.input.image,
+            kind: "image",
+            permission: "matchImageToPackage",
+          });
+          publish = async (raw) => {
+            const native = nativeImageMatchResultSchema.parse(raw);
+            stateStore.remember("package", selectedPackage);
+            const previewDataUrl = native.file_media_type
+              ? await boundedThumbnailDataUrl(selectedImage)
+              : undefined;
+            const result = {
+              status: native.status,
+              verification: native.verification,
+              image: {
+                displayLabel: request.input.image.displayLabel,
+                displayPath: selectedImage,
+                ...(native.file_media_type
+                  ? { mediaType: native.file_media_type }
+                  : {}),
+                ...(native.file_size_bytes !== undefined
+                  ? { sizeBytes: native.file_size_bytes }
+                  : {}),
+                ...(native.file_sha256 ? { sha256: native.file_sha256 } : {}),
+                ...(previewDataUrl ? { previewDataUrl } : {}),
+              },
+              matchedAssets: native.matched_assets,
+            };
+            return {
+              operation: "matchImageToPackage",
+              data: imageMatchResultSchema.parse(result),
+            };
+          };
+          break;
+        }
         case "recordEvent": {
           const workspace = await registry.resolve(
             request.input.workspace,
@@ -583,6 +798,7 @@ export async function registerIpc(
                 package: await registry.issue("package", native.path, owner, [
                   "verifyPackage",
                   "inspectPackage",
+                  "matchImageToPackage",
                 ]),
                 displayPath: native.path,
                 manifest: native.manifest,
@@ -1009,7 +1225,13 @@ export async function registerIpc(
         "workspace",
         session.workspacePath,
         event.sender.id,
-        ["loadWorkspace", "addAsset", "recordEvent", "sealPackage"],
+        [
+          "loadWorkspace",
+          "addAsset",
+          "recordEvent",
+          "sealPackage",
+          "exportWorkspaceOutput",
+        ],
       );
       const ingested = await legacy(event.sender.id, {
         operation: "addAsset",
@@ -1165,7 +1387,13 @@ export async function registerIpc(
           "workspace",
           session.workspacePath,
           event.sender.id,
-          ["loadWorkspace", "addAsset", "recordEvent", "sealPackage"],
+          [
+            "loadWorkspace",
+            "addAsset",
+            "recordEvent",
+            "sealPackage",
+            "exportWorkspaceOutput",
+          ],
         );
         const sealed = await legacy(event.sender.id, {
           operation: "sealPackage",
@@ -1241,6 +1469,7 @@ export async function registerIpc(
           "addAsset",
           "recordEvent",
           "sealPackage",
+          "exportWorkspaceOutput",
         ])
       : null;
   });
@@ -1260,6 +1489,62 @@ export async function registerIpc(
         )
       : null;
   });
+  ipcMain.handle(channels.chooseImage, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "images", {
+      title: "选择要与证明包核验的图片",
+      buttonLabel: "选择图片",
+      properties: ["openFile"],
+      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp"] }],
+    });
+    return selected
+      ? registry.issue(
+          "image",
+          selected,
+          event.sender.id,
+          ["matchImageToPackage"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.chooseCreationOutput, async (event, raw: unknown) => {
+    const request = validated(creationSessionRequestSchema, raw);
+    if (isFailure(request)) return request;
+    try {
+      const session = resolveCreationSession(event.sender.id, request.session);
+      const outputRecord = session.outputJson
+        ? (JSON.parse(session.outputJson) as Record<string, unknown>)
+        : undefined;
+      const mediaType = z
+        .enum(["image/png", "image/jpeg", "image/webp"])
+        .parse(outputRecord?.mediaType);
+      const extension =
+        mediaType === "image/png"
+          ? "png"
+          : mediaType === "image/jpeg"
+            ? "jpg"
+            : "webp";
+      const selected = await selectedSavePath(qaSelections, "imageOutputs", {
+        title: "保存生成图片副本",
+        buttonLabel: "保存图片",
+        filters: [{ name: "生成图片", extensions: [extension] }],
+      });
+      return selected
+        ? registry.issue(
+            "image-output",
+            selected,
+            event.sender.id,
+            ["exportWorkspaceOutput"],
+            undefined,
+            undefined,
+            true,
+          )
+        : null;
+    } catch (error) {
+      return failure(error);
+    }
+  });
   ipcMain.handle(channels.choosePackage, async (event) => {
     const selected = await selectedOpenPath(qaSelections, "packages", {
       properties: ["openFile"],
@@ -1269,6 +1554,7 @@ export async function registerIpc(
       ? registry.issue("package", selected, event.sender.id, [
           "verifyPackage",
           "inspectPackage",
+          "matchImageToPackage",
         ])
       : null;
   });
@@ -1357,6 +1643,11 @@ export async function registerIpc(
     workspaceRequestSchema,
   );
   registerLegacy(channels.addAsset, "addAsset", addAssetRequestSchema);
+  registerLegacy(
+    channels.matchImageToPackage,
+    "matchImageToPackage",
+    imageMatchRequestSchema,
+  );
   registerLegacy(channels.recordEvent, "recordEvent", recordEventRequestSchema);
   registerLegacy(channels.sealPackage, "sealPackage", sealPackageRequestSchema);
   registerLegacy(channels.verifyPackage, "verifyPackage", packageRequestSchema);
@@ -1365,6 +1656,40 @@ export async function registerIpc(
     "inspectPackage",
     packageRequestSchema,
   );
+
+  ipcMain.handle(channels.exportCreationOutput, async (event, raw: unknown) => {
+    const request = validated(exportCreationOutputRequestSchema, raw);
+    if (isFailure(request)) return request;
+    try {
+      const session = resolveCreationSession(event.sender.id, request.session);
+      const outputRecord = session.outputJson
+        ? (JSON.parse(session.outputJson) as Record<string, unknown>)
+        : undefined;
+      const asset = assetSchema.parse(outputRecord?.asset);
+      if (asset.role !== "output") {
+        throw new CreationCoreError(
+          "CREATION_RELATIONSHIP_INVALID",
+          "Creation session output is not recorded with role output.",
+        );
+      }
+      const workspace = await registry.issue(
+        "workspace",
+        session.workspacePath,
+        event.sender.id,
+        ["exportWorkspaceOutput"],
+      );
+      return legacy(event.sender.id, {
+        operation: "exportWorkspaceOutput",
+        input: {
+          workspace,
+          assetId: asset.asset_id,
+          output: request.output,
+        },
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  });
 
   ipcMain.handle(channels.startJob, async (event, raw: unknown) => {
     const request = validated(jobCreateRequestSchema, raw);

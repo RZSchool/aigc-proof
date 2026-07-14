@@ -26,7 +26,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 720,
     show: false,
-    title: "AIGC-Proof Workbench 0.4.0",
+    title: "AIGC-Proof Workbench 0.5.0",
     backgroundColor: "#f4f1ea",
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),

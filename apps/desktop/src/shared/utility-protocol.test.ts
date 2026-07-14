@@ -37,9 +37,9 @@ describe("versioned Main/Utility messages", () => {
     const ready = {
       version: UTILITY_PROTOCOL_VERSION,
       type: "ready",
-      nativeApiVersion: "1.2.0",
+      nativeApiVersion: "1.3.0",
       discovery: {
-        apiVersion: "1.2.0",
+        apiVersion: "1.3.0",
         engineVersion: "0.2.0",
         supportedProtocolVersions: ["0.2.0"],
         capabilities: [...NATIVE_CAPABILITIES],
@@ -55,6 +55,49 @@ describe("versioned Main/Utility messages", () => {
     expect(utilityToMainMessageSchema.parse(ready)).toEqual(ready);
     expect(() =>
       utilityToMainMessageSchema.parse({ ...ready, extra: true }),
+    ).toThrow();
+  });
+
+  it("passes only bounded paths and identifiers for image match and export", () => {
+    const base = {
+      version: UTILITY_PROTOCOL_VERSION,
+      type: "execute" as const,
+      jobId: `job_${"b".repeat(32)}`,
+    };
+    expect(
+      mainToUtilityMessageSchema.parse({
+        ...base,
+        job: {
+          operation: "matchImageToPackage",
+          payload: { package: "C:\\proof.aigcproof", image: "C:\\image.png" },
+        },
+      }),
+    ).toBeTruthy();
+    expect(
+      mainToUtilityMessageSchema.parse({
+        ...base,
+        job: {
+          operation: "exportWorkspaceOutput",
+          payload: {
+            workspace: "C:\\workspace",
+            assetId: "asset-output",
+            output: "C:\\saved.png",
+          },
+        },
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      mainToUtilityMessageSchema.parse({
+        ...base,
+        job: {
+          operation: "matchImageToPackage",
+          payload: {
+            package: "C:\\proof.aigcproof",
+            image: "C:\\image.png",
+            bytes: "not-allowed",
+          },
+        },
+      }),
     ).toThrow();
   });
 });

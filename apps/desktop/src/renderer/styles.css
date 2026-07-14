@@ -265,6 +265,115 @@ textarea:focus-visible {
   padding-top: 22px;
 }
 
+.image-verify-panel {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent-soft) 42%, var(--surface)),
+    var(--surface) 62%
+  );
+}
+
+.image-verify-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.image-verify-action {
+  min-width: 240px;
+  margin-top: 4px;
+}
+
+.assurance-inline {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.image-match-card,
+.creation-output-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 300px) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.image-match-card img,
+.creation-output-card img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.image-match-card > div,
+.creation-output-card > div {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.image-match-card span,
+.image-match-card small,
+.creation-output-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.image-match-card code,
+.creation-output-card code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.match-verified_output_match {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  box-shadow: inset 4px 0 var(--accent);
+}
+
+.match-matched_non_output,
+.match-not_in_package,
+.match-package_invalid {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  box-shadow: inset 4px 0 var(--danger);
+}
+
+.advanced-panel {
+  padding: 0;
+}
+
+.advanced-panel summary {
+  display: grid;
+  gap: 5px;
+  padding: 20px 24px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.advanced-panel summary strong {
+  font-size: 17px;
+}
+
+.advanced-panel summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.advanced-panel-body {
+  padding: 0 24px 24px;
+  border-top: 1px solid var(--border);
+}
+
 .panel {
   min-width: 0;
   padding: 24px;
@@ -924,6 +1033,9 @@ input[readonly] {
 @media (max-width: 900px) {
   .intro-panel,
   .creation-layout,
+  .image-verify-grid,
+  .image-match-card,
+  .creation-output-card,
   .split-grid,
   .settings-grid,
   .workflow-pair,

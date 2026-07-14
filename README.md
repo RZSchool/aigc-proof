@@ -2,27 +2,27 @@
 
 Open protocol and Rust reference implementation for recording an AIGC creation workflow, sealing it into an unsigned proof package, and verifying package-internal integrity offline.
 
-~~~text
+```text
 Version: 0.2.0 WIP
 Status: Ready for review
 Assurance level: Internal Integrity
-~~~
+```
 
 Version 0.2 does not contain a creator digital signature or trusted timestamp. A valid result means:
 
-~~~text
+```text
 Package internal integrity: valid
 Creator identity: not verified
 Digital signature: not present
 Trusted timestamp: not present
 Originality: not evaluated
-~~~
+```
 
 It is not copyright registration, rights determination, originality certification, proof of ownership, or official verification. An attacker can construct an entirely new, internally consistent unsigned package.
 
 ## Offline workflow
 
-~~~bash
+```bash
 aigc-proof init demo-workspace --project-name "Project Name"
 aigc-proof add demo-workspace input.txt --role input
 aigc-proof add demo-workspace output.txt --role output
@@ -34,7 +34,7 @@ aigc-proof verify example.aigcproof
 aigc-proof verify example.aigcproof --json verification-result.json
 aigc-proof inspect example.aigcproof
 aigc-proof inspect example.aigcproof --json
-~~~
+```
 
 Roles are input, output, reference, license, and other. add copies bounded regular,
 non-symlink files into the workspace and hashes them as streams. seal and persisted
@@ -47,13 +47,17 @@ The CLI is fully offline and performs no upload. Pass prompts and parameters thr
 ## Desktop workbench
 
 The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
-renderer uses `ProofHostApi` 1.2.0 through a Standalone adapter and typed allowlisted preload/IPC.
+renderer uses `ProofHostApi` 1.3.0 through a Standalone adapter and typed allowlisted preload/IPC.
 Electron Main owns authority, a bounded job scheduler, and disposable SQLite state; a supervised
 Utility Process is the exclusive native-addon owner and fails closed on an incompatible native
-API 1.2.0 handshake. Workbench 0.4.0 adds a reusable Node creation core and a narrow, loopback-only
+API 1.3.0 handshake. Workbench 0.5.0 adds exact generated-output export and direct image-to-package
+output matching to the reusable Node creation core and narrow, loopback-only
 ComfyUI v0.27.0 adapter: users authorize an existing local installation and checkpoint, freeze a
 privacy-aware prompt/parameter snapshot, run the fixed core-node template, and receive the
-validated output automatically in the proof workspace. ComfyUI, Python, custom nodes, and model
+validated output automatically in the proof workspace. The result is visible, can be exported
+without overwrite, and can be checked byte-for-byte against a fully verified package `output`.
+This does not verify creator identity, originality, ownership, signature, or trusted time.
+ComfyUI, Python, custom nodes, and model
 weights are not bundled or downloaded. The full workflow remains on one scrollable page, the
 native engine/protocol remains 0.2.0, and portable proof files remain authoritative. See
 [Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
@@ -68,7 +72,7 @@ Official identity, signing authority, registered keys, revocation, trusted time,
 
 Rust 1.85.0, rustfmt, and Clippy are pinned by rust-toolchain.toml.
 
-~~~bash
+```bash
 cargo fmt --all --check
 cargo check --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -77,7 +81,7 @@ cargo doc --workspace --no-deps
 scripts/smoke-test.sh
 cargo metadata --format-version 1
 cargo tree
-~~~
+```
 
 A compile-only check is not an executable test. If the real CLI path cannot run, report TEST FAILED.
 

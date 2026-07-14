@@ -51,6 +51,14 @@ pub fn verify_package(
     limits: &VerificationLimits,
     verified_at: String,
 ) -> VerificationReport {
+    verify_package_with_manifest(path, limits, verified_at).0
+}
+
+pub(crate) fn verify_package_with_manifest(
+    path: &Path,
+    limits: &VerificationLimits,
+    verified_at: String,
+) -> (VerificationReport, Option<Manifest>) {
     let verification_timestamp_valid =
         proof_schema::validate_canonical_timestamp(&verified_at).is_ok();
     let mut report = ReportBuilder::new(verified_at);
@@ -61,7 +69,7 @@ pub fn verify_package(
             None,
             "Verification timestamp is not canonical UTC RFC 3339.",
         );
-        return report.finish();
+        return (report.finish(), None);
     }
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -73,7 +81,7 @@ pub fn verify_package(
                 error.to_string(),
             );
             report.stage("CONTAINER_SAFETY", false, "Package could not be opened.");
-            return report.finish();
+            return (report.finish(), None);
         }
     };
     let metadata = match file.metadata() {
@@ -86,7 +94,7 @@ pub fn verify_package(
                 error.to_string(),
             );
             report.stage("CONTAINER_SAFETY", false, "Package could not be opened.");
-            return report.finish();
+            return (report.finish(), None);
         }
     };
     if !metadata.is_file() {
@@ -100,7 +108,7 @@ pub fn verify_package(
             false,
             "Package input is not a regular file.",
         );
-        return report.finish();
+        return (report.finish(), None);
     }
     if metadata.len() > limits.max_package_bytes {
         report.error(
@@ -109,7 +117,7 @@ pub fn verify_package(
             "Package exceeds the configured byte limit.",
         );
         report.stage("CONTAINER_SAFETY", false, "Container safety limits failed.");
-        return report.finish();
+        return (report.finish(), None);
     }
     let declared_entries = match declared_zip_entry_count(&mut file) {
         Ok(count) => count,
@@ -117,7 +125,7 @@ pub fn verify_package(
             report.operational_error = true;
             report.error(error.code, Some(path.display().to_string()), error.message);
             report.stage("CONTAINER_SAFETY", false, "Package could not be read.");
-            return report.finish();
+            return (report.finish(), None);
         }
         Err(error) => {
             report.error(
@@ -126,7 +134,7 @@ pub fn verify_package(
                 error.message,
             );
             report.stage("CONTAINER_SAFETY", false, "ZIP container is malformed.");
-            return report.finish();
+            return (report.finish(), None);
         }
     };
     if declared_entries > limits.max_entries {
@@ -139,7 +147,7 @@ pub fn verify_package(
             ),
         );
         report.stage("CONTAINER_SAFETY", false, "Container safety limits failed.");
-        return report.finish();
+        return (report.finish(), None);
     }
     let mut archive = match ZipArchive::new(file) {
         Ok(archive) => archive,
@@ -150,7 +158,7 @@ pub fn verify_package(
                 error.to_string(),
             );
             report.stage("CONTAINER_SAFETY", false, "ZIP container is malformed.");
-            return report.finish();
+            return (report.finish(), None);
         }
     };
     let container_error_start = report.errors.len();
@@ -166,7 +174,7 @@ pub fn verify_package(
         },
     );
     if !container_safe {
-        return report.finish();
+        return (report.finish(), None);
     }
 
     let manifest_error_start = report.errors.len();
@@ -182,7 +190,7 @@ pub fn verify_package(
         },
     );
     let Some(manifest) = manifest else {
-        return report.finish();
+        return (report.finish(), None);
     };
     if validate_proof_id(&manifest.proof_id).is_ok() {
         report.proof_id = Some(manifest.proof_id.clone());
@@ -213,7 +221,9 @@ pub fn verify_package(
             "Event chain failed one or more integrity checks."
         },
     );
-    report.finish()
+    let report = report.finish();
+    let verified_manifest = (report.status == VerificationStatus::Valid).then_some(manifest);
+    (report, verified_manifest)
 }
 
 pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<Inspection> {

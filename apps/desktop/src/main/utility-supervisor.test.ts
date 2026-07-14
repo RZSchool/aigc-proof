@@ -71,7 +71,7 @@ describe("Utility supervisor", () => {
     const supervisor = new UtilitySupervisor();
     const starting = supervisor.start();
     child.emit("message", ready());
-    await expect(starting).resolves.toMatchObject({ apiVersion: "1.2.0" });
+    await expect(starting).resolves.toMatchObject({ apiVersion: "1.3.0" });
     expect(supervisor.health()).toMatchObject({
       state: "healthy",
       generation: 1,

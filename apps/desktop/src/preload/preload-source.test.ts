@@ -13,6 +13,10 @@ describe("typed preload source", () => {
     expect(source).toContain("chooseWorkspaceParent");
     expect(source).toContain("chooseExistingWorkspace");
     expect(source).toContain("previewWorkspaceTarget");
+    expect(source).toContain("chooseImage");
+    expect(source).toContain("chooseCreationOutput");
+    expect(source).toContain("exportCreationOutput");
+    expect(source).toContain("matchImageToPackage");
     expect(source).toContain("getDiagnostics");
     expect(source).toContain("subscribeJobEvents");
     expect(source).toContain("--aigc-proof-preload-qa");
@@ -23,6 +27,8 @@ describe("typed preload source", () => {
     expect(source).not.toContain('from "node:fs');
     expect(source).not.toContain('from "node:path');
     expect(source).not.toContain("ipcRenderer.send");
+    expect(source).not.toContain("readFile");
+    expect(source).not.toContain("writeFile");
     expect(source).not.toMatch(/invoke\s*:\s*\(/u);
   });
 });

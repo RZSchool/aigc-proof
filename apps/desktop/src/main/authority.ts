@@ -27,7 +27,11 @@ async function canonicalize(
   kind: ReferenceKind,
 ): Promise<{ absolutePath: string; canonicalPath: string }> {
   const absolutePath = path.resolve(selectedPath);
-  if (kind === "package-output" || kind === "report-output") {
+  if (
+    kind === "package-output" ||
+    kind === "report-output" ||
+    kind === "image-output"
+  ) {
     const parent = path.dirname(absolutePath);
     const parentStat = await fs.stat(parent).catch(() => undefined);
     if (!parentStat?.isDirectory()) {
@@ -43,6 +47,13 @@ async function canonicalize(
     };
   }
 
+  const linkStat = await fs.lstat(absolutePath).catch(() => undefined);
+  if (kind === "image" && linkStat?.isSymbolicLink()) {
+    throw new HostContractError(
+      "HOST_REFERENCE_PATH_CHANGED",
+      "The selected image must be a regular non-symbolic-link file.",
+    );
+  }
   const stat = await fs.stat(absolutePath).catch(() => undefined);
   const expectsDirectory =
     kind === "workspace-parent" ||

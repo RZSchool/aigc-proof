@@ -52,7 +52,7 @@ function Invoke-CapturedProcess {
     }
 }
 
-Invoke-CapturedProcess $cargo "build --workspace --locked --release -p proof-napi" $repo
+Invoke-CapturedProcess $cargo "build --workspace --locked --release -p proof-napi -p proof-cli" $repo
 $library = Join-Path $targetDirectory "release\proof_napi.dll"
 if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
     throw "Expected Node-API library was not produced: $library"
@@ -61,8 +61,14 @@ $native = Join-Path $desktop "native"
 New-Item -ItemType Directory -Force -Path $native | Out-Null
 $addon = Join-Path $native "proof_napi.node"
 Copy-Item -LiteralPath $library -Destination $addon -Force
+$cli = Join-Path $targetDirectory "release\aigc-proof.exe"
+if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) {
+    throw "Expected independent CLI was not produced: $cli"
+}
 [pscustomobject]@{
     Path = $addon
     SizeBytes = (Get-Item -LiteralPath $addon).Length
     Sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $addon).Hash.ToLowerInvariant()
+    CliPath = $cli
+    CliSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $cli).Hash.ToLowerInvariant()
 }

@@ -58,6 +58,14 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   chooseAsset() {
     return this.bridge.chooseAsset();
   }
+  chooseImage() {
+    return this.bridge.chooseImage();
+  }
+  chooseCreationOutput(
+    request: Parameters<ProofHostApi["chooseCreationOutput"]>[0],
+  ) {
+    return this.bridge.chooseCreationOutput(request);
+  }
   choosePackage() {
     return this.bridge.choosePackage();
   }
@@ -82,6 +90,16 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   }
   addAsset(request: Parameters<ProofHostApi["addAsset"]>[0]) {
     return this.bridge.addAsset(request);
+  }
+  exportCreationOutput(
+    request: Parameters<ProofHostApi["exportCreationOutput"]>[0],
+  ) {
+    return this.bridge.exportCreationOutput(request);
+  }
+  matchImageToPackage(
+    request: Parameters<ProofHostApi["matchImageToPackage"]>[0],
+  ) {
+    return this.bridge.matchImageToPackage(request);
   }
   recordEvent(request: Parameters<ProofHostApi["recordEvent"]>[0]) {
     return this.bridge.recordEvent(request);

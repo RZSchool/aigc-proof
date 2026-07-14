@@ -13,6 +13,7 @@ import {
   type HostEnvelope,
   type HostReference,
   type Inspection,
+  type ImageMatchResult,
   type JobCreateRequest,
   type JobEvent,
   type JobResult,
@@ -58,6 +59,8 @@ export class DeterministicMockProofHost implements ProofHostApi {
   readonly workspaceParent = reference("workspace-parent", "workspace parent");
   readonly workspaceReference = reference("workspace", "workspace");
   readonly assetReference = reference("asset", "asset.txt");
+  readonly imageReference = reference("image", "created.png");
+  readonly imageOutputReference = reference("image-output", "saved.png");
   readonly packageReference = reference("package", "proof.aigcproof");
   readonly packageOutputReference = reference("package-output", "proof output");
   readonly reportOutputReference = reference("report-output", "report output");
@@ -223,6 +226,7 @@ export class DeterministicMockProofHost implements ProofHostApi {
         mediaType: "image/png",
         sizeBytes: 16,
         sha256: asset.sha256,
+        previewDataUrl: "data:image/png;base64,aGVsbG8=",
       },
       updatedAt: "2026-07-14T00:00:02Z",
       progress: {
@@ -284,6 +288,15 @@ export class DeterministicMockProofHost implements ProofHostApi {
   chooseAsset() {
     return Promise.resolve(this.assetReference);
   }
+  chooseImage() {
+    return Promise.resolve(this.imageReference);
+  }
+  chooseCreationOutput(
+    _request: Parameters<ProofHostApi["chooseCreationOutput"]>[0],
+  ) {
+    void _request;
+    return Promise.resolve(this.imageOutputReference);
+  }
   choosePackage() {
     return Promise.resolve(this.packageReference);
   }
@@ -333,6 +346,56 @@ export class DeterministicMockProofHost implements ProofHostApi {
       assets: [...this.#workspace.assets, asset],
     };
     return Promise.resolve(ok({ asset, workspace: this.#workspace }));
+  }
+  exportCreationOutput(
+    _request: Parameters<ProofHostApi["exportCreationOutput"]>[0],
+  ) {
+    void _request;
+    const output = this.#creationSession?.output;
+    if (!output) throw new Error("Mock output missing.");
+    return Promise.resolve(
+      ok({
+        image: this.imageReference,
+        displayPath: this.imageReference.displayPath!,
+        mediaType: output.mediaType,
+        sizeBytes: output.sizeBytes,
+        sha256: output.sha256,
+      }),
+    );
+  }
+  async matchImageToPackage(
+    _request: Parameters<ProofHostApi["matchImageToPackage"]>[0],
+  ) {
+    void _request;
+    const verification = await this.verifyPackage({
+      package: this.packageReference,
+    });
+    if (!verification.ok) return verification;
+    const asset =
+      this.#creationSession?.output?.asset ??
+      ({
+        asset_id: "mock-created-output",
+        role: "output",
+        package_path: "assets/output/mock-created-output.png",
+        original_name: "created.png",
+        media_type: "image/png",
+        size_bytes: 16,
+        sha256: "f".repeat(64),
+      } satisfies Asset);
+    const result: ImageMatchResult = {
+      status: "verified_output_match",
+      verification: verification.data,
+      image: {
+        displayLabel: this.imageReference.displayLabel,
+        displayPath: this.imageReference.displayPath!,
+        mediaType: "image/png",
+        sizeBytes: asset.size_bytes,
+        sha256: asset.sha256,
+        previewDataUrl: "data:image/png;base64,aGVsbG8=",
+      },
+      matchedAssets: [asset],
+    };
+    return ok(result);
   }
   recordEvent(_request: Parameters<ProofHostApi["recordEvent"]>[0]) {
     void _request;
@@ -461,6 +524,23 @@ export class DeterministicMockProofHost implements ProofHostApi {
       }
       case "addAsset": {
         const response = await this.addAsset(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "exportWorkspaceOutput": {
+        const response = await this.exportCreationOutput({
+          session: this.creationReference,
+          output: request.input.output,
+        });
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "matchImageToPackage": {
+        const response = await this.matchImageToPackage(request.input);
         execution = response.ok
           ? ok({ operation: request.operation, data: response.data })
           : response;

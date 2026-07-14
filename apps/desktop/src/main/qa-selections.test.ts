@@ -28,6 +28,8 @@ describe("QA-only selection manifest", () => {
         workspaceParents: [root],
         existingWorkspaces: [root],
         assets: [manifest],
+        images: [manifest],
+        imageOutputs: [path.join(root, "export.png")],
         packages: [manifest],
         packageOutputs: [path.join(root, "proof.aigcproof")],
         reportOutputs: [path.join(root, "report.json")],
@@ -39,6 +41,8 @@ describe("QA-only selection manifest", () => {
       true,
     );
     expect(provider?.take("workspaceParents")).toBe(root);
+    expect(provider?.take("images")).toBe(manifest);
+    expect(provider?.take("imageOutputs")).toBe(path.join(root, "export.png"));
     expect(() => provider?.take("workspaceParents")).toThrow(
       "QA_SELECTION_MISSING",
     );

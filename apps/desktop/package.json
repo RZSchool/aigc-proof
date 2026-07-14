@@ -1,6 +1,6 @@
 {
   "name": "aigc-proof-workbench",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Local-first AIGC-Proof 0.2 Electron creation and proof workbench",
   "main": "dist/main/main.js",

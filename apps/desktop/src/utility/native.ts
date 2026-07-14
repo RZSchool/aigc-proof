@@ -17,6 +17,15 @@ export interface NativeAddon {
     source: string;
     role: string;
   }): Promise<string>;
+  exportWorkspaceOutputAsset(request: {
+    workspace: string;
+    assetId: string;
+    output: string;
+  }): Promise<string>;
+  matchImageToProofPackage(request: {
+    package: string;
+    image: string;
+  }): Promise<string>;
   recordWorkspaceEvent(request: {
     workspace: string;
     eventType: string;

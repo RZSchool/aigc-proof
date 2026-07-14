@@ -102,4 +102,58 @@ describe("Main authority registry", () => {
       registry.resolve(reference, "package-output", 7, "sealPackage"),
     ).rejects.toMatchObject({ code: "HOST_REFERENCE_REUSED" });
   });
+
+  it("keeps image matching and image export operation-scoped and one-use", async () => {
+    const imagePath = path.join(root, "生成 图片.png");
+    await fs.writeFile(imagePath, "image", "utf8");
+    const registry = new AuthorityRegistry();
+    const image = await registry.issue(
+      "image",
+      imagePath,
+      7,
+      ["matchImageToPackage"],
+      undefined,
+      undefined,
+      true,
+    );
+    const output = await registry.issue(
+      "image-output",
+      path.join(root, "保存 图片.png"),
+      7,
+      ["exportWorkspaceOutput"],
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(
+      registry.resolve(image, "image", 7, "exportWorkspaceOutput"),
+    ).rejects.toMatchObject({ code: "HOST_REFERENCE_PERMISSION_DENIED" });
+    await expect(
+      registry.resolve(output, "image-output", 7, "matchImageToPackage"),
+    ).rejects.toMatchObject({ code: "HOST_REFERENCE_PERMISSION_DENIED" });
+    expect(
+      await registry.resolve(image, "image", 7, "matchImageToPackage", true),
+    ).toBe(path.resolve(imagePath));
+    await expect(
+      registry.resolve(image, "image", 7, "matchImageToPackage"),
+    ).rejects.toMatchObject({ code: "HOST_REFERENCE_REUSED" });
+    registry.consume(output, "image-output", 7, "exportWorkspaceOutput");
+    await expect(
+      registry.resolve(output, "image-output", 7, "exportWorkspaceOutput"),
+    ).rejects.toMatchObject({ code: "HOST_REFERENCE_REUSED" });
+  });
+
+  if (process.platform !== "win32") {
+    it("rejects symbolic-link images before native dispatch", async () => {
+      const target = path.join(root, "target.png");
+      const link = path.join(root, "link.png");
+      await fs.writeFile(target, "image", "utf8");
+      await fs.symlink(target, link);
+      const registry = new AuthorityRegistry();
+      await expect(
+        registry.issue("image", link, 7, ["matchImageToPackage"]),
+      ).rejects.toMatchObject({ code: "HOST_REFERENCE_PATH_CHANGED" });
+    });
+  }
 });

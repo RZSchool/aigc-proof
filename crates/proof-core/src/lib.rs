@@ -1,5 +1,6 @@
 //! Offline AIGC-Proof 0.2 workspace, package, and verification operations.
 
+mod asset_match;
 mod error;
 mod event_chain;
 mod hash;
@@ -15,7 +16,8 @@ pub use hash::{DigestResult, sha256_bytes, sha256_file, sha256_reader};
 pub use package::{SealOptions, SealResult, seal_workspace};
 pub use verify::{VerificationLimits, inspect_package, verify_package};
 pub use workspace::{
-    AddAssetOptions, InitWorkspaceOptions, RecordEventOptions, add_asset, init_workspace,
+    AddAssetOptions, ExportWorkspaceOutputOptions, ExportWorkspaceOutputResult,
+    InitWorkspaceOptions, RecordEventOptions, add_asset, export_workspace_output, init_workspace,
     load_workspace, media_type_for_path, record_event,
 };
 
@@ -26,3 +28,4 @@ pub fn current_timestamp() -> CoreResult<String> {
         CoreError::new(ErrorKind::InvalidTimestamp, "INVALID_TIMESTAMP", message)
     })
 }
+pub use asset_match::{PackageAssetMatch, PackageAssetMatchStatus, match_image_to_package};

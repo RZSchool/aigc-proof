@@ -1,11 +1,11 @@
-# Desktop Workbench 0.4.0
+# Desktop Workbench 0.5.0
 
 ## Architecture
 
 The primary desktop frontend is an offline React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 1.2.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 1.3.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -21,7 +21,7 @@ or native loading. The Standalone implementation issues opaque, expiring, kind-s
 references for native selections and recent records. Display labels and paths are user clarity
 only; Main resolves the stored authority and rechecks the selected path when each operation runs.
 
-Native discovery reports API 1.2.0, engine 0.2.0, protocol 0.2.0, implemented capabilities,
+Native discovery reports API 1.3.0, engine 0.2.0, protocol 0.2.0, implemented capabilities,
 execution facts, and runtime limits. The Utility handshake confirms process isolation and phase
 progress; safe interruption of an already-running atomic Rust operation remains unavailable.
 Missing, malformed, incompatible, capability-inconsistent, or limit-inconsistent discovery stops
@@ -35,10 +35,14 @@ ownership, process isolation, and packaging have not been implemented. See
 ## One-page workflow
 
 The application menu, workflow sidebar, hidden routes, tabs, and page switching are absent. One
-scrollable canvas keeps these regions visible in order: assurance/recent items; create/open;
-current workspace and all five asset roles; local creation and automatic proof; event recording; package sealing;
+scrollable canvas keeps these regions visible in order: assurance/recent items; first-class image
+verification; create/open; local creation and automatic proof; event recording; package sealing;
 verify/inspect/report; jobs/progress/cancel/history; and preferences/rebuild/diagnostics. Later
 steps remain visible with their prerequisites instead of disappearing behind navigation.
+
+Manual import of all five asset roles remains on the same page in a collapsed advanced section.
+It explicitly distinguishes an `input` label from a generated `output`; integrated creation adds
+its successful output automatically.
 
 Workspace creation selects an existing parent and one validated portable new-folder component;
 Main previews the resolved target and never initializes an existing location. Opening remains a
@@ -73,6 +77,22 @@ digest-only session cannot resume after restart. Failed or cancelled jobs cannot
 evidence-ready or complete states. Provider/model/version/time facts remain observations, not
 identity, originality, ownership, authorization, signature, or trusted time.
 
+## Generated images and package correspondence
+
+A completed creation session shows a bounded Main-produced thumbnail, filename, size, SHA-256,
+proof ID, and package relationship. `保存生成图片副本` selects a new extension-appropriate output
+through Main. Rust reloads the portable workspace, requires the session asset to have role
+`output`, rejects unsafe paths, rechecks size and SHA-256 while streaming, syncs a temporary file,
+and atomically publishes without clobber.
+
+`验证我的图片` accepts a PNG, JPEG, or WebP and one `.aigcproof` package without requiring a
+workspace. The Rust operation fully verifies the same package instance before reading the
+external image, then reports exactly one of `verified_output_match`, `matched_non_output`,
+`not_in_package`, or `package_invalid`. Filenames are display evidence only; size plus SHA-256
+determines equality, so an unchanged renamed copy matches and any byte change does not. A match
+confirms only byte correspondence to a verified Manifest `output`; it does not verify creator
+identity, authorship, originality, ownership, signature, earliest creation, or trusted time.
+
 Cancellation never publishes a successful output proof. A user-owned shared ComfyUI process is
 not globally interrupted because that could affect unrelated queue users; AIGC-Proof discards its
 own result relationship instead. Global `/interrupt` is allowed only for a child process started
@@ -85,9 +105,12 @@ denies permissions, new windows, unexpected navigation, and network requests. No
 launch does not expose DevTools or a remote-debugging port. A dedicated command-line QA flag is
 required to enable loopback CDP for the Electron/CDP developer harness.
 
-The harness drives the actual renderer and typed preload through create/open, all five asset roles,
+The harness drives the actual renderer and typed preload through image selection/matching,
+create/open, all five asset roles,
 real ComfyUI creation, automatic output ingestion, snapshot/evidence review, creation seal/verify/
-report/restart, record, manual seal/no-clobber, verify, report/no-clobber, inspect, reopen, SQLite restart/rebuild/
+report, visible thumbnail, exact no-clobber image export, independent output match, modified and
+non-output classification, invalid-package refusal, restart/export/match, native CLI verification,
+record, manual seal/no-clobber, verify, report/no-clobber, inspect, reopen, SQLite restart/rebuild/
 corruption recovery, queue/cancellation, Utility crash/restart/no-replay, Unicode/space paths,
 malformed/tampered rejection, and clean exits. It also captures and inspects the unified page at
 1320x880 and 1040x720. Package-boundary QA checks ASAR contents, Utility-only addon loading,
@@ -96,7 +119,8 @@ launch, disabled CDP, and clean exit.
 
 ## Scope
 
-Workbench 0.4.0 uses protocol 0.2.0 and evaluates only package-internal integrity. It does not
+Workbench 0.5.0 uses protocol 0.2.0 and evaluates package-internal integrity plus exact byte
+correspondence to a verified package asset. It does not
 provide creator identity, digital signatures, trusted timestamps, C2PA, originality evaluation,
 copyright or ownership determinations, official services, accounts, upload, or WASM.
 

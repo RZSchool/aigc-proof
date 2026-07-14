@@ -17,6 +17,8 @@ export const utilityOperations = [
   "initializeWorkspace",
   "loadWorkspace",
   "addAsset",
+  "exportWorkspaceOutput",
+  "matchImageToPackage",
   "recordEvent",
   "sealPackage",
   "verifyPackage",
@@ -38,6 +40,16 @@ const addAssetPayloadSchema = z
     source: localPathSchema,
     role: z.enum(["input", "output", "reference", "license", "other"]),
   })
+  .strict();
+const exportWorkspaceOutputPayloadSchema = z
+  .object({
+    workspace: localPathSchema,
+    assetId: z.string().min(1).max(160),
+    output: localPathSchema,
+  })
+  .strict();
+const matchImagePayloadSchema = z
+  .object({ package: localPathSchema, image: localPathSchema })
   .strict();
 const eventPayloadSchema = z
   .object({
@@ -73,6 +85,18 @@ export const utilityJobSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("addAsset"),
       payload: addAssetPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("exportWorkspaceOutput"),
+      payload: exportWorkspaceOutputPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("matchImageToPackage"),
+      payload: matchImagePayloadSchema,
     })
     .strict(),
   z

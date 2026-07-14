@@ -31,6 +31,9 @@ const api: ProofHostApi = {
   chooseExistingWorkspace: () =>
     ipcRenderer.invoke(channels.chooseExistingWorkspace),
   chooseAsset: () => ipcRenderer.invoke(channels.chooseAsset),
+  chooseImage: () => ipcRenderer.invoke(channels.chooseImage),
+  chooseCreationOutput: (request) =>
+    ipcRenderer.invoke(channels.chooseCreationOutput, request),
   choosePackage: () => ipcRenderer.invoke(channels.choosePackage),
   choosePackageOutput: () => ipcRenderer.invoke(channels.choosePackageOutput),
   chooseReportOutput: () => ipcRenderer.invoke(channels.chooseReportOutput),
@@ -41,6 +44,10 @@ const api: ProofHostApi = {
   loadWorkspace: (request) =>
     ipcRenderer.invoke(channels.loadWorkspace, request),
   addAsset: (request) => ipcRenderer.invoke(channels.addAsset, request),
+  exportCreationOutput: (request) =>
+    ipcRenderer.invoke(channels.exportCreationOutput, request),
+  matchImageToPackage: (request) =>
+    ipcRenderer.invoke(channels.matchImageToPackage, request),
   recordEvent: (request) => ipcRenderer.invoke(channels.recordEvent, request),
   sealPackage: (request) => ipcRenderer.invoke(channels.sealPackage, request),
   verifyPackage: (request) =>

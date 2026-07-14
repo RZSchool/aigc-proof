@@ -55,9 +55,9 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.4.0",
-        contractVersion: "1.2.0",
-        nativeApiVersion: "1.2.0",
+        workbenchVersion: "0.5.0",
+        contractVersion: "1.3.0",
+        nativeApiVersion: "1.3.0",
         engineVersion: "0.2.0",
         protocolVersion: "0.2.0",
         supportedProtocolVersions: ["0.2.0"],
@@ -80,6 +80,8 @@ beforeEach(() => {
     chooseWorkspaceParent: vi.fn(),
     chooseExistingWorkspace: vi.fn(),
     chooseAsset: vi.fn(),
+    chooseImage: vi.fn(),
+    chooseCreationOutput: vi.fn(),
     choosePackage: vi.fn(),
     choosePackageOutput: vi.fn(),
     chooseReportOutput: vi.fn(),
@@ -87,6 +89,8 @@ beforeEach(() => {
     initializeWorkspace: vi.fn(),
     loadWorkspace: vi.fn(),
     addAsset: vi.fn(),
+    exportCreationOutput: vi.fn(),
+    matchImageToPackage: vi.fn(),
     recordEvent: vi.fn(),
     sealPackage: vi.fn(),
     verifyPackage: vi.fn(),
@@ -111,10 +115,10 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "创建者身份未验证",
     );
-    expect(screen.getByText("Workbench 0.4.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.5.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
     expect(document.querySelector("nav")).not.toBeInTheDocument();
   });
 
@@ -122,7 +126,7 @@ describe("workbench shell", () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
     expect(card).toHaveTextContent("0.2.0");
-    expect(card).toHaveTextContent("1.2.0");
+    expect(card).toHaveTextContent("1.3.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -248,7 +252,7 @@ describe("workbench shell", () => {
     await user.click(screen.getByTestId("run-creation-session"));
 
     expect(await screen.findByTestId("creation-output")).toHaveTextContent(
-      "自动加入 workspace",
+      "已作为 output 自动加入证明工作区",
     );
     await user.click(screen.getByTestId("choose-creation-package-output"));
     await user.click(screen.getByTestId("choose-creation-report-output"));
@@ -257,6 +261,12 @@ describe("workbench shell", () => {
       expect(screen.getByTestId("creation-state")).toHaveTextContent(
         "complete",
       ),
+    );
+    await user.click(screen.getByTestId("export-creation-output"));
+    expect(screen.getByTestId("image-path")).toHaveValue("MOCK:/created.png");
+    await user.click(screen.getByTestId("match-image-package"));
+    expect(await screen.findByTestId("image-match-result")).toHaveTextContent(
+      "图片与包内生成输出完全一致",
     );
     expect(screen.getByTestId("unified-workflow")).toContainElement(
       screen.getByTestId("creation-review"),

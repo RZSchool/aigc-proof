@@ -6,6 +6,8 @@ import type {
   CreationSessionSummary,
   HostDiagnostics,
   HostReference,
+  ImageMatchResult,
+  ImageReference,
   Inspection,
   JobSnapshot,
   PackageOutputReference,
@@ -24,11 +26,11 @@ import type {
 import { StandaloneProofHostAdapter } from "./standalone-host";
 
 const roles: Array<{ value: AssetRole; label: string }> = [
-  { value: "input", label: "输入 input" },
-  { value: "output", label: "输出 output" },
-  { value: "reference", label: "参考 reference" },
-  { value: "license", label: "许可 license" },
-  { value: "other", label: "其他 other" },
+  { value: "output", label: "生成结果（output）" },
+  { value: "input", label: "输入素材（input，不是生成结果）" },
+  { value: "reference", label: "参考素材（reference）" },
+  { value: "license", label: "许可文件（license）" },
+  { value: "other", label: "其他材料（other）" },
 ];
 
 const jobStateLabels: Record<JobSnapshot["state"], string> = {
@@ -98,7 +100,10 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   const [assetPath, setAssetPath] = useState("");
   const [assetReference, setAssetReference] =
     useState<HostReference<"asset">>();
-  const [assetRole, setAssetRole] = useState<AssetRole>("input");
+  const [assetRole, setAssetRole] = useState<AssetRole>("output");
+  const [imagePath, setImagePath] = useState("");
+  const [imageReference, setImageReference] = useState<ImageReference>();
+  const [imageMatch, setImageMatch] = useState<ImageMatchResult>();
   const [eventType, setEventType] = useState("generation");
   const [payloadJson, setPayloadJson] = useState(
     '{\n  "model": "local-model"\n}',
@@ -347,6 +352,51 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     });
   }
 
+  async function verifyImageAgainstPackage(): Promise<void> {
+    await run("正在验证证明包并核对图片", async () => {
+      if (!imageReference || !packageReference)
+        throw new Error("请同时选择图片和 .aigcproof 证明包。");
+      const response = await proofHost.matchImageToPackage({
+        image: imageReference,
+        package: packageReference,
+      });
+      if (!response.ok) return showFailure(response);
+      setImageMatch(response.data);
+      setReport(response.data.verification);
+      setInspection(undefined);
+      setImageReference(undefined);
+      const title =
+        response.data.status === "verified_output_match"
+          ? "图片与有效证明包中的生成输出完全一致"
+          : response.data.status === "matched_non_output"
+            ? "文件存在于包中，但不是生成输出"
+            : response.data.status === "not_in_package"
+              ? "图片不在该证明包中"
+              : "证明包无效，未作图片对应性判断";
+      showSuccess(title, response.data);
+    });
+  }
+
+  async function exportCreationOutput(): Promise<void> {
+    await run("正在保存生成图片副本", async () => {
+      if (!creationSession?.output)
+        throw new Error("当前创作会话没有可导出的成功输出。");
+      const output = await proofHost.chooseCreationOutput({
+        session: creationSession.reference,
+      });
+      if (!output) throw new Error("未选择图片保存位置。");
+      const response = await proofHost.exportCreationOutput({
+        session: creationSession.reference,
+        output,
+      });
+      if (!response.ok) return showFailure(response);
+      setImageReference(response.data.image);
+      setImagePath(response.data.displayPath);
+      setImageMatch(undefined);
+      showSuccess("生成图片副本已保存，可直接与证明包核验", response.data);
+    });
+  }
+
   async function recordEvent(): Promise<void> {
     try {
       const parsed = JSON.parse(payloadJson) as unknown;
@@ -545,7 +595,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.4.0</span>
+            <span data-testid="workbench-version">Workbench 0.5.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -589,7 +639,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         <section className="panel intro-panel" data-region="overview">
           <div>
             <p className="eyebrow">PROTOCOL 0.2.0 · ONE PAGE</p>
-            <h2>从素材到可离线验证的证明包，一页完成</h2>
+            <h2>生成图片、保存原图、核对证明，一页完成</h2>
             <p>
               后续步骤始终可见；不满足前置条件时会给出提示。长任务由隔离 Utility
               执行， SQLite 只保存可重建的本机工作台状态。
@@ -612,16 +662,126 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 setPackageReference(reference as PackageReference);
                 setPackagePath(displayPath);
                 document
-                  .querySelector('[data-region="verify"]')
+                  .querySelector('[data-region="verify-image"]')
                   ?.scrollIntoView({ behavior: "smooth" });
               }}
             />
           </div>
         </section>
 
-        <section className="panel" data-region="workspace">
+        <section
+          className="panel image-verify-panel"
+          data-region="verify-image"
+        >
           <PanelTitle
             step="01"
+            title="验证我的图片"
+            hint="选择你手上的图片和证明包；先完整验证包，再核对图片是否为其中的 output"
+          />
+          <div className="image-verify-grid">
+            <Field label="要验证的图片">
+              <div className="field-row">
+                <input
+                  data-testid="image-path"
+                  readOnly
+                  placeholder="选择 PNG、JPEG 或 WebP"
+                  value={imagePath}
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-image"
+                  onClick={() => {
+                    setImageMatch(undefined);
+                    void choose(setImageReference, setImagePath, () =>
+                      proofHost.chooseImage(),
+                    );
+                  }}
+                >
+                  选择图片
+                </button>
+              </div>
+            </Field>
+            <Field label="对应的 .aigcproof 证明包">
+              <div className="field-row">
+                <input
+                  data-testid="image-package-path"
+                  readOnly
+                  placeholder="选择证明包"
+                  value={packagePath}
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-image-package"
+                  onClick={() => {
+                    setImageMatch(undefined);
+                    void choose(setPackageReference, setPackagePath, () =>
+                      proofHost.choosePackage(),
+                    );
+                  }}
+                >
+                  选择证明包
+                </button>
+              </div>
+            </Field>
+          </div>
+          <button
+            className="primary image-verify-action"
+            data-testid="match-image-package"
+            disabled={!imageReference || !packageReference}
+            onClick={() => void verifyImageAgainstPackage()}
+          >
+            验证图片与证明包
+          </button>
+          <p className="assurance-inline">
+            匹配表示图片字节与有效包内的生成输出完全一致；不代表创建者身份、原创性、所有权、签名或可信时间已验证。
+          </p>
+          {imageMatch && (
+            <article
+              className={`image-match-card match-${imageMatch.status}`}
+              data-testid="image-match-result"
+              role="status"
+            >
+              {imageMatch.image.previewDataUrl && (
+                <img
+                  src={imageMatch.image.previewDataUrl}
+                  alt={`待验证图片：${imageMatch.image.displayLabel}`}
+                />
+              )}
+              <div>
+                <strong>
+                  {imageMatch.status === "verified_output_match"
+                    ? "图片与包内生成输出完全一致"
+                    : imageMatch.status === "matched_non_output"
+                      ? "文件在包中，但角色不是生成输出"
+                      : imageMatch.status === "not_in_package"
+                        ? "图片不在这个证明包中"
+                        : "证明包无效，不能判断图片对应关系"}
+                </strong>
+                <span>{imageMatch.image.displayLabel}</span>
+                {imageMatch.image.sha256 && (
+                  <code>{imageMatch.image.sha256}</code>
+                )}
+                <span>
+                  包完整性：{imageMatch.verification.status} · 证明 ID：
+                  {imageMatch.verification.proof_id ?? "无"}
+                </span>
+                {imageMatch.matchedAssets.map((asset) => (
+                  <span key={asset.asset_id}>
+                    匹配资产：{asset.original_name} · {asset.role} ·{" "}
+                    {formatBytes(asset.size_bytes)}
+                  </span>
+                ))}
+                <small>
+                  仅确认文件与已验证证明包输出的字节对应关系；创建者身份未验证，数字签名与可信时间不存在，原创性与权属未评估。
+                </small>
+              </div>
+            </article>
+          )}
+        </section>
+
+        <section className="panel" data-region="workspace">
+          <PanelTitle
+            step="02"
             title="创建或打开工作区"
             hint="创建与打开是两条独立路径，已有目标永不初始化或覆盖"
           />
@@ -746,81 +906,92 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           </div>
         </section>
 
-        <section className="panel" data-region="assets">
-          <PanelTitle
-            step="02"
-            title="添加输入与输出资产"
-            hint="五种角色均可选择；文件由 Rust 流式复制并计算 SHA-256"
-          />
-          <p className="prerequisite">
-            {workspace
-              ? `当前：${workspace.displayPath}`
-              : "前置条件：请先创建或打开工作区。"}
-          </p>
-          <div className="asset-controls">
-            <Field label="资产文件">
-              <div className="field-row">
-                <input
-                  data-testid="asset-path"
-                  readOnly
-                  placeholder="选择一个本地文件"
-                  value={assetPath}
-                />
-                <button
-                  className="secondary"
-                  data-testid="choose-asset"
-                  onClick={() =>
-                    void choose(setAssetReference, setAssetPath, () =>
-                      proofHost.chooseAsset(),
-                    )
+        <details
+          className="panel advanced-panel"
+          data-region="assets"
+          style={{ order: 99 }}
+        >
+          <summary>
+            <strong>高级：手动导入证明素材</strong>
+            <span>集成创作会自动加入成功输出，通常无需使用这里。</span>
+          </summary>
+          <div className="advanced-panel-body">
+            <p className="assurance-inline">
+              这里只是把文件复制、哈希并标记角色。选择 input
+              仅表示输入素材，不会把图片证明为生成结果或证明作者身份。
+            </p>
+            <p className="prerequisite">
+              {workspace
+                ? `当前：${workspace.displayPath}`
+                : "前置条件：请先创建或打开工作区。"}
+            </p>
+            <div className="asset-controls">
+              <Field label="资产文件">
+                <div className="field-row">
+                  <input
+                    data-testid="asset-path"
+                    readOnly
+                    placeholder="选择一个本地文件"
+                    value={assetPath}
+                  />
+                  <button
+                    className="secondary"
+                    data-testid="choose-asset"
+                    onClick={() =>
+                      void choose(setAssetReference, setAssetPath, () =>
+                        proofHost.chooseAsset(),
+                      )
+                    }
+                  >
+                    选择文件
+                  </button>
+                </div>
+              </Field>
+              <Field label="资产角色">
+                <select
+                  data-testid="asset-role"
+                  value={assetRole}
+                  onChange={(event) =>
+                    setAssetRole(event.target.value as AssetRole)
                   }
                 >
-                  选择文件
-                </button>
-              </div>
-            </Field>
-            <Field label="资产角色">
-              <select
-                data-testid="asset-role"
-                value={assetRole}
-                onChange={(event) =>
-                  setAssetRole(event.target.value as AssetRole)
-                }
+                  {roles.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button
+                className="primary compact-action"
+                data-testid="add-asset"
+                disabled={!workspace || !assetReference}
+                onClick={() => void addAsset()}
               >
-                {roles.map((role) => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <button
-              className="primary compact-action"
-              data-testid="add-asset"
-              disabled={!workspace || !assetReference}
-              onClick={() => void addAsset()}
-            >
-              添加到工作区
-            </button>
-          </div>
-          <div className="asset-list" data-testid="asset-list">
-            {(workspace?.workspace.assets ?? []).length === 0 && (
-              <p>尚无资产。至少添加实际创作流程需要的输入与输出。</p>
-            )}
-            {(workspace?.workspace.assets ?? []).map((asset) => (
-              <div className="asset-row" key={asset.asset_id}>
-                <span className={`role role-${asset.role}`}>{asset.role}</span>
-                <div>
-                  <strong>{asset.original_name}</strong>
-                  <small>
-                    {formatBytes(asset.size_bytes)} ·{" "}
-                    {asset.sha256.slice(0, 16)}…
-                  </small>
+                添加到工作区
+              </button>
+            </div>
+            <div className="asset-list" data-testid="asset-list">
+              {(workspace?.workspace.assets ?? []).length === 0 && (
+                <p>尚无资产。至少添加实际创作流程需要的输入与输出。</p>
+              )}
+              {(workspace?.workspace.assets ?? []).map((asset) => (
+                <div className="asset-row" key={asset.asset_id}>
+                  <span className={`role role-${asset.role}`}>
+                    {asset.role}
+                  </span>
+                  <div>
+                    <strong>{asset.original_name}</strong>
+                    <small>
+                      {formatBytes(asset.size_bytes)} ·{" "}
+                      {asset.sha256.slice(0, 16)}…
+                    </small>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </section>
+        </details>
 
         <section className="panel creation-panel" data-region="creation">
           <PanelTitle
@@ -1113,11 +1284,41 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 </code>
               )}
               {creationSession.output && (
-                <code data-testid="creation-output">
-                  output {creationSession.output.sha256} ·{" "}
-                  {formatBytes(creationSession.output.sizeBytes)} · 自动加入
-                  workspace
-                </code>
+                <div
+                  className="creation-output-card"
+                  data-testid="creation-output"
+                >
+                  {creationSession.output.previewDataUrl && (
+                    <img
+                      src={creationSession.output.previewDataUrl}
+                      alt={`生成图片：${creationSession.output.asset.original_name}`}
+                    />
+                  )}
+                  <div>
+                    <strong>
+                      {creationSession.output.asset.original_name}
+                    </strong>
+                    <span>
+                      {formatBytes(creationSession.output.sizeBytes)} · 已作为
+                      output 自动加入证明工作区
+                    </span>
+                    <code>{creationSession.output.sha256}</code>
+                    {creationSession.verification && (
+                      <span>
+                        证明 ID：
+                        {creationSession.verification.proof_id ?? "无"} · 包：
+                        {creationSession.packageDisplayPath ?? "尚未封装"}
+                      </span>
+                    )}
+                    <button
+                      className="primary"
+                      data-testid="export-creation-output"
+                      onClick={() => void exportCreationOutput()}
+                    >
+                      保存生成图片副本
+                    </button>
+                  </div>
+                </div>
               )}
               {creationSession.error && (
                 <p className="error-line">

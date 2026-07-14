@@ -37,8 +37,8 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(HOST_CONTRACT_VERSION).toBe("1.2.0");
-    expect(NATIVE_API_VERSION).toBe("1.2.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.3.0");
+    expect(NATIVE_API_VERSION).toBe("1.3.0");
     expect(NATIVE_ENGINE_VERSION).toBe("0.2.0");
     expect(PROTOCOL_VERSION).toBe("0.2.0");
   });
@@ -48,7 +48,7 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.2.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.3.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
@@ -89,7 +89,7 @@ describe("@aigc-proof/host-contracts", () => {
     ).toThrow();
   });
 
-  it("rejects malformed, missing, duplicate, and unsorted 1.2 capabilities", () => {
+  it("rejects malformed, missing, duplicate, and unsorted 1.3 capabilities", () => {
     const cases = [
       {},
       discovery({ apiVersion: undefined }),
@@ -132,9 +132,9 @@ describe("@aigc-proof/host-contracts", () => {
         displayLabel: "diagnostics",
       },
       hostKind: "standalone",
-      workbenchVersion: "0.4.0",
-      contractVersion: "1.2.0",
-      nativeApiVersion: "1.2.0",
+      workbenchVersion: "0.5.0",
+      contractVersion: "1.3.0",
+      nativeApiVersion: "1.3.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
@@ -161,6 +161,8 @@ describe("@aigc-proof/host-contracts", () => {
       parent: reference("workspace-parent", "a"),
       workspace: reference("workspace", "b"),
       asset: reference("asset", "c"),
+      image: reference("image", "l"),
+      imageOutput: reference("image-output", "m"),
       package: reference("package", "d"),
       packageOutput: reference("package-output", "e"),
       reportOutput: reference("report-output", "f"),
@@ -250,9 +252,9 @@ describe("@aigc-proof/host-contracts", () => {
     const diagnostics = {
       reference: references.diagnostic,
       hostKind: "standalone",
-      workbenchVersion: "0.4.0",
-      contractVersion: "1.2.0",
-      nativeApiVersion: "1.2.0",
+      workbenchVersion: "0.5.0",
+      contractVersion: "1.3.0",
+      nativeApiVersion: "1.3.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
       supportedProtocolVersions: ["0.2.0"],
@@ -350,6 +352,8 @@ describe("@aigc-proof/host-contracts", () => {
       chooseWorkspaceParent: references.parent,
       chooseExistingWorkspace: references.workspace,
       chooseAsset: references.asset,
+      chooseImage: references.image,
+      chooseCreationOutput: references.imageOutput,
       choosePackage: references.package,
       choosePackageOutput: references.packageOutput,
       chooseReportOutput: references.reportOutput,
@@ -365,6 +369,32 @@ describe("@aigc-proof/host-contracts", () => {
       initializeWorkspace: { ok: true, data: summary },
       loadWorkspace: { ok: true, data: summary },
       addAsset: { ok: true, data: { asset, workspace } },
+      exportCreationOutput: {
+        ok: true,
+        data: {
+          image: references.image,
+          displayPath: "C:\\created.png",
+          mediaType: "image/png",
+          sizeBytes: 1,
+          sha256: "0".repeat(64),
+        },
+      },
+      matchImageToPackage: {
+        ok: true,
+        data: {
+          status: "verified_output_match",
+          verification: report,
+          image: {
+            displayLabel: "created.png",
+            displayPath: "C:\\created.png",
+            mediaType: "image/png",
+            sizeBytes: 1,
+            sha256: "0".repeat(64),
+            previewDataUrl: "data:image/png;base64,aGVsbG8=",
+          },
+          matchedAssets: [{ ...asset, role: "output" }],
+        },
+      },
       recordEvent: { ok: true, data: { event } },
       sealPackage: {
         ok: true,

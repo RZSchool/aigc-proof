@@ -43,6 +43,22 @@ pub struct RecordEventOptions {
     pub payload: Value,
 }
 
+#[derive(Debug)]
+pub struct ExportWorkspaceOutputOptions {
+    pub workspace: PathBuf,
+    pub asset_id: String,
+    pub output: PathBuf,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExportWorkspaceOutputResult {
+    pub path: PathBuf,
+    pub asset: Asset,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
 pub fn init_workspace(options: InitWorkspaceOptions) -> CoreResult<Workspace> {
     if options.path.exists() {
         return Err(CoreError::new(
@@ -292,6 +308,107 @@ pub fn add_asset(options: AddAssetOptions) -> CoreResult<Asset> {
         return Err(error);
     }
     Ok(asset)
+}
+
+pub fn export_workspace_output(
+    options: ExportWorkspaceOutputOptions,
+) -> CoreResult<ExportWorkspaceOutputResult> {
+    if options.output.exists() {
+        return Err(CoreError::new(
+            ErrorKind::OutputAlreadyExists,
+            "OUTPUT_ALREADY_EXISTS",
+            "Output path already exists and will not be overwritten.",
+        )
+        .at_path(&options.output));
+    }
+    let workspace = load_workspace(&options.workspace)?;
+    let asset = workspace
+        .assets
+        .iter()
+        .find(|asset| asset.asset_id == options.asset_id)
+        .cloned()
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::MissingAsset,
+                "OUTPUT_ASSET_NOT_FOUND",
+                "The creation output asset is not present in the workspace.",
+            )
+        })?;
+    if asset.role != AssetRole::Output {
+        return Err(CoreError::new(
+            ErrorKind::InvalidWorkspace,
+            "ASSET_ROLE_NOT_OUTPUT",
+            "Only an asset recorded with role output can be exported as a creation result.",
+        ));
+    }
+    let source_path = workspace_asset_path(&options.workspace, &asset)?;
+    let mut source = File::open(&source_path)
+        .map_err(|error| CoreError::io("ASSET_OPEN_FAILED", &source_path, error))?;
+    let opened_metadata = source
+        .metadata()
+        .map_err(|error| CoreError::io("ASSET_METADATA_FAILED", &source_path, error))?;
+    if !opened_metadata.is_file() || opened_metadata.len() != asset.size_bytes {
+        return Err(CoreError::new(
+            ErrorKind::HashMismatch,
+            "ASSET_SIZE_MISMATCH",
+            "Workspace output size differs from the recorded output asset.",
+        )
+        .at_path(&source_path));
+    }
+
+    let output_parent = options.output.parent().ok_or_else(|| {
+        CoreError::new(
+            ErrorKind::InvalidPackagePath,
+            "INVALID_OUTPUT_PATH",
+            "Output path has no parent directory.",
+        )
+    })?;
+    require_real_directory(output_parent, "INVALID_OUTPUT_DIRECTORY")?;
+    let mut temporary = Builder::new()
+        .prefix(".aigc-proof-output-")
+        .tempfile_in(output_parent)
+        .map_err(|error| CoreError::io("TEMPORARY_FILE_FAILED", output_parent, error))?;
+    let digest = {
+        let mut limited = Read::take(&mut source, asset.size_bytes.saturating_add(1));
+        copy_and_hash(&mut limited, temporary.as_file_mut())?
+    };
+    if digest.size != asset.size_bytes || digest.sha256 != asset.sha256 {
+        return Err(CoreError::new(
+            ErrorKind::HashMismatch,
+            "ASSET_HASH_MISMATCH",
+            "Workspace output bytes differ from the recorded output asset.",
+        )
+        .at_path(&source_path));
+    }
+    let after_metadata = source
+        .metadata()
+        .map_err(|error| CoreError::io("ASSET_METADATA_FAILED", &source_path, error))?;
+    if after_metadata.len() != digest.size {
+        return Err(CoreError::new(
+            ErrorKind::HashMismatch,
+            "ASSET_CHANGED_DURING_EXPORT",
+            "Workspace output changed while it was being exported.",
+        )
+        .at_path(&source_path));
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| CoreError::io("TEMPORARY_FILE_SYNC_FAILED", temporary.path(), error))?;
+    if let Err(error) = temporary.persist_noclobber(&options.output) {
+        let code = if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+            "OUTPUT_ALREADY_EXISTS"
+        } else {
+            "OUTPUT_EXPORT_FAILED"
+        };
+        return Err(CoreError::io(code, &options.output, error.error));
+    }
+    Ok(ExportWorkspaceOutputResult {
+        path: options.output,
+        asset,
+        size_bytes: digest.size,
+        sha256: digest.sha256,
+    })
 }
 
 pub fn record_event(options: RecordEventOptions) -> CoreResult<Event> {
