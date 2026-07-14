@@ -17,4 +17,6 @@ Thumbs.db
 .idea/
 *.swp
 *.tmp
-/tests/
+/tests/valid-packages/
+/tests/tampered-packages/
+/tests/malicious-packages/
