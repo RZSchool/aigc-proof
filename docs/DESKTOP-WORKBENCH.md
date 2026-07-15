@@ -1,11 +1,11 @@
-# Desktop Workbench 0.6.0
+# Desktop Workbench 0.7.0
 
 ## Architecture
 
-The primary desktop frontend is an offline React + TypeScript application hosted by Electron.
+The primary desktop frontend is a local-first React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 1.5.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 1.6.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -21,7 +21,7 @@ or native loading. The Standalone implementation issues opaque, expiring, kind-s
 references for native selections and recent records. Display labels and paths are user clarity
 only; Main resolves the stored authority and rechecks the selected path when each operation runs.
 
-Native discovery reports API 1.4.0, engine 0.3.0, supported protocols 0.2.0 and 0.3.0, implemented capabilities,
+Native discovery reports API 1.5.0, engine 0.4.0, supported protocols 0.2.0, 0.3.0, and 0.4.0, implemented capabilities,
 execution facts, and runtime limits. The Utility handshake confirms process isolation and phase
 progress; safe interruption of an already-running atomic Rust operation remains unavailable.
 Missing, malformed, incompatible, capability-inconsistent, or limit-inconsistent discovery stops
@@ -132,7 +132,7 @@ launch, disabled CDP, and clean exit.
 
 ## Local creator identity
 
-Workbench 0.6.0 manages one local Ed25519 identity through the operating-system credential store.
+Workbench 0.7.0 manages one local Ed25519 identity through the operating-system credential store.
 The renderer sees status, self-asserted display label, public fingerprint, and warnings only. Main
 validates every request and the Utility invokes the Rust signer. Creation, rotation, disable, and
 each package signature require explicit user actions. Private bytes never enter renderer, preload,
@@ -143,11 +143,26 @@ Verification displays internal integrity, signature validity, local key match, a
 state separately. A valid signature proves possession of a key for the exact Manifest; it is not
 real-name, originality, copyright, ownership, authorization, or official verification.
 
+## RFC 3161 trusted time
+
+The trusted-time panel imports one explicit portable TSA snapshot into the current process. Main
+validates its digest, endpoint scope, policy list, certificate material, effective time, and expiry
+through Rust before retaining it; the snapshot is not persisted in SQLite. When a 0.4 package and
+new output are selected, the renderer can request only the fixed operation—it cannot supply a URL,
+request body, trust root, response, or generic fetch parameters.
+
+Normal launch displays the endpoint, policy, and exact creator-signature SHA-256 imprint before
+Main sends the request. Main enforces HTTPS, imported HTTPS roots, no redirects, 10-second connect
+and 30-second total timeouts, exact media type, and a 1 MiB response cap. Utility/Rust verifies the
+response before a new no-clobber package is published. Cancellation and acquisition failure leave
+the creator signature valid and publish no package. All later verification is offline against the
+explicit snapshot. See [Trusted Time Profile](TRUSTED-TIME-PROFILE.md).
+
 ## Scope
 
-Workbench 0.6.0 uses protocol 0.3.0, verifies legacy unsigned 0.2.0, and evaluates internal
-integrity, creator signatures, and exact byte correspondence to verified package assets. It does
-not provide trusted timestamps, C2PA, originality evaluation, copyright or ownership
+Workbench 0.7.0 uses protocol 0.4.0, verifies signed 0.3.0 and legacy unsigned 0.2.0, and evaluates internal
+integrity, creator signatures, optional RFC 3161 trusted time, and exact byte correspondence to verified package assets. It does
+not provide C2PA, external creator identity, originality evaluation, copyright or ownership
 determinations, official services, accounts, upload, or WASM.
 
 The previous Win32 tactical preview was retired from the source workspace only after the packaged

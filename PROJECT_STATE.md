@@ -1,6 +1,6 @@
 Project: AIGC-Proof-Skill Open Source
-Stage: Phase 1 - v0.3 Signed Verifiable Package MVP WIP
-Status: Ready for review
+Stage: Phase 1 - v0.4 Trusted-Time Verifiable Package Candidate
+Status: AP-032 validated candidate
 
 Implemented in source:
 
@@ -19,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.5.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 1.6.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -34,10 +34,14 @@ Implemented in source:
 19. Workspace-scoped creation-session listing, explicit historical restore, deterministic
     cross-workspace/new-session UI reset, and collapsed manual proof tools outside the primary
     three-step journey.
-20. Protocol 0.3 Ed25519 creator signatures with deterministic COSE_Key/COSE_Sign1 encoding,
+20. Protocol 0.3/0.4 Ed25519 creator signatures with deterministic COSE_Key/COSE_Sign1 encoding,
     offline verification, OS-credential-store custody, key create/rotate/disable lifecycle, a
     self-asserted display label and full fingerprint, and separate integrity/signature/local-trust
     assurance results; protocol 0.2 remains valid unsigned Internal Integrity.
+21. Protocol 0.4 RFC 3161 trusted time over the exact tagged creator COSE bytes, with a
+    creator-signed request plan, 128-bit nonce, explicit portable TSA trust snapshot, strict
+    certificate/profile/revocation checks, Main-owned opt-in HTTPS acquisition, and offline
+    verification that remains separate from creator identity and content-origin claims.
 
 Verification status:
 
@@ -309,13 +313,56 @@ ports disabled and exited cleanly. The frozen Windows x64 EXE is 205,586,944 byt
 evidence and screenshots are under `test-results/AP-031/desktop-packaged/`. macOS was not
 executed and is not claimed.
 
+Trusted time (AP-032, 2026-07-16): passed through Workbench 0.7.0 at workspace-root
+`app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Protocol/engine/workspace 0.4.0 signs an RFC 3161
+request plan into the Manifest before creator signing, binds a SHA-256 imprint of the exact tagged
+creator COSE bytes and a 128-bit nonce, and optionally appends one bounded timestamp response.
+Verification remains offline and produces `valid_trusted` only against the exact imported portable
+TSA snapshot after nonce, imprint, policy, ESS binding, critical timestamping EKU, ECDSA P-256/P-384
+signature, explicit chain, validity-at-`genTime`, configured time bounds and available revocation
+evidence all pass. Missing or rejected timestamp evidence does not weaken or relabel the separately
+valid creator signature.
+
+The CLI performs request generation and verified no-clobber attachment without network access.
+Workbench acquisition is an explicit per-request action through the only non-loopback product
+transport in Electron Main: HTTPS only, DNS-address scope enforcement, redirect rejection, bounded
+MIME/body/time, cancellation and no credential forwarding. The Renderer retains no Node.js,
+filesystem, native-addon, SQLite, credential-store or generic-network authority. Runtime OpenSSL
+TSA tests covered valid issuance plus nonce, imprint, policy, signer, chain, EKU, ESS, time,
+revocation, malformed/oversize, replay and no-clobber negatives; packaged QA also stopped the TSA
+before final verification to prove the accepted workflow was offline.
+
+Native Windows `x86_64-pc-windows-msvc` and actual Ubuntu 24.04 WSL2
+`x86_64-unknown-linux-gnu` both used isolated Rust 1.85.0 toolchains and passed formatting, locked
+all-target checks, warnings-denied all-target/all-feature Clippy, every applicable workspace test,
+documentation/doc-tests and real offline CLI smoke workflows. Windows passed 51 applicable Rust
+tests and Ubuntu passed 54, including the additional Unix symlink cases. Windows Node v24.14.0 and
+pnpm 11.7.0 passed Prettier, all TypeScript checks, ESLint, 7 Host-contract tests, 16 creation-core
+tests, 73 Desktop tests and production builds. Development and exact packaged Electron/CDP QA
+passed the real creator-key, ComfyUI v0.27.0 generation, signed seal, RFC 3161 acquisition,
+attachment, service-stopped offline verification, negative timestamp, restart/recovery and clean
+exit workflow.
+
+The reviewed dependency graph uses exact `x509-tsp 0.1.0` and `sigstore-tsa 0.8.0`; the official
+Sigstore Rust conformance source was frozen at commit
+`5fa7a5ed04d3cb7258c65856117d60ffb0db952f`. Locked metadata and license review covered 393
+packages with no missing license declarations. Package-boundary QA found 430 files, zero source
+maps/sources/PDBs, Utility-only native-addon loading and coherent
+0.7.0/1.6.0/1.5.0/0.4.0 versions. A separate normal launch exposed no QA/CDP port and exited
+cleanly. The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
+`948b3c97a87eb5dd5d4b7823d4916f7ad4fb66e9345288eade9ffd614685f850`; ASAR SHA-256 is
+`e24a616e8174025fc565d118bd4d4660e57a403c7400000b293dd23d76553e76`; native-addon SHA-256 is
+`ebb32a602ee2f239ca3156b07d551ab6294380e1c13c4348f3a39ad23d8db02d`; CLI SHA-256 is
+`b091d4d801ace277e154e7902ac6f9a601c19e91456543924af3a20531a5bfd9`. Final structured evidence
+is under `test-results/AP-032/`. macOS was not executed and is not claimed.
+
 Not implemented:
 
 - Externally verified creator identity, accounts or legal-name attestation
-- Trusted timestamp, RFC 3161, or C2PA
+- C2PA / Content Credentials
 - Originality or copyright evaluation
 - Official verification, accounts, network APIs, official-service databases, WASM, or upload
 
-Ready for review does not turn a valid local creator signature into verified identity, trusted
-time, originality, copyright, ownership, authorization or official verification, and does not
-imply publication or release.
+A valid creator signature or RFC 3161 result does not turn a self-asserted label into verified
+identity and does not establish originality, copyright, ownership, authorization, C2PA provenance
+or official verification. Candidate validation does not imply publication or release.

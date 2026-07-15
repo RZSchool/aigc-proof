@@ -22,6 +22,7 @@ describe("renderer dependency boundary", () => {
     expect(combined).not.toMatch(
       /ipcRenderer|createRequire|\.node["']|child_process/u,
     );
+    expect(combined).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|WebSocket/u);
     expect(combined).not.toMatch(/src\/(?:main|preload)\//u);
   });
 
@@ -44,6 +45,24 @@ describe("renderer dependency boundary", () => {
       /createRequire|loadNativeAddon/u,
     );
     expect(utility).toMatch(/createRequire|loadNativeAddon/u);
+  });
+
+  it("keeps trusted-time networking in one consented Main-only adapter", async () => {
+    const mainDirectory = path.resolve(process.cwd(), "src/main");
+    const productionSources = (await fs.readdir(mainDirectory)).filter(
+      (name) => name.endsWith(".ts") && !name.endsWith(".test.ts"),
+    );
+    const withHttps = [];
+    for (const name of productionSources) {
+      const source = await fs.readFile(path.join(mainDirectory, name), "utf8");
+      if (/from\s+["']node:https["']/u.test(source)) withHttps.push(name);
+    }
+    expect(withHttps).toEqual(["tsa-transport.ts"]);
+    const ipc = await fs.readFile(path.join(mainDirectory, "ipc.ts"), "utf8");
+    expect(ipc).toContain("Send trusted-time request?");
+    expect(ipc).toContain("prepared.disclosure.message_imprint_sha256");
+    expect(ipc).toContain("if (!qaMode)");
+    expect(ipc).not.toMatch(/https\.request|\bfetch\s*\(/u);
   });
 
   it("cleans generated application output before packaging", async () => {

@@ -7,8 +7,9 @@ use coset::{
 };
 use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use proof_schema::{
-    CREATOR_SIGNATURE_PROFILE, CreatorSignatureDescriptor, CreatorSignatureEvidence, LocalTrust,
-    SignatureAssurance, display_label_needs_confusable_warning, validate_display_label,
+    CREATOR_SIGNATURE_PROFILE, CREATOR_SIGNATURE_PROFILE_V03, CreatorSignatureDescriptor,
+    CreatorSignatureEvidence, LocalTrust, SignatureAssurance,
+    display_label_needs_confusable_warning, validate_display_label,
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::{CoreError, CoreResult, ErrorKind};
 
 pub const CREATOR_SIGNATURE_AAD: &[u8] = b"AIGC-PROOF\0CREATOR-SIGNATURE\0v0.3";
+pub const CREATOR_SIGNATURE_AAD_V04: &[u8] = b"AIGC-PROOF\0CREATOR-SIGNATURE\0v0.4";
 pub const DEFAULT_SIGNER_SERVICE: &str = "org.aigcproof.workbench.creator-key.v1";
 pub const DEFAULT_SIGNER_USER: &str = "current-user";
 
@@ -484,10 +486,26 @@ pub(crate) fn random_signature_id() -> String {
     result
 }
 
+#[cfg(test)]
 pub(crate) fn sign_manifest(
     material: &SigningMaterial,
     manifest_bytes: &[u8],
 ) -> CoreResult<SignatureArtifacts> {
+    sign_manifest_with_profile(material, manifest_bytes, CREATOR_SIGNATURE_PROFILE_V03)
+}
+
+pub(crate) fn sign_manifest_with_profile(
+    material: &SigningMaterial,
+    manifest_bytes: &[u8],
+    profile: &str,
+) -> CoreResult<SignatureArtifacts> {
+    let aad = creator_signature_aad(profile).ok_or_else(|| {
+        CoreError::new(
+            ErrorKind::Signing,
+            "CREATOR_SIGNATURE_PROFILE_UNSUPPORTED",
+            "Creator signature profile is unsupported.",
+        )
+    })?;
     let manifest_digest = Sha256::digest(manifest_bytes);
     let fingerprint_bytes = Sha256::digest(&material.public_key_cose);
     let protected = HeaderBuilder::new()
@@ -497,7 +515,7 @@ pub(crate) fn sign_manifest(
     let signing_key = SigningKey::from_bytes(&material.secret_key);
     let sign1 = CoseSign1Builder::new()
         .protected(protected)
-        .create_detached_signature(&manifest_digest, CREATOR_SIGNATURE_AAD, |bytes| {
+        .create_detached_signature(&manifest_digest, aad, |bytes| {
             signing_key.sign(bytes).to_bytes().to_vec()
         })
         .build();
@@ -534,13 +552,13 @@ pub(crate) fn verify_manifest_signature(
     signature_bytes: &[u8],
     local_trust: LocalTrust,
 ) -> Result<SignatureVerification, SignatureFailure> {
-    if descriptor.profile != CREATOR_SIGNATURE_PROFILE {
+    let Some(aad) = creator_signature_aad(&descriptor.profile) else {
         return Err(signature_failure(
             SignatureAssurance::Unsupported,
             "CREATOR_SIGNATURE_PROFILE_UNSUPPORTED",
             "Creator signature profile is unsupported.",
         ));
-    }
+    };
     let (public_key, verifying_key) = parse_public_key(public_key_bytes)?;
     if sha256_hex(public_key_bytes) != descriptor.key_fingerprint {
         return Err(signature_failure(
@@ -654,7 +672,7 @@ pub(crate) fn verify_manifest_signature(
         )
     })?;
     let manifest_digest = Sha256::digest(manifest_bytes);
-    let tbs = sign1.tbs_detached_data(&manifest_digest, CREATOR_SIGNATURE_AAD);
+    let tbs = sign1.tbs_detached_data(&manifest_digest, aad);
     verifying_key.verify_strict(&tbs, &signature).map_err(|_| {
         signature_failure(
             SignatureAssurance::Invalid,
@@ -676,6 +694,14 @@ pub(crate) fn verify_manifest_signature(
             local_trust,
         },
     })
+}
+
+fn creator_signature_aad(profile: &str) -> Option<&'static [u8]> {
+    match profile {
+        CREATOR_SIGNATURE_PROFILE_V03 => Some(CREATOR_SIGNATURE_AAD),
+        CREATOR_SIGNATURE_PROFILE => Some(CREATOR_SIGNATURE_AAD_V04),
+        _ => None,
+    }
 }
 
 fn parse_public_key(bytes: &[u8]) -> Result<(CoseKey, VerifyingKey), SignatureFailure> {
@@ -828,7 +854,7 @@ mod tests {
         let manifest = br#"{"spec_version":"0.3.0"}"#;
         let artifacts = sign_manifest(&material, manifest).unwrap();
         let descriptor = CreatorSignatureDescriptor {
-            profile: CREATOR_SIGNATURE_PROFILE.to_owned(),
+            profile: CREATOR_SIGNATURE_PROFILE_V03.to_owned(),
             signature_id: "a".repeat(64),
             display_label: material.display_label.clone(),
             key_fingerprint: material.key_fingerprint.clone(),

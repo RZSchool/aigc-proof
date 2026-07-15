@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::str::FromStr;
 
+use base64::Engine as _;
 use clap::{Parser, Subcommand};
 use proof_core::{
-    AddAssetOptions, CoreError, InitWorkspaceOptions, RecordEventOptions, SealOptions,
-    SignerService, VerificationLimits, add_asset, current_timestamp, init_workspace,
-    inspect_package, media_type_for_path, record_event, seal_signed_workspace, seal_workspace,
-    verify_package_with_signer,
+    AddAssetOptions, CoreError, InitWorkspaceOptions, ParsedTsaProfile, RecordEventOptions,
+    SealOptions, SignerService, VerificationLimits, add_asset, attach_timestamp_response,
+    current_timestamp, init_workspace, inspect_package, media_type_for_path, parse_tsa_profile,
+    prepare_timestamp_request, record_event, seal_signed_workspace,
+    seal_signed_workspace_with_timestamp, seal_workspace, tsa_profile_summary,
+    verify_package_with_signer, verify_package_with_signer_and_profile,
 };
 use proof_schema::{
     AssetRole, VerificationStatus, parse_json_strict, validate_verification_result_schema,
@@ -22,8 +25,8 @@ use uuid::Uuid;
 #[command(
     name = "aigc-proof",
     version,
-    about = "Offline AIGC-Proof 0.3 creator-signature workflow",
-    long_about = "Creates and verifies AIGC-Proof 0.3 packages signed by a local OS-protected Ed25519 key. The display label is self-asserted; trusted time and originality are not evaluated."
+    about = "Offline AIGC-Proof creator-signature and trusted-time workflow",
+    long_about = "Creates and verifies AIGC-Proof 0.2/0.3/0.4 packages. Protocol 0.4 predeclares an RFC 3161 request bound to the creator signature and verifies responses only against an explicitly imported trust snapshot."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -69,18 +72,64 @@ enum Command {
         /// Produce a legacy unsigned protocol 0.2 package for compatibility testing.
         #[arg(long, conflicts_with = "confirm_signature")]
         legacy_unsigned_v02: bool,
+        /// Explicit portable TSA trust snapshot used to predeclare a protocol 0.4 request.
+        #[arg(
+            long,
+            value_name = "FILE",
+            requires = "confirm_signature",
+            conflicts_with = "legacy_unsigned_v02"
+        )]
+        tsa_profile: Option<PathBuf>,
+        /// Requested RFC 3161 policy OID, or the explicit `any` marker.
+        #[arg(long, default_value = "any", requires = "tsa_profile")]
+        timestamp_policy: String,
     },
     /// Verify package structure and internal integrity offline.
     Verify {
         package: PathBuf,
         #[arg(long = "json", value_name = "FILE")]
         json_output: Option<PathBuf>,
+        /// Explicit portable TSA trust snapshot for offline timestamp verification.
+        #[arg(long, value_name = "FILE")]
+        tsa_profile: Option<PathBuf>,
     },
     /// Read package metadata without claiming that integrity was verified.
     Inspect {
         package: PathBuf,
         #[arg(long)]
         json: bool,
+    },
+    /// Prepare or attach an RFC 3161 response without performing network access.
+    Timestamp {
+        #[command(subcommand)]
+        command: TimestampCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TimestampCommand {
+    /// Build the exact DER request and print the endpoint disclosure as JSON.
+    Request {
+        package: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        tsa_profile: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+    },
+    /// Verify a received DER response and attach it to a new no-clobber package.
+    Attach {
+        package: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        response: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        tsa_profile: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        output: PathBuf,
+    },
+    /// Validate and summarize an explicit portable TSA trust snapshot.
+    Profile {
+        #[arg(value_name = "FILE")]
+        tsa_profile: PathBuf,
     },
 }
 
@@ -226,6 +275,8 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
             output,
             confirm_signature,
             legacy_unsigned_v02,
+            tsa_profile,
+            timestamp_policy,
         } => {
             if !legacy_unsigned_v02 {
                 require_confirmation(confirm_signature, "SIGNATURE_NOT_CONFIRMED")?;
@@ -236,8 +287,16 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                 proof_id: Uuid::new_v4().urn().to_string(),
                 created_at: current_timestamp().map_err(CliError::from_core)?,
             };
+            let imported_profile = tsa_profile.as_deref().map(read_tsa_profile).transpose()?;
             let result = if legacy_unsigned_v02 {
                 seal_workspace(options)
+            } else if let Some(profile) = imported_profile.as_ref() {
+                seal_signed_workspace_with_timestamp(
+                    options,
+                    &SignerService::production(),
+                    profile,
+                    &timestamp_policy,
+                )
             } else {
                 seal_signed_workspace(options, &SignerService::production())
             }
@@ -251,7 +310,7 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                     "internal_integrity": "self-checked",
                     "creator_identity": if signed { "self_asserted" } else { "not_verified" },
                     "digital_signature": if signed { "self_checked" } else { "not_present" },
-                    "trusted_time": "not_present",
+                    "trusted_time": if imported_profile.is_some() { "planned_not_acquired" } else { "not_present" },
                     "originality": "not_evaluated"
                 }
             }))?;
@@ -260,13 +319,26 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
         Command::Verify {
             package,
             json_output,
+            tsa_profile,
         } => {
-            let report = verify_package_with_signer(
-                &package,
-                &VerificationLimits::default(),
-                current_timestamp().map_err(CliError::from_core)?,
-                &SignerService::production(),
-            );
+            let profile = tsa_profile.as_deref().map(read_tsa_profile).transpose()?;
+            let now = current_timestamp().map_err(CliError::from_core)?;
+            let signer = SignerService::production();
+            let report = match profile.as_ref() {
+                Some(profile) => verify_package_with_signer_and_profile(
+                    &package,
+                    &VerificationLimits::default(),
+                    now,
+                    &signer,
+                    profile,
+                ),
+                None => verify_package_with_signer(
+                    &package,
+                    &VerificationLimits::default(),
+                    now,
+                    &signer,
+                ),
+            };
             let value = serde_json::to_value(&report)
                 .map_err(|error| CliError::new("REPORT_SERIALIZATION_FAILED", error.to_string()))?;
             validate_verification_result_schema(&value)
@@ -309,12 +381,123 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                     println!("Creator identity: not verified");
                     println!("Digital signature: not present");
                 }
-                println!("Trusted timestamp: not present");
+                if let Some(timestamp) = inspection.trusted_timestamp {
+                    println!("Trusted timestamp plan: {}", timestamp.timestamp_path);
+                    println!("TSA profile SHA-256: {}", timestamp.tsa_profile_sha256);
+                } else {
+                    println!("Trusted timestamp: not present");
+                }
                 println!("Originality: not evaluated");
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Timestamp { command } => match command {
+            TimestampCommand::Request {
+                package,
+                tsa_profile,
+                output,
+            } => {
+                let profile = read_tsa_profile(&tsa_profile)?;
+                let prepared = prepare_timestamp_request(
+                    &package,
+                    &profile,
+                    &VerificationLimits::default(),
+                    current_timestamp().map_err(CliError::from_core)?,
+                )
+                .map_err(CliError::from_core)?;
+                let der = base64::engine::general_purpose::STANDARD
+                    .decode(&prepared.disclosure.request_der_base64)
+                    .map_err(|error| {
+                        CliError::new("TIMESTAMP_REQUEST_DECODE_FAILED", error.to_string())
+                    })?;
+                write_new_file(&output, &der)?;
+                print_json(&json!({
+                    "status": "prepared",
+                    "request": output.display().to_string(),
+                    "timestamp_path": prepared.timestamp_path,
+                    "disclosure": prepared.disclosure,
+                }))?;
+                Ok(ExitCode::SUCCESS)
+            }
+            TimestampCommand::Attach {
+                package,
+                response,
+                tsa_profile,
+                output,
+            } => {
+                let profile = read_tsa_profile(&tsa_profile)?;
+                let response_der = read_bounded_file(&response, 1024 * 1024, "TIMESTAMP_RESPONSE")?;
+                let attached = attach_timestamp_response(
+                    &package,
+                    &output,
+                    &response_der,
+                    &profile,
+                    &VerificationLimits::default(),
+                    current_timestamp().map_err(CliError::from_core)?,
+                )
+                .map_err(CliError::from_core)?;
+                print_json(&json!({
+                    "status": "attached",
+                    "package": attached.path.display().to_string(),
+                    "timestamp_path": attached.timestamp_path,
+                    "trusted_time": attached.gen_time,
+                }))?;
+                Ok(ExitCode::SUCCESS)
+            }
+            TimestampCommand::Profile { tsa_profile } => {
+                let profile = read_tsa_profile(&tsa_profile)?;
+                print_json(
+                    &serde_json::to_value(tsa_profile_summary(&profile)).map_err(|error| {
+                        CliError::new("TSA_PROFILE_SERIALIZATION_FAILED", error.to_string())
+                    })?,
+                )?;
+                Ok(ExitCode::SUCCESS)
+            }
+        },
     }
+}
+
+fn read_tsa_profile(path: &Path) -> Result<ParsedTsaProfile, CliError> {
+    let bytes = read_bounded_file(path, 1024 * 1024, "TSA_PROFILE")?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|error| CliError::new("TSA_PROFILE_UTF8_INVALID", error.to_string()))?;
+    parse_tsa_profile(text).map_err(CliError::from_core)
+}
+
+fn read_bounded_file(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, CliError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| CliError {
+        code: format!("{label}_METADATA_FAILED"),
+        path: Some(path.display().to_string()),
+        message: error.to_string(),
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > limit {
+        return Err(CliError {
+            code: format!("{label}_FILE_INVALID"),
+            path: Some(path.display().to_string()),
+            message: format!("Input must be a regular file no larger than {limit} bytes."),
+        });
+    }
+    let mut file = File::open(path).map_err(|error| CliError {
+        code: format!("{label}_READ_FAILED"),
+        path: Some(path.display().to_string()),
+        message: error.to_string(),
+    })?;
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    Read::take(&mut file, limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| CliError {
+            code: format!("{label}_READ_FAILED"),
+            path: Some(path.display().to_string()),
+            message: error.to_string(),
+        })?;
+    if bytes.len() as u64 > limit {
+        return Err(CliError {
+            code: format!("{label}_SIZE_LIMIT_EXCEEDED"),
+            path: Some(path.display().to_string()),
+            message: format!("Input exceeds {limit} bytes."),
+        });
+    }
+    Ok(bytes)
 }
 
 fn require_confirmation(confirmed: bool, code: &'static str) -> Result<(), CliError> {

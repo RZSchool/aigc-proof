@@ -10,6 +10,8 @@ import {
   type ImageReference,
   type PackageReference,
   type ProofHostApi,
+  type TimestampPackageOutputReference,
+  type TsaProfileReference,
   type WorkspaceParentReference,
   type WorkspaceReference,
 } from "../shared/contracts";
@@ -52,6 +54,31 @@ const workspaceReferenceB: WorkspaceReference = {
   kind: "workspace",
   displayLabel: "项目 B",
   displayPath: "C:\\workspace\\项目 B",
+};
+
+const packageReference: PackageReference = {
+  id: `ref_${"e".repeat(32)}`,
+  kind: "package",
+  displayLabel: "signed.aigcproof",
+  displayPath: "C:\\proofs\\signed.aigcproof",
+};
+const timestampedPackageReference: PackageReference = {
+  id: `ref_${"f".repeat(32)}`,
+  kind: "package",
+  displayLabel: "timestamped.aigcproof",
+  displayPath: "C:\\proofs\\timestamped.aigcproof",
+};
+const tsaProfileReference: TsaProfileReference = {
+  id: `ref_${"1".repeat(32)}`,
+  kind: "tsa-profile",
+  displayLabel: "Local TSA trust snapshot",
+  displayPath: "C:\\proofs\\local-tsa.json",
+};
+const timestampOutputReference: TimestampPackageOutputReference = {
+  id: `ref_${"2".repeat(32)}`,
+  kind: "timestamp-package-output",
+  displayLabel: "timestamped.aigcproof",
+  displayPath: "C:\\proofs\\timestamped.aigcproof",
 };
 
 const workspaceSummaryB = {
@@ -144,12 +171,12 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.6.0",
-        contractVersion: "1.5.0",
-        nativeApiVersion: "1.4.0",
-        engineVersion: "0.3.0",
-        protocolVersion: "0.3.0",
-        supportedProtocolVersions: ["0.2.0", "0.3.0"],
+        workbenchVersion: "0.7.0",
+        contractVersion: "1.6.0",
+        nativeApiVersion: "1.5.0",
+        engineVersion: "0.4.0",
+        protocolVersion: "0.4.0",
+        supportedProtocolVersions: ["0.2.0", "0.3.0", "0.4.0"],
         capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,
@@ -180,7 +207,15 @@ beforeEach(() => {
     chooseCreationOutput: vi.fn(),
     choosePackage: vi.fn(),
     choosePackageOutput: vi.fn(),
+    chooseTsaProfile: vi.fn(),
+    chooseTimestampPackageOutput: vi.fn(),
     chooseReportOutput: vi.fn(),
+    importTsaProfile: vi.fn(),
+    getTsaProfileStatus: vi.fn().mockResolvedValue({ ok: true, data: null }),
+    requestTrustedTimestamp: vi.fn(),
+    cancelTrustedTimestamp: vi
+      .fn()
+      .mockResolvedValue({ ok: true, data: { cancelled: false } }),
     previewWorkspaceTarget: vi.fn(),
     initializeWorkspace: vi.fn(),
     loadWorkspace: vi.fn(),
@@ -218,12 +253,12 @@ describe("workbench shell", () => {
   it("keeps the exact signed-local-identity assurance boundary visible", async () => {
     render(<App />);
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
-      "内部完整性与本地创建者数字签名",
+      "内部完整性、本地创建者数字签名与可选可信时间",
     );
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "显示名称为自我声明",
     );
-    expect(screen.getByText("Workbench 0.6.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.7.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
@@ -235,8 +270,8 @@ describe("workbench shell", () => {
   it("shows exact compatible versions and explicitly unavailable features", async () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
-    expect(card).toHaveTextContent("0.3.0");
-    expect(card).toHaveTextContent("1.5.0");
+    expect(card).toHaveTextContent("0.4.0");
+    expect(card).toHaveTextContent("1.6.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -284,6 +319,99 @@ describe("workbench shell", () => {
     expect(document.execCommand).toHaveBeenCalledWith("copy");
     expect(screen.getByTestId("result-text")).toHaveTextContent(
       "完整 SHA-256 指纹已复制",
+    );
+  });
+
+  it("imports an explicit TSA trust snapshot and attaches verified trusted time", async () => {
+    const user = userEvent.setup();
+    const profile = {
+      profile_sha256: "3".repeat(64),
+      source_label: "Local test TSA",
+      endpoint: "https://localhost:9443/rfc3161",
+      endpoint_scope: "loopback_test" as const,
+      allowed_policy_oids: ["1.2.3.4.1"],
+      root_count: 1,
+      intermediate_count: 0,
+      https_root_count: 1,
+      revocation_evidence_count: 1,
+      effective_at: "2026-07-15T00:00:00Z",
+      expires_at: "2027-07-15T00:00:00Z",
+    };
+    const timestampedReport = {
+      ...validReport,
+      spec_version: "0.4.0" as const,
+      assurance: {
+        ...validReport.assurance,
+        creator_identity: "self_asserted" as const,
+        digital_signature: "valid_locally_trusted" as const,
+        trusted_time: "valid_trusted" as const,
+      },
+      trusted_time: {
+        profile: "aigc-proof-rfc3161-v1",
+        timestamp_path: `security/timestamps/${"4".repeat(64)}.tsr`,
+        tsa_profile_sha256: profile.profile_sha256,
+        requested_policy: "any",
+        granted_policy: "1.2.3.4.1",
+        gen_time: "2026-07-15T00:00:01Z",
+        source_label: profile.source_label,
+        revocation: "valid_crl" as const,
+      },
+    };
+    vi.mocked(window.aigcProof.choosePackage).mockResolvedValue(
+      packageReference,
+    );
+    vi.mocked(window.aigcProof.chooseTsaProfile).mockResolvedValue(
+      tsaProfileReference,
+    );
+    vi.mocked(window.aigcProof.importTsaProfile).mockResolvedValue({
+      ok: true,
+      data: profile,
+    });
+    vi.mocked(window.aigcProof.chooseTimestampPackageOutput).mockResolvedValue(
+      timestampOutputReference,
+    );
+    vi.mocked(window.aigcProof.requestTrustedTimestamp).mockResolvedValue({
+      ok: true,
+      data: {
+        package: timestampedPackageReference,
+        displayPath: timestampedPackageReference.displayPath!,
+        trustedTime: "valid_trusted",
+        disclosure: {
+          endpoint: profile.endpoint,
+          content_type: "application/timestamp-query",
+          message_imprint_sha256: "5".repeat(64),
+          nonce: "6".repeat(32),
+          requested_policy: "any",
+          tsa_profile_sha256: profile.profile_sha256,
+        },
+      },
+    });
+    vi.mocked(window.aigcProof.verifyPackage).mockResolvedValue({
+      ok: true,
+      data: timestampedReport,
+    });
+
+    render(<App />);
+    await user.click(screen.getByTestId("choose-package"));
+    await user.click(screen.getByTestId("import-tsa-profile"));
+    expect(await screen.findByTestId("tsa-profile-summary")).toHaveTextContent(
+      "Local test TSA",
+    );
+    await user.click(screen.getByTestId("choose-timestamp-output"));
+    await user.click(screen.getByTestId("request-trusted-time"));
+
+    await waitFor(() =>
+      expect(window.aigcProof.requestTrustedTimestamp).toHaveBeenCalledWith({
+        package: packageReference,
+        output: timestampOutputReference,
+        confirmDisclosure: true,
+      }),
+    );
+    expect(
+      await screen.findByTestId("trusted-time-evidence"),
+    ).toHaveTextContent("Local test TSA");
+    expect(screen.getByTestId("trusted-time-evidence")).toHaveTextContent(
+      "valid_crl",
     );
   });
 

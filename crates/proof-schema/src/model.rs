@@ -5,11 +5,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE, HASH_ALGORITHM,
-    LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION, SCHEMA_VERSION, WORKSPACE_VERSION,
-    validate_asset_role, validate_canonical_timestamp, validate_display_label, validate_event_type,
-    validate_media_type, validate_package_path, validate_portable_basename, validate_proof_id,
-    validate_sha256_hex, validate_uuid,
+    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
+    CREATOR_SIGNATURE_PROFILE_V03, HASH_ALGORITHM, LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION,
+    SCHEMA_VERSION, SIGNED_SCHEMA_VERSION, SIGNED_WORKSPACE_VERSION, TRUSTED_TIMESTAMP_PREFIX,
+    TRUSTED_TIMESTAMP_PROFILE, TSA_TRUST_PROFILE, WORKSPACE_VERSION, validate_asset_role,
+    validate_canonical_timestamp, validate_display_label, validate_event_type, validate_media_type,
+    validate_package_path, validate_portable_basename, validate_proof_id, validate_sha256_hex,
+    validate_uuid,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,8 +110,71 @@ pub struct CreatorSignatureDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct TrustedTimestampDescriptor {
+    pub profile: String,
+    pub timestamp_path: String,
+    pub nonce: String,
+    pub requested_policy: String,
+    pub tsa_profile_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ManifestSecurity {
     pub creator_signature: CreatorSignatureDescriptor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_timestamp: Option<TrustedTimestampDescriptor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TsaEndpointScope {
+    PublicHttps,
+    LoopbackTest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TsaRevocationSnapshot {
+    #[serde(default)]
+    pub crls_der_base64: Vec<String>,
+    #[serde(default)]
+    pub ocsp_responses_der_base64: Vec<String>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TsaTrustProfile {
+    pub profile: String,
+    pub source_label: String,
+    pub endpoint: String,
+    pub endpoint_scope: TsaEndpointScope,
+    pub allowed_policy_oids: Vec<String>,
+    pub roots_der_base64: Vec<String>,
+    #[serde(default)]
+    pub intermediates_der_base64: Vec<String>,
+    #[serde(default)]
+    pub https_roots_der_base64: Vec<String>,
+    pub revocation: TsaRevocationSnapshot,
+    pub effective_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TsaProfileSummary {
+    pub profile_sha256: String,
+    pub source_label: String,
+    pub endpoint: String,
+    pub endpoint_scope: TsaEndpointScope,
+    pub allowed_policy_oids: Vec<String>,
+    pub root_count: u64,
+    pub intermediate_count: u64,
+    pub https_root_count: u64,
+    pub revocation_evidence_count: u64,
+    pub effective_at: String,
+    pub expires_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -149,12 +214,12 @@ impl Workspace {
         let mut issues = Vec::new();
         if !matches!(
             self.workspace_version.as_str(),
-            LEGACY_WORKSPACE_VERSION | WORKSPACE_VERSION
+            LEGACY_WORKSPACE_VERSION | SIGNED_WORKSPACE_VERSION | WORKSPACE_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_WORKSPACE_VERSION",
                 "workspace_version",
-                "Workspace version must be 0.2.0 or 0.3.0.",
+                "Workspace version must be 0.2.0, 0.3.0, or 0.4.0.",
             ));
         }
         validate_common(
@@ -173,12 +238,12 @@ impl Manifest {
         let mut issues = Vec::new();
         if !matches!(
             self.spec_version.as_str(),
-            LEGACY_SCHEMA_VERSION | SCHEMA_VERSION
+            LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_SPEC_VERSION",
                 "spec_version",
-                "Specification version must be 0.2.0 or 0.3.0.",
+                "Specification version must be 0.2.0, 0.3.0, or 0.4.0.",
             ));
         }
         if validate_proof_id(&self.proof_id).is_err() {
@@ -228,13 +293,48 @@ impl Manifest {
                 "security",
                 "Protocol 0.2 manifests must not contain creator signature metadata.",
             )),
+            (SIGNED_SCHEMA_VERSION, Some(security)) => {
+                validate_creator_signature(
+                    &security.creator_signature,
+                    CREATOR_SIGNATURE_PROFILE_V03,
+                    &mut issues,
+                );
+                if security.trusted_timestamp.is_some() {
+                    issues.push(ValidationIssue::new(
+                        "SIGNED_V03_TIMESTAMP_FORBIDDEN",
+                        "security.trusted_timestamp",
+                        "Protocol 0.3 must not contain RFC 3161 timestamp metadata.",
+                    ));
+                }
+            }
+            (SIGNED_SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+                "CREATOR_SIGNATURE_ABSENT",
+                "security",
+                "Protocol 0.3 manifests require creator signature metadata.",
+            )),
             (SCHEMA_VERSION, Some(security)) => {
-                validate_creator_signature(&security.creator_signature, &mut issues)
+                validate_creator_signature(
+                    &security.creator_signature,
+                    CREATOR_SIGNATURE_PROFILE,
+                    &mut issues,
+                );
+                match security.trusted_timestamp.as_ref() {
+                    Some(timestamp) => validate_trusted_timestamp(
+                        timestamp,
+                        &security.creator_signature.signature_id,
+                        &mut issues,
+                    ),
+                    None => issues.push(ValidationIssue::new(
+                        "TRUSTED_TIMESTAMP_PLAN_ABSENT",
+                        "security.trusted_timestamp",
+                        "Protocol 0.4 manifests require a predeclared RFC 3161 timestamp plan.",
+                    )),
+                }
             }
             (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
                 "CREATOR_SIGNATURE_ABSENT",
                 "security",
-                "Protocol 0.3 manifests require creator signature metadata.",
+                "Protocol 0.4 manifests require creator signature and timestamp-plan metadata.",
             )),
             _ => {}
         }
@@ -242,11 +342,207 @@ impl Manifest {
     }
 }
 
-fn validate_creator_signature(
-    signature: &CreatorSignatureDescriptor,
+fn validate_trusted_timestamp(
+    timestamp: &TrustedTimestampDescriptor,
+    signature_id: &str,
     issues: &mut Vec<ValidationIssue>,
 ) {
-    if signature.profile != CREATOR_SIGNATURE_PROFILE {
+    if timestamp.profile != TRUSTED_TIMESTAMP_PROFILE {
+        issues.push(ValidationIssue::new(
+            "TRUSTED_TIMESTAMP_PROFILE_UNSUPPORTED",
+            "security.trusted_timestamp.profile",
+            "Trusted timestamp profile is unsupported.",
+        ));
+    }
+    let expected_path = format!("{TRUSTED_TIMESTAMP_PREFIX}{signature_id}.tsr");
+    if timestamp.timestamp_path != expected_path {
+        issues.push(ValidationIssue::new(
+            "TRUSTED_TIMESTAMP_PATH_INVALID",
+            "security.trusted_timestamp.timestamp_path",
+            "Timestamp response path must be derived from the creator signature ID.",
+        ));
+    }
+    if timestamp.nonce.len() != 32
+        || !timestamp
+            .nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        issues.push(ValidationIssue::new(
+            "TRUSTED_TIMESTAMP_NONCE_INVALID",
+            "security.trusted_timestamp.nonce",
+            "Timestamp nonce must be 128 unsigned random bits encoded as 32 lowercase hex digits.",
+        ));
+    }
+    if timestamp.requested_policy != "any" && !valid_oid(&timestamp.requested_policy) {
+        issues.push(ValidationIssue::new(
+            "TRUSTED_TIMESTAMP_POLICY_INVALID",
+            "security.trusted_timestamp.requested_policy",
+            "Requested timestamp policy must be an object identifier or the explicit any marker.",
+        ));
+    }
+    if validate_sha256_hex(&timestamp.tsa_profile_sha256).is_err() {
+        issues.push(ValidationIssue::new(
+            "TSA_PROFILE_DIGEST_INVALID",
+            "security.trusted_timestamp.tsa_profile_sha256",
+            "TSA profile digest must be lowercase SHA-256 hexadecimal.",
+        ));
+    }
+}
+
+impl TsaTrustProfile {
+    pub fn validate(&self) -> Vec<ValidationIssue> {
+        let mut issues = Vec::new();
+        if self.profile != TSA_TRUST_PROFILE {
+            issues.push(ValidationIssue::new(
+                "TSA_PROFILE_UNSUPPORTED",
+                "profile",
+                "TSA trust profile identifier is unsupported.",
+            ));
+        }
+        if validate_display_label(&self.source_label).is_err() {
+            issues.push(ValidationIssue::new(
+                "TSA_SOURCE_LABEL_INVALID",
+                "source_label",
+                "TSA source label must be non-empty safe NFC text.",
+            ));
+        }
+        let endpoint = url::Url::parse(&self.endpoint).ok();
+        let loopback = endpoint
+            .as_ref()
+            .and_then(url::Url::host_str)
+            .is_some_and(|host| {
+                host.eq_ignore_ascii_case("localhost")
+                    || host
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|address| address.is_loopback())
+            });
+        let endpoint_invalid = self.endpoint.len() > 2048
+            || endpoint.as_ref().is_none_or(|endpoint| {
+                endpoint.scheme() != "https"
+                    || endpoint.host_str().is_none()
+                    || !endpoint.username().is_empty()
+                    || endpoint.password().is_some()
+                    || endpoint.fragment().is_some()
+            })
+            || matches!(self.endpoint_scope, TsaEndpointScope::LoopbackTest) && !loopback
+            || matches!(self.endpoint_scope, TsaEndpointScope::PublicHttps) && loopback;
+        if endpoint_invalid {
+            issues.push(ValidationIssue::new(
+                "TSA_ENDPOINT_INVALID",
+                "endpoint",
+                "TSA endpoint must be a credential-free scoped HTTPS URL without a fragment.",
+            ));
+        }
+        if self.allowed_policy_oids.is_empty()
+            || self.allowed_policy_oids.len() > 32
+            || self
+                .allowed_policy_oids
+                .iter()
+                .any(|value| !valid_oid(value))
+        {
+            issues.push(ValidationIssue::new(
+                "TSA_POLICY_SET_INVALID",
+                "allowed_policy_oids",
+                "TSA profile must contain one to 32 valid policy object identifiers.",
+            ));
+        }
+        if self.roots_der_base64.is_empty() || self.roots_der_base64.len() > 16 {
+            issues.push(ValidationIssue::new(
+                "TSA_ROOTS_INVALID",
+                "roots_der_base64",
+                "TSA profile must contain one to 16 explicit trust roots.",
+            ));
+        }
+        let certificate_fields = self
+            .roots_der_base64
+            .iter()
+            .chain(self.intermediates_der_base64.iter())
+            .chain(self.https_roots_der_base64.iter());
+        if certificate_fields
+            .clone()
+            .any(|value| !valid_base64_blob(value, 256 * 1024))
+            || self.intermediates_der_base64.len() > 32
+            || self.https_roots_der_base64.len() > 16
+        {
+            issues.push(ValidationIssue::new(
+                "TSA_CERTIFICATE_DATA_INVALID",
+                "roots_der_base64",
+                "TSA certificate data must be bounded canonical base64 DER.",
+            ));
+        }
+        if self.revocation.crls_der_base64.len() > 32
+            || self.revocation.ocsp_responses_der_base64.len() > 32
+            || self
+                .revocation
+                .crls_der_base64
+                .iter()
+                .chain(self.revocation.ocsp_responses_der_base64.iter())
+                .any(|value| !valid_base64_blob(value, 1024 * 1024))
+        {
+            issues.push(ValidationIssue::new(
+                "TSA_REVOCATION_DATA_INVALID",
+                "revocation",
+                "Revocation evidence must be bounded canonical base64 DER.",
+            ));
+        }
+        if validate_canonical_timestamp(&self.effective_at).is_err()
+            || validate_canonical_timestamp(&self.expires_at).is_err()
+            || self.effective_at >= self.expires_at
+        {
+            issues.push(ValidationIssue::new(
+                "TSA_PROFILE_VALIDITY_INVALID",
+                "effective_at",
+                "TSA profile effective and expiry times must be ordered canonical UTC timestamps.",
+            ));
+        }
+        issues
+    }
+}
+
+fn valid_oid(value: &str) -> bool {
+    let mut components = value.split('.');
+    let Some(first) = components.next() else {
+        return false;
+    };
+    let Some(second) = components.next() else {
+        return false;
+    };
+    let Ok(first) = first.parse::<u8>() else {
+        return false;
+    };
+    let Ok(second) = second.parse::<u64>() else {
+        return false;
+    };
+    if first > 2 || (first < 2 && second > 39) {
+        return false;
+    }
+    components.all(|component| {
+        !component.is_empty()
+            && (component == "0" || !component.starts_with('0'))
+            && component.parse::<u64>().is_ok()
+    })
+}
+
+fn valid_base64_blob(value: &str, max_decoded: usize) -> bool {
+    !value.is_empty()
+        && value.len()
+            <= max_decoded
+                .saturating_mul(4)
+                .saturating_div(3)
+                .saturating_add(4)
+        && value.len() % 4 == 0
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+}
+
+fn validate_creator_signature(
+    signature: &CreatorSignatureDescriptor,
+    expected_profile: &str,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if signature.profile != expected_profile {
         issues.push(ValidationIssue::new(
             "CREATOR_SIGNATURE_PROFILE_UNSUPPORTED",
             "security.creator_signature.profile",
@@ -511,6 +807,21 @@ pub enum SignatureAssurance {
 #[serde(rename_all = "snake_case")]
 pub enum TimeAssurance {
     NotPresent,
+    Absent,
+    AcquisitionFailed,
+    Malformed,
+    ImprintMismatch,
+    NonceMismatch,
+    PolicyMismatch,
+    InvalidSignature,
+    InvalidChain,
+    InvalidEku,
+    InvalidEss,
+    Untrusted,
+    ExpiredOrStale,
+    IndeterminateRevocation,
+    UnsupportedAlgorithm,
+    ValidTrusted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -544,6 +855,31 @@ pub struct CreatorSignatureEvidence {
     pub key_fingerprint: String,
     pub profile: String,
     pub local_trust: LocalTrust,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RevocationEvidenceState {
+    NotProvided,
+    ValidCrl,
+    Revoked,
+    Indeterminate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedTimeEvidence {
+    pub profile: String,
+    pub timestamp_path: String,
+    pub tsa_profile_sha256: String,
+    pub requested_policy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gen_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_label: Option<String>,
+    pub revocation: RevocationEvidenceState,
 }
 
 impl Assurance {
@@ -594,6 +930,8 @@ pub struct VerificationReport {
     pub assurance: Assurance,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_signature: Option<CreatorSignatureEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_time: Option<TrustedTimeEvidence>,
     pub checks: Vec<CheckResult>,
     pub errors: Vec<VerificationError>,
     pub warnings: Vec<VerificationWarning>,
@@ -612,6 +950,8 @@ pub struct Inspection {
     pub verification_performed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_signature: Option<CreatorSignatureDescriptor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_timestamp: Option<TrustedTimestampDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -37,7 +37,17 @@ const api: ProofHostApi = {
     ipcRenderer.invoke(channels.chooseCreationOutput, request),
   choosePackage: () => ipcRenderer.invoke(channels.choosePackage),
   choosePackageOutput: () => ipcRenderer.invoke(channels.choosePackageOutput),
+  chooseTsaProfile: () => ipcRenderer.invoke(channels.chooseTsaProfile),
+  chooseTimestampPackageOutput: () =>
+    ipcRenderer.invoke(channels.chooseTimestampPackageOutput),
   chooseReportOutput: () => ipcRenderer.invoke(channels.chooseReportOutput),
+  importTsaProfile: (request) =>
+    ipcRenderer.invoke(channels.importTsaProfile, request),
+  getTsaProfileStatus: () => ipcRenderer.invoke(channels.getTsaProfileStatus),
+  requestTrustedTimestamp: (request) =>
+    ipcRenderer.invoke(channels.requestTrustedTimestamp, request),
+  cancelTrustedTimestamp: () =>
+    ipcRenderer.invoke(channels.cancelTrustedTimestamp),
   previewWorkspaceTarget: (request) =>
     ipcRenderer.invoke(channels.previewWorkspaceTarget, request),
   initializeWorkspace: (request) =>

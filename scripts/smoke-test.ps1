@@ -65,7 +65,7 @@ try {
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "add", $workspace, (Join-Path $work "input.txt"), "--role", "input")
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "add", $workspace, (Join-Path $work "output.txt"), "--role", "output")
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "record", $workspace, "--event-type", "generation", "--payload-file", (Join-Path $work "generation-event.json"))
-    Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "seal", $workspace, "--output", $package)
+    Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "seal", $workspace, "--output", $package, "--legacy-unsigned-v02")
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "verify", $package)
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "verify", $package, "--json", $reportPath)
     Invoke-Cargo -CargoArguments @("run", "--locked", "-p", "proof-cli", "--manifest-path", $manifest, "--", "inspect", $package)

@@ -1,4 +1,4 @@
-# Threat Model 0.3
+# Threat Model 0.4
 
 ## Detected inconsistencies
 
@@ -8,6 +8,7 @@
 - Noncanonical or duplicate-member JSON
 - Manifest structure or semantic violations
 - Creator-key, signature, protected-header, domain-separation, and signed-Manifest substitution
+- Timestamp response substitution, nonce/policy/imprint mismatch, malformed CMS/DER, signer/ESS/EKU/chain/time/revocation failures
 
 ## Malicious ZIP controls
 
@@ -37,7 +38,8 @@ from the stored record and cannot revoke already shared packages.
 ## Not protected
 
 A valid report cannot establish real identity, authorship, originality, rights, authorization,
-earliest creation time, trusted time, or legal validity. It cannot detect a private key copied by
+earliest creation time, or legal validity. A valid RFC 3161 result witnesses only the exact
+creator-signature digest at TSA `genTime`; it does not prove content creation began then. It cannot detect a private key copied by
 an already-compromised operating system, memory inspection by a hostile local administrator, or
 social engineering based on a self-asserted label.
 
@@ -58,6 +60,14 @@ malformed, forged, unknown, expired, consumed, cross-session, cross-origin, mism
 permission, and changed-path references; any display label/path is ignored as authority. A
 supervised Utility Process is the exclusive fixed Node-API owner, and Rust revalidates every
 protocol input off the renderer and Main event loops.
+
+The renderer and Utility have no URL fetch primitive. Main accepts only the endpoint and HTTPS
+roots from an explicitly imported, digest-bound snapshot, forbids credentials/fragments and
+redirects, caps time and response bytes, verifies media type, and displays the exact disclosure
+before normal acquisition. The snapshot is session-only and ordinary verification performs no
+network access. Endpoint operators can correlate network metadata and request time; a malicious
+or compromised trusted root can issue misleading time evidence, so trust-snapshot provenance
+remains the user's responsibility.
 
 Main validates the native discovery response before proof IPC registration. Missing/malformed
 discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities/

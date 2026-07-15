@@ -1,6 +1,6 @@
 # Rights Protection Product Track
 
-Status: planned; no `RP-*` capability is implemented by protocol 0.3.0 or Workbench 0.6.0.
+Status: planned; no `RP-*` capability is implemented by protocol 0.4.0 or Workbench 0.7.0.
 
 ## Product promise and limits
 

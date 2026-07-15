@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
+import https, { type Server } from "node:https";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -15,6 +16,15 @@ interface Launch {
   cdp: CdpClient;
   protocol: string;
   executable: string;
+}
+interface LocalTsa {
+  server: Server;
+  profilePath: string;
+  endpoint: string;
+  firstResponsePath: string;
+  requestInspections: string[];
+  setMode(mode: "normal" | "wrong-media" | "delay" | "replay-first"): void;
+  close(): Promise<void>;
 }
 
 const requireNative = createRequire(__filename);
@@ -49,20 +59,37 @@ const malformedPackage = path.join(work, "损坏 包.aigcproof");
 const report = path.join(work, "验证 报告.json");
 const creationPackage = path.join(work, "创作 证明包.aigcproof");
 const creationReport = path.join(work, "创作 验证报告.json");
+const timestampedCreationPackage = path.join(
+  work,
+  "创作 可信时间证明包.aigcproof",
+);
+const cancelledTimestampPackage = path.join(
+  work,
+  "取消 可信时间证明包.aigcproof",
+);
+const failedTimestampPackage = path.join(work, "失败 可信时间证明包.aigcproof");
+const substitutedTimestampPackage = path.join(
+  work,
+  "替换响应 可信时间证明包.aigcproof",
+);
 const exportedImage = path.join(work, "保存 生成图片.png");
 const mutatedImage = path.join(work, "修改后 生成图片.png");
 const reopenedExportedImage = path.join(work, "重启后 生成图片.png");
 const cliReport = path.join(work, "CLI 独立验证报告.json");
+const cliTimestampRequest = path.join(work, "CLI 时间戳请求.tsq");
+const cliTimestampPackage = path.join(work, "CLI 可信时间证明包.aigcproof");
+const cliTimestampReport = path.join(work, "CLI 可信时间验证报告.json");
 const comfyUiInstallation = path.resolve(
   process.env.AIGC_PROOF_COMFYUI_DIR ??
     path.join(workspaceRoot, "..", "ComfyUI_windows_portable"),
 );
 const selectionManifest = path.join(evidence, "qa-selections.json");
 const addonPath = path.join(desktop, "native", "proof_napi.node");
-const qaSignerService = `org.aigcproof.qa.ap031-${process.pid}`;
+const qaSignerService = `org.aigcproof.qa.ap032-${process.pid}`;
 const qaSignerTarget = `current-user.${qaSignerService}`;
 const steps: Array<{ name: string; result: string; detail?: string }> = [];
 let launch: Launch | undefined;
+let localTsa: LocalTsa | undefined;
 let testedExecutable = "";
 
 function record(name: string, detail?: string): void {
@@ -77,12 +104,39 @@ function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function opensslMessageImprint(inspection: string): string {
+  const block = inspection
+    .split("Message data:", 2)[1]
+    ?.split("Policy OID:", 1)[0];
+  if (!block) return "";
+  return block
+    .split(/\r?\n/u)
+    .map((line) =>
+      line
+        .replace(/^\s*[0-9a-f]+\s*-\s*/iu, "")
+        .split(/\s{2,}/u, 1)[0]!
+        .replace(/[^0-9a-f]/giu, ""),
+    )
+    .join("")
+    .toLowerCase();
+}
+
+async function expectFileAbsent(filePath: string): Promise<void> {
+  try {
+    await fsp.access(filePath);
+  } catch {
+    return;
+  }
+  throw new Error(`Failed or cancelled acquisition published ${filePath}.`);
+}
+
 async function runProcess(
   executable: string,
   args: string[],
+  cwd = repo,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: repo, windowsHide: true });
+    const child = spawn(executable, args, { cwd, windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -102,6 +156,283 @@ async function runProcess(
         );
     });
   });
+}
+
+async function createLocalTsa(): Promise<LocalTsa> {
+  const directory = path.join(evidence, "local-rfc3161-tsa");
+  const openssl =
+    process.env.OPENSSL ?? "C:\\Program Files\\Git\\usr\\bin\\openssl.exe";
+  await fsp.mkdir(directory, { recursive: true });
+  const runOpenSsl = (args: string[]) => runProcess(openssl, args, directory);
+  await runOpenSsl([
+    "req",
+    "-x509",
+    "-newkey",
+    "ec",
+    "-pkeyopt",
+    "ec_paramgen_curve:P-256",
+    "-nodes",
+    "-keyout",
+    "root.key",
+    "-out",
+    "root.pem",
+    "-days",
+    "3650",
+    "-subj",
+    "/CN=AIGC Proof Packaged QA Root",
+    "-addext",
+    "basicConstraints=critical,CA:TRUE",
+    "-addext",
+    "keyUsage=critical,keyCertSign,cRLSign",
+  ]);
+  await runOpenSsl([
+    "genpkey",
+    "-algorithm",
+    "EC",
+    "-pkeyopt",
+    "ec_paramgen_curve:P-256",
+    "-out",
+    "tsa.key",
+  ]);
+  await runOpenSsl([
+    "req",
+    "-new",
+    "-key",
+    "tsa.key",
+    "-out",
+    "tsa.csr",
+    "-subj",
+    "/CN=AIGC Proof Packaged QA TSA",
+  ]);
+  await fsp.writeFile(
+    path.join(directory, "tsa.ext"),
+    "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,timeStamping\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n",
+    "utf8",
+  );
+  await runOpenSsl([
+    "x509",
+    "-req",
+    "-in",
+    "tsa.csr",
+    "-CA",
+    "root.pem",
+    "-CAkey",
+    "root.key",
+    "-CAcreateserial",
+    "-out",
+    "tsa.pem",
+    "-days",
+    "3650",
+    "-sha256",
+    "-extfile",
+    "tsa.ext",
+  ]);
+  await runOpenSsl([
+    "genpkey",
+    "-algorithm",
+    "EC",
+    "-pkeyopt",
+    "ec_paramgen_curve:P-256",
+    "-out",
+    "server.key",
+  ]);
+  await runOpenSsl([
+    "req",
+    "-new",
+    "-key",
+    "server.key",
+    "-out",
+    "server.csr",
+    "-subj",
+    "/CN=localhost",
+  ]);
+  await fsp.writeFile(
+    path.join(directory, "server.ext"),
+    "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1\n",
+    "utf8",
+  );
+  await runOpenSsl([
+    "x509",
+    "-req",
+    "-in",
+    "server.csr",
+    "-CA",
+    "root.pem",
+    "-CAkey",
+    "root.key",
+    "-CAserial",
+    "root.srl",
+    "-out",
+    "server.pem",
+    "-days",
+    "3650",
+    "-sha256",
+    "-extfile",
+    "server.ext",
+  ]);
+  await runOpenSsl([
+    "x509",
+    "-in",
+    "root.pem",
+    "-outform",
+    "DER",
+    "-out",
+    "root.der",
+  ]);
+  await fsp.writeFile(path.join(directory, "tsaserial"), "01\n", "utf8");
+  const portable = directory.replaceAll("\\", "/");
+  await fsp.writeFile(
+    path.join(directory, "tsa.conf"),
+    `dir=${portable}\n[tsa]\ndefault_tsa=tsa_config1\n[tsa_config1]\nserial=$dir/tsaserial\ncrypto_device=builtin\nsigner_cert=$dir/tsa.pem\ncerts=$dir/root.pem\nsigner_key=$dir/tsa.key\nsigner_digest=sha256\ndefault_policy=1.2.3.4.1\nother_policies=1.2.3.4.2\ndigests=sha256\naccuracy=secs:1\nordering=no\ntsa_name=yes\ness_cert_id_chain=no\ness_cert_id_alg=sha256\n`,
+    "utf8",
+  );
+
+  let sequence = 0;
+  let responseMode: "normal" | "wrong-media" | "delay" | "replay-first" =
+    "normal";
+  let firstResponse: Buffer | undefined;
+  const requestInspections: string[] = [];
+  const server = https.createServer(
+    {
+      key: await fsp.readFile(path.join(directory, "server.key")),
+      cert: await fsp.readFile(path.join(directory, "server.pem")),
+    },
+    (request, response) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      request.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > 1024 * 1024) request.destroy();
+        else chunks.push(chunk);
+      });
+      request.on("end", () => {
+        void (async () => {
+          if (
+            request.method !== "POST" ||
+            request.url !== "/rfc3161" ||
+            request.headers["content-type"] !== "application/timestamp-query"
+          ) {
+            response.writeHead(400).end();
+            return;
+          }
+          if (responseMode === "delay") return;
+          if (responseMode === "wrong-media") {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end("{}");
+            return;
+          }
+          sequence += 1;
+          const requestName = `request-${sequence}.tsq`;
+          const responseName = `response-${sequence}.tsr`;
+          await fsp.writeFile(
+            path.join(directory, requestName),
+            Buffer.concat(chunks),
+          );
+          const inspection = await runOpenSsl([
+            "ts",
+            "-query",
+            "-in",
+            requestName,
+            "-text",
+          ]);
+          requestInspections.push(inspection.stdout);
+          await fsp.writeFile(
+            path.join(directory, `request-${sequence}-openssl.txt`),
+            inspection.stdout,
+            "utf8",
+          );
+          if (responseMode === "replay-first") {
+            if (!firstResponse)
+              throw new Error(
+                "No earlier TSA response exists for substitution.",
+              );
+            response.writeHead(200, {
+              "content-type": "application/timestamp-reply",
+              "content-length": String(firstResponse.length),
+            });
+            response.end(firstResponse);
+            return;
+          }
+          await runOpenSsl([
+            "ts",
+            "-reply",
+            "-config",
+            "tsa.conf",
+            "-section",
+            "tsa_config1",
+            "-queryfile",
+            requestName,
+            "-out",
+            responseName,
+          ]);
+          const bytes = await fsp.readFile(path.join(directory, responseName));
+          firstResponse ??= bytes;
+          response.writeHead(200, {
+            "content-type": "application/timestamp-reply",
+            "content-length": String(bytes.length),
+          });
+          response.end(bytes);
+        })().catch((error) => {
+          response.writeHead(500, { "content-type": "text/plain" });
+          response.end(error instanceof Error ? error.message : String(error));
+        });
+      });
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "localhost", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Local TSA did not expose a TCP port.");
+  }
+  const endpoint = `https://localhost:${address.port}/rfc3161`;
+  const rootDer = await fsp.readFile(path.join(directory, "root.der"));
+  const profilePath = path.join(directory, "tsa-profile.json");
+  await fsp.writeFile(
+    profilePath,
+    `${JSON.stringify(
+      {
+        profile: "aigc-proof.tsa-trust-profile.v1",
+        source_label: "AP-032 packaged QA local TSA",
+        endpoint,
+        endpoint_scope: "loopback_test",
+        allowed_policy_oids: ["1.2.3.4.1", "1.2.3.4.2"],
+        roots_der_base64: [rootDer.toString("base64")],
+        intermediates_der_base64: [],
+        https_roots_der_base64: [rootDer.toString("base64")],
+        revocation: {
+          crls_der_base64: [],
+          ocsp_responses_der_base64: [],
+          required: false,
+        },
+        effective_at: "2026-01-01T00:00:00Z",
+        expires_at: "2035-01-01T00:00:00Z",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  let closed = false;
+  return {
+    server,
+    profilePath,
+    endpoint,
+    firstResponsePath: path.join(directory, "response-1.tsr"),
+    requestInspections,
+    setMode: (mode) => {
+      responseMode = mode;
+    },
+    close: () => {
+      if (closed) return Promise.resolve();
+      closed = true;
+      return new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    },
+  };
 }
 
 async function setControl(
@@ -209,7 +540,7 @@ async function resultText(cdp: CdpClient): Promise<string> {
 
 async function controlText(cdp: CdpClient, testId: string): Promise<string> {
   return cdp.evaluate(
-    `document.querySelector('[data-testid=${js(testId)}]')?.textContent ?? ''`,
+    `[...document.querySelectorAll('[data-testid=${js(testId)}]')].map((element) => element.textContent ?? '').join('\\n')`,
   );
 }
 
@@ -331,7 +662,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.6.0")
+  if (version !== "Workbench 0.7.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -419,6 +750,7 @@ async function main(): Promise<void> {
   await cleanupQaSigner().catch(() => undefined);
   await fsp.rm(evidence, { recursive: true, force: true });
   await fsp.mkdir(work, { recursive: true });
+  localTsa = await createLocalTsa();
   await Promise.all([
     fsp.access(path.join(comfyUiInstallation, "python_embeded", "python.exe")),
     fsp.access(path.join(comfyUiInstallation, "ComfyUI", "main.py")),
@@ -461,6 +793,10 @@ async function main(): Promise<void> {
           creationPackage,
           creationPackage,
           creationPackage,
+          creationPackage,
+          creationPackage,
+          creationPackage,
+          validPackage,
           validPackage,
           tamperedPackage,
           malformedPackage,
@@ -469,6 +805,13 @@ async function main(): Promise<void> {
           validPackage,
         ],
         packageOutputs: [creationPackage, validPackage, validPackage],
+        tsaProfiles: [localTsa.profilePath],
+        timestampPackageOutputs: [
+          timestampedCreationPackage,
+          cancelledTimestampPackage,
+          failedTimestampPackage,
+          substitutedTimestampPackage,
+        ],
         reportOutputs: [creationReport, report, report],
         providerInstallations: [comfyUiInstallation],
       },
@@ -482,6 +825,17 @@ async function main(): Promise<void> {
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
   await captureLayoutEvidence(cdp);
+  await clickAndWait(cdp, "import-tsa-profile", "TSA trust snapshot imported");
+  const tsaProfileText = await controlText(cdp, "tsa-profile-summary");
+  if (
+    !tsaProfileText.includes("AP-032 packaged QA local TSA") ||
+    !tsaProfileText.includes(localTsa.endpoint)
+  ) {
+    throw new Error(
+      `TSA trust snapshot summary is incomplete: ${tsaProfileText}`,
+    );
+  }
+  record("explicit-portable-tsa-trust-snapshot-imported", tsaProfileText);
   await setControl(cdp, "signer-display-label", "AP-031 QA local creator");
   await clickAndWait(cdp, "create-signer", "本地签名身份已创建");
   const signerFingerprint = await controlValue(cdp, "signer-fingerprint");
@@ -699,7 +1053,7 @@ async function main(): Promise<void> {
   for (const expected of [
     "AP-031 QA local creator",
     signerFingerprint.trim(),
-    "aigc-proof.creator-signature.cose-ed25519.v1",
+    "aigc-proof.creator-signature.cose-ed25519.v2",
     "自我声明",
   ]) {
     if (!signatureEvidence.includes(expected)) {
@@ -707,6 +1061,209 @@ async function main(): Promise<void> {
     }
   }
   record("creator-signature-evidence-is-truthful", signatureEvidence);
+
+  const originalProtectedEntries = new Map(
+    new AdmZip(creationPackage)
+      .getEntries()
+      .filter(
+        (entry) =>
+          entry.entryName === "manifest.json" ||
+          entry.entryName.startsWith("security/keys/") ||
+          entry.entryName.startsWith("security/signatures/"),
+      )
+      .map((entry) => [entry.entryName, sha256(entry.getData())]),
+  );
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued protocol 0.4 package for trusted time",
+  );
+  await click(cdp, "choose-timestamp-output");
+  await waitFor(
+    () => controlValue(cdp, "timestamp-output-path"),
+    (value) => value.includes(timestampedCreationPackage),
+    "Host-issued timestamped package output",
+  );
+  const acquisitionResult = await clickAndWait(
+    cdp,
+    "request-trusted-time",
+    "Trusted timestamp attached and verified",
+    180_000,
+  );
+  await fsp.access(timestampedCreationPackage);
+  const trustedTimeReport = await cdp.evaluate<{
+    status?: string;
+    signature?: string;
+    trustedTime?: string;
+    revocation?: string;
+    timestampPath?: string;
+  }>(`(async () => {
+    const state = await window.aigcProof.getState();
+    const candidate = state.ok ? state.data.recentPackages.find((item) => item.displayPath === ${js(timestampedCreationPackage)}) : undefined;
+    if (!candidate) throw new Error('Timestamped package is absent from recents.');
+    const verified = await window.aigcProof.verifyPackage({ package: candidate.reference });
+    if (!verified.ok) throw new Error(verified.error.code);
+    return {
+      status: verified.data.status,
+      signature: verified.data.assurance.digital_signature,
+      trustedTime: verified.data.assurance.trusted_time,
+      revocation: verified.data.trusted_time?.revocation,
+      timestampPath: verified.data.trusted_time?.timestamp_path,
+    };
+  })()`);
+  if (
+    trustedTimeReport.status !== "valid" ||
+    trustedTimeReport.trustedTime !== "valid_trusted" ||
+    !["valid_locally_trusted", "valid_untrusted"].includes(
+      trustedTimeReport.signature ?? "",
+    ) ||
+    trustedTimeReport.revocation !== "not_provided" ||
+    !trustedTimeReport.timestampPath?.startsWith("security/timestamps/")
+  ) {
+    throw new Error(
+      `Timestamped package evidence is invalid: ${JSON.stringify(trustedTimeReport)}`,
+    );
+  }
+  const timestampedZip = new AdmZip(timestampedCreationPackage);
+  for (const [entryName, digest] of originalProtectedEntries) {
+    const entry = timestampedZip.getEntry(entryName);
+    if (!entry || sha256(entry.getData()) !== digest) {
+      throw new Error(
+        `Trusted-time attachment changed protected entry ${entryName}.`,
+      );
+    }
+  }
+  const signatureEntry = new AdmZip(creationPackage).getEntry(
+    "security/signatures/creator.cose",
+  );
+  if (!signatureEntry)
+    throw new Error("Protocol 0.4 package omitted creator signature.");
+  const signatureDigest = sha256(signatureEntry.getData());
+  const disclosedDigest = /"message_imprint_sha256":\s*"([0-9a-f]{64})"/u.exec(
+    acquisitionResult,
+  )?.[1];
+  const disclosedNonce = /"nonce":\s*"([0-9a-f]{32})"/u.exec(
+    acquisitionResult,
+  )?.[1];
+  const disclosedPolicy = /"requested_policy":\s*"([^"]+)"/u.exec(
+    acquisitionResult,
+  )?.[1];
+  const requestInspection = localTsa.requestInspections[0] ?? "";
+  if (
+    disclosedDigest !== signatureDigest ||
+    !disclosedNonce ||
+    disclosedPolicy !== "any" ||
+    !requestInspection.includes("Hash Algorithm: sha256") ||
+    !requestInspection.includes("Policy OID: unspecified") ||
+    !requestInspection.includes("Certificate required: yes") ||
+    !requestInspection.toLowerCase().includes(disclosedNonce) ||
+    opensslMessageImprint(requestInspection) !== signatureDigest
+  ) {
+    throw new Error(
+      `OpenSSL request inspection disagreed with disclosure: ${JSON.stringify({ signatureDigest, disclosedDigest, disclosedNonce, disclosedPolicy, requestInspection })}`,
+    );
+  }
+  const trustedTimeEvidence = await controlText(cdp, "trusted-time-evidence");
+  if (
+    !trustedTimeEvidence.includes("AP-032 packaged QA local TSA") ||
+    !trustedTimeEvidence.includes("not_provided")
+  ) {
+    throw new Error(
+      `Trusted-time UI evidence is incomplete: ${trustedTimeEvidence}`,
+    );
+  }
+  await fsp.writeFile(
+    path.join(evidence, "trusted-time-valid.png"),
+    await cdp.screenshot(),
+  );
+  record(
+    "rfc3161-https-attach-offline-verify-and-byte-preservation",
+    JSON.stringify(trustedTimeReport),
+  );
+  record(
+    "openssl-request-inspection-matches-disclosure",
+    JSON.stringify({
+      signatureDigest,
+      disclosedNonce,
+      requestedPolicy: "any",
+      grantedPolicy: "1.2.3.4.1",
+    }),
+  );
+
+  localTsa.setMode("delay");
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued package for cancellation",
+  );
+  await click(cdp, "choose-timestamp-output");
+  await waitFor(
+    () => controlValue(cdp, "timestamp-output-path"),
+    (value) => value.includes(cancelledTimestampPackage),
+    "Host-issued cancelled timestamp output",
+  );
+  await click(cdp, "request-trusted-time");
+  await delay(500);
+  await click(cdp, "cancel-trusted-time");
+  await waitFor(
+    () => resultText(cdp),
+    (value) => value.includes("ABORT_ERR"),
+    "trusted-time request cancellation",
+    30_000,
+  );
+  await expectFileAbsent(cancelledTimestampPackage);
+  await waitFor(
+    () => controlText(cdp, "signature-assurance"),
+    (value) => value.includes("acquisition_failed"),
+    "cancelled acquisition assurance",
+  );
+  const afterCancellation = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"status": "valid"',
+  );
+  if (afterCancellation.includes('"digital_signature": "invalid"')) {
+    throw new Error("Cancelled acquisition invalidated the creator signature.");
+  }
+  record("cancelled-acquisition-preserves-valid-signature");
+
+  localTsa.setMode("wrong-media");
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued package for failed acquisition",
+  );
+  await click(cdp, "choose-timestamp-output");
+  await waitFor(
+    () => controlValue(cdp, "timestamp-output-path"),
+    (value) => value.includes(failedTimestampPackage),
+    "Host-issued failed timestamp output",
+  );
+  await clickAndWait(
+    cdp,
+    "request-trusted-time",
+    "TSA_CONTENT_TYPE_INVALID",
+    30_000,
+  );
+  await expectFileAbsent(failedTimestampPackage);
+  await waitFor(
+    () => controlText(cdp, "signature-assurance"),
+    (value) => value.includes("acquisition_failed"),
+    "failed acquisition assurance",
+  );
+  const afterFailure = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"status": "valid"',
+  );
+  if (afterFailure.includes('"digital_signature": "invalid"')) {
+    throw new Error("Failed acquisition invalidated the creator signature.");
+  }
+  localTsa.setMode("normal");
+  record("failed-acquisition-preserves-valid-signature");
 
   await setControl(cdp, "signer-display-label", "AP-031 QA rotated creator");
   await confirmClickAndWait(cdp, "rotate-signer", "本地签名密钥已轮换");
@@ -907,6 +1464,45 @@ async function main(): Promise<void> {
   await waitForEnabled(cdp, "seal-package");
   await clickAndWait(cdp, "seal-package", "OUTPUT_ALREADY_EXISTS");
   record("seal-no-clobber");
+
+  localTsa.setMode("replay-first");
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(validPackage),
+    "Host-issued package for substituted TSA response",
+  );
+  await click(cdp, "choose-timestamp-output");
+  await waitFor(
+    () => controlValue(cdp, "timestamp-output-path"),
+    (value) => value.includes(substitutedTimestampPackage),
+    "Host-issued substituted-response output",
+  );
+  await click(cdp, "request-trusted-time");
+  const substitutedResponseFailure = await waitFor(
+    () => resultText(cdp),
+    (value) =>
+      value.includes("TRUSTED_TIMESTAMP_") ||
+      value.includes("TIMESTAMPED_PACKAGE_SELF_CHECK_FAILED"),
+    "substituted timestamp response rejection",
+    30_000,
+  );
+  await expectFileAbsent(substitutedTimestampPackage);
+  const afterSubstitution = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"status": "valid"',
+  );
+  if (afterSubstitution.includes('"digital_signature": "invalid"')) {
+    throw new Error(
+      "Substituted TSA response invalidated the creator signature.",
+    );
+  }
+  localTsa.setMode("normal");
+  record(
+    "substituted-response-rejected-with-signature-preserved",
+    substitutedResponseFailure,
+  );
 
   await click(cdp, "choose-package");
   await waitFor(
@@ -1253,9 +1849,9 @@ async function main(): Promise<void> {
 
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
-    "0.3.0",
+    "0.4.0",
+    "1.6.0",
     "1.5.0",
-    "1.4.0",
     "proof.asset.export",
     "proof.asset.match",
     "creation.comfyui-local",
@@ -1287,6 +1883,8 @@ async function main(): Promise<void> {
         imageOutputs: [reopenedExportedImage],
         packages: [],
         packageOutputs: [],
+        tsaProfiles: [],
+        timestampPackageOutputs: [],
         reportOutputs: [],
         providerInstallations: [],
       },
@@ -1427,6 +2025,9 @@ async function main(): Promise<void> {
   launch = undefined;
   record("clean-exit-second-run");
 
+  await localTsa.close();
+  record("tsa-stopped-before-offline-cli-verification");
+
   const cliExecutable = path.join(
     repo,
     "target",
@@ -1467,6 +2068,70 @@ async function main(): Promise<void> {
   }
   record("independent-native-cli-verification-and-output-digest");
 
+  await runProcess(cliExecutable, [
+    "timestamp",
+    "profile",
+    localTsa.profilePath,
+  ]);
+  await runProcess(cliExecutable, [
+    "timestamp",
+    "request",
+    creationPackage,
+    "--tsa-profile",
+    localTsa.profilePath,
+    "--output",
+    cliTimestampRequest,
+  ]);
+  const firstNetworkRequest = path.join(
+    evidence,
+    "local-rfc3161-tsa",
+    "request-1.tsq",
+  );
+  if (
+    !(await fsp.readFile(cliTimestampRequest)).equals(
+      await fsp.readFile(firstNetworkRequest),
+    )
+  ) {
+    throw new Error(
+      "CLI timestamp request differs from the Main-sent DER request.",
+    );
+  }
+  await runProcess(cliExecutable, [
+    "timestamp",
+    "attach",
+    creationPackage,
+    "--response",
+    localTsa.firstResponsePath,
+    "--tsa-profile",
+    localTsa.profilePath,
+    "--output",
+    cliTimestampPackage,
+  ]);
+  const cliTrustedVerification = await runProcess(cliExecutable, [
+    "verify",
+    cliTimestampPackage,
+    "--tsa-profile",
+    localTsa.profilePath,
+    "--json",
+    cliTimestampReport,
+  ]);
+  const cliTrustedReport = JSON.parse(
+    await fsp.readFile(cliTimestampReport, "utf8"),
+  ) as {
+    status?: string;
+    assurance?: { trusted_time?: string; digital_signature?: string };
+  };
+  if (
+    cliTrustedReport.status !== "valid" ||
+    cliTrustedReport.assurance?.trusted_time !== "valid_trusted" ||
+    !cliTrustedVerification.stdout.includes('"trusted_time": "valid_trusted"')
+  ) {
+    throw new Error(
+      `CLI trusted-time verification disagreed: ${JSON.stringify(cliTrustedReport)}`,
+    );
+  }
+  record("native-cli-request-attach-and-offline-trusted-verify");
+
   const database = path.join(userData, "workbench.sqlite3");
   await fsp.writeFile(database, "corrupt disposable state", "utf8");
   launch = await launchApp(mode === "dev" ? 9325 : 9326);
@@ -1504,11 +2169,11 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.6.0",
-    contractVersion: "1.5.0",
-    nativeApiVersion: "1.4.0",
-    engineVersion: "0.3.0",
-    protocolVersion: "0.3.0",
+    workbenchVersion: "0.7.0",
+    contractVersion: "1.6.0",
+    nativeApiVersion: "1.5.0",
+    engineVersion: "0.4.0",
+    protocolVersion: "0.4.0",
     executable: testedExecutable,
     protocol: "file:",
     nativeAddon: testedAddon,
@@ -1517,6 +2182,10 @@ async function main(): Promise<void> {
     secondWorkspace: secondProofWorkspace,
     package: validPackage,
     creationPackage,
+    timestampedCreationPackage,
+    trustedTimeReport,
+    tsaProfile: localTsa.profilePath,
+    tsaEndpoint: localTsa.endpoint,
     tamperedPackage,
     report,
     creationReport,
@@ -1527,6 +2196,9 @@ async function main(): Promise<void> {
     reopenedDigest,
     cliExecutable,
     cliReport,
+    cliTimestampRequest,
+    cliTimestampPackage,
+    cliTimestampReport,
     recordedOutputDigest,
     comfyUiInstallation,
     nativeDiscovery,
@@ -1545,6 +2217,8 @@ async function main(): Promise<void> {
     "utf8",
   );
   await cleanupQaSigner();
+  await localTsa.close();
+  localTsa = undefined;
   console.log(JSON.stringify({ result: "PASS", evidence }, null, 2));
 }
 
@@ -1552,6 +2226,10 @@ main().catch(async (error) => {
   if (launch) {
     launch.process.kill();
     launch.cdp.close();
+  }
+  if (localTsa) {
+    await localTsa.close().catch(() => undefined);
+    localTsa = undefined;
   }
   await cleanupQaSigner().catch(() => undefined);
   await fsp.mkdir(evidence, { recursive: true });

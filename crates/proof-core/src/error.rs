@@ -24,6 +24,7 @@ pub enum ErrorKind {
     OutputAlreadyExists,
     CredentialStore,
     Signing,
+    TrustedTime,
 }
 
 #[derive(Debug)]

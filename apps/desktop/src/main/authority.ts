@@ -29,6 +29,7 @@ async function canonicalize(
   const absolutePath = path.resolve(selectedPath);
   if (
     kind === "package-output" ||
+    kind === "timestamp-package-output" ||
     kind === "report-output" ||
     kind === "image-output"
   ) {

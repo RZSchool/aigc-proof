@@ -21,6 +21,7 @@ $required = @(
     (Join-Path $QaEvidence "creation-proof-complete.png"),
     (Join-Path $QaEvidence "image-output-match.png"),
     (Join-Path $QaEvidence "capability-diagnostics.png"),
+    (Join-Path $QaEvidence "trusted-time-valid.png"),
     (Join-Path $QaEvidence "layout-1320x880-top.png"),
     (Join-Path $QaEvidence "layout-1320x880-middle.png"),
     (Join-Path $QaEvidence "layout-1320x880-lower.png"),
@@ -39,27 +40,27 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $qa = [IO.File]::ReadAllText($qaPath, $utf8NoBom) | ConvertFrom-Json
 $metadataPath = Join-Path $PackageDirectory "artifact-metadata.json"
 $metadata = [IO.File]::ReadAllText($metadataPath, $utf8NoBom) | ConvertFrom-Json
-if ($metadata.workbench_version -ne "0.6.0" -or
-    $metadata.host_contract_version -ne "1.5.0" -or
-    $metadata.native_api_version -ne "1.4.0" -or
-    $metadata.native_engine_version -ne "0.3.0" -or
-    $metadata.protocol_version -ne "0.3.0") {
+if ($metadata.workbench_version -ne "0.7.0" -or
+    $metadata.host_contract_version -ne "1.6.0" -or
+    $metadata.native_api_version -ne "1.5.0" -or
+    $metadata.native_engine_version -ne "0.4.0" -or
+    $metadata.protocol_version -ne "0.4.0") {
     throw "Packaged artifact version metadata is invalid."
 }
 if ($qa.result -ne "PASS" -or
     $qa.mode -ne "packaged" -or
     $qa.protocol -ne "file:" -or
-    $qa.workbenchVersion -ne "0.6.0" -or
-    $qa.contractVersion -ne "1.5.0" -or
-    $qa.nativeApiVersion -ne "1.4.0" -or
-    $qa.engineVersion -ne "0.3.0" -or
-    $qa.protocolVersion -ne "0.3.0") {
+    $qa.workbenchVersion -ne "0.7.0" -or
+    $qa.contractVersion -ne "1.6.0" -or
+    $qa.nativeApiVersion -ne "1.5.0" -or
+    $qa.engineVersion -ne "0.4.0" -or
+    $qa.protocolVersion -ne "0.4.0") {
     throw "Packaged CDP QA result is invalid."
 }
 if (($qa.steps | Where-Object result -ne "PASS").Count -ne 0) {
     throw "One or more packaged QA steps did not pass."
 }
-foreach ($output in @($qa.database, $qa.workspace, $qa.secondWorkspace, $qa.package, $qa.creationPackage, $qa.tamperedPackage, $qa.report, $qa.creationReport, $qa.exportedImage, $qa.mutatedImage, $qa.reopenedExportedImage, $qa.cliExecutable, $qa.cliReport)) {
+foreach ($output in @($qa.database, $qa.workspace, $qa.secondWorkspace, $qa.package, $qa.creationPackage, $qa.timestampedCreationPackage, $qa.tamperedPackage, $qa.report, $qa.creationReport, $qa.exportedImage, $qa.mutatedImage, $qa.reopenedExportedImage, $qa.cliExecutable, $qa.cliReport, $qa.cliTimestampRequest, $qa.cliTimestampPackage, $qa.cliTimestampReport)) {
     if (-not (Test-Path -LiteralPath $output)) { throw "Packaged QA output is missing: $output" }
 }
 

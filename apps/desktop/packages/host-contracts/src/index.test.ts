@@ -40,11 +40,11 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(WORKBENCH_VERSION).toBe("0.6.0");
-    expect(HOST_CONTRACT_VERSION).toBe("1.5.0");
-    expect(NATIVE_API_VERSION).toBe("1.4.0");
-    expect(NATIVE_ENGINE_VERSION).toBe("0.3.0");
-    expect(PROTOCOL_VERSION).toBe("0.3.0");
+    expect(WORKBENCH_VERSION).toBe("0.7.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.6.0");
+    expect(NATIVE_API_VERSION).toBe("1.5.0");
+    expect(NATIVE_ENGINE_VERSION).toBe("0.4.0");
+    expect(PROTOCOL_VERSION).toBe("0.4.0");
   });
 
   it("applies fail-closed SemVer and capability compatibility", () => {
@@ -52,10 +52,10 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.4.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.5.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
-      discovery({ engineVersion: "0.4.0" }),
+      discovery({ engineVersion: "0.3.0" }),
       discovery({ supportedProtocolVersions: ["0.1.0"] }),
       discovery({ capabilities: NATIVE_CAPABILITIES.slice(1) }),
       discovery({
@@ -184,6 +184,8 @@ describe("@aigc-proof/host-contracts", () => {
       imageOutput: reference("image-output", "m"),
       package: reference("package", "d"),
       packageOutput: reference("package-output", "e"),
+      tsaProfile: reference("tsa-profile", "n"),
+      timestampPackageOutput: reference("timestamp-package-output", "o"),
       reportOutput: reference("report-output", "f"),
       task: reference("task", "g"),
       result: reference("result", "h"),
@@ -375,7 +377,43 @@ describe("@aigc-proof/host-contracts", () => {
       chooseCreationOutput: references.imageOutput,
       choosePackage: references.package,
       choosePackageOutput: references.packageOutput,
+      chooseTsaProfile: references.tsaProfile,
+      chooseTimestampPackageOutput: references.timestampPackageOutput,
       chooseReportOutput: references.reportOutput,
+      importTsaProfile: {
+        ok: true,
+        data: {
+          profile_sha256: "6".repeat(64),
+          source_label: "Test TSA",
+          endpoint: "https://tsa.example.test/rfc3161",
+          endpoint_scope: "public_https",
+          allowed_policy_oids: ["1.2.3.4.1"],
+          root_count: 1,
+          intermediate_count: 0,
+          https_root_count: 1,
+          revocation_evidence_count: 0,
+          effective_at: "2026-01-01T00:00:00Z",
+          expires_at: "2027-01-01T00:00:00Z",
+        },
+      },
+      getTsaProfileStatus: { ok: true, data: null },
+      requestTrustedTimestamp: {
+        ok: true,
+        data: {
+          package: references.package,
+          displayPath: "C:\\timestamped.aigcproof",
+          trustedTime: "2026-07-13T00:00:01Z",
+          disclosure: {
+            endpoint: "https://tsa.example.test/rfc3161",
+            content_type: "application/timestamp-query",
+            message_imprint_sha256: "6".repeat(64),
+            nonce: "7".repeat(32),
+            requested_policy: "1.2.3.4.1",
+            tsa_profile_sha256: "6".repeat(64),
+          },
+        },
+      },
+      cancelTrustedTimestamp: { ok: true, data: { cancelled: false } },
       previewWorkspaceTarget: {
         ok: true,
         data: {

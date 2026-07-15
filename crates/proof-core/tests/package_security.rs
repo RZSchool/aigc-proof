@@ -563,6 +563,7 @@ fn assert_report_code_with_limits(path: &Path, code: &str, limits: &Verification
         "missing {code}: {:?}",
         report.errors
     );
+    validate_verification_result_schema(&serde_json::to_value(report).unwrap()).unwrap();
 }
 
 #[test]

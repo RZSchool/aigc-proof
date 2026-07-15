@@ -18,7 +18,7 @@ cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- add "$work
 cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- record "$work/demo-workspace" \
   --event-type generation --payload-file "$work/generation-event.json"
 cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- seal "$work/demo-workspace" \
-  --output "$work/demo.aigcproof"
+  --output "$work/demo.aigcproof" --legacy-unsigned-v02
 cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof"
 cargo run --locked -p proof-cli --manifest-path "$root/Cargo.toml" -- verify "$work/demo.aigcproof" \
   --json "$work/verification-result.json"

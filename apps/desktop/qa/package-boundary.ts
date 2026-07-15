@@ -66,18 +66,18 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.6.0") {
+  if (packagedManifest.version !== "0.7.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
   }
   const readmeSource = await fs.readFile(readme, "utf8");
   if (
-    !readmeSource.includes("AIGC-Proof Workbench 0.6.0 Preview") ||
+    !readmeSource.includes("AIGC-Proof Workbench 0.7.0 Preview") ||
     !readmeSource.includes(
-      "Workbench 0.6.0 使用 ProofHostApi 1.5.0 / native API 1.4.0",
+      "Workbench 0.7.0 使用 ProofHostApi 1.6.0 / native API 1.5.0",
     ) ||
-    !readmeSource.includes("AIGC-Proof 0.3.0")
+    !readmeSource.includes("AIGC-Proof 0.4.0")
   ) {
     throw new Error("Packaged README version or protocol boundary is stale.");
   }
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     discovery.apiVersion !== NATIVE_API_VERSION ||
     discovery.engineVersion !== NATIVE_ENGINE_VERSION ||
     discovery.supportedProtocolVersions.join(",") !==
-      ["0.2.0", PROTOCOL_VERSION].join(",") ||
+      ["0.2.0", "0.3.0", PROTOCOL_VERSION].join(",") ||
     discovery.capabilities.join(",") !== NATIVE_CAPABILITIES.join(",")
   ) {
     throw new Error(
@@ -143,10 +143,10 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.5.0",
+    contractVersion: "1.6.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
-    protocolVersion: "0.3.0",
+    protocolVersion: "0.4.0",
     utilityOnlyAddonLoading: true,
     capabilities: discovery.capabilities,
     packagedFiles: files.length,

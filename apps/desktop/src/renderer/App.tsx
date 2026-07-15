@@ -17,6 +17,8 @@ import type {
   ProviderInstallationReference,
   ProviderInstallationSummary,
   ReportOutputReference,
+  TimestampPackageOutputReference,
+  TsaProfileSummary,
   VerificationReport,
   WorkbenchState,
   WorkspaceParentReference,
@@ -128,6 +130,11 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     useState<ReportOutputReference>();
   const [report, setReport] = useState<VerificationReport>();
   const [inspection, setInspection] = useState<Inspection>();
+  const [tsaProfile, setTsaProfile] = useState<TsaProfileSummary>();
+  const [tsaProfilePath, setTsaProfilePath] = useState("");
+  const [timestampOutputPath, setTimestampOutputPath] = useState("");
+  const [timestampOutputReference, setTimestampOutputReference] =
+    useState<TimestampPackageOutputReference>();
   const [providerPath, setProviderPath] = useState("");
   const [providerReference, setProviderReference] =
     useState<ProviderInstallationReference>();
@@ -186,6 +193,9 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     });
     void proofHost.getJobs().then((response) => {
       if (active && response.ok) setJobs(response.data);
+    });
+    void proofHost.getTsaProfileStatus().then((response) => {
+      if (active && response.ok) setTsaProfile(response.data ?? undefined);
     });
     const unsubscribe = proofHost.subscribeJobEvents((event) => {
       if (!active) return;
@@ -436,6 +446,65 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     setImageMatch(undefined);
     setReport(undefined);
     setInspection(undefined);
+  }
+
+  async function importTsaProfile(): Promise<void> {
+    const selected = await proofHost.chooseTsaProfile();
+    if (!selected) return;
+    await run("Importing TSA trust snapshot", async () => {
+      const response = await proofHost.importTsaProfile({ profile: selected });
+      if (!response.ok) return showFailure(response);
+      setTsaProfile(response.data);
+      setTsaProfilePath(selected.displayPath ?? selected.displayLabel);
+      showSuccess("TSA trust snapshot imported", response.data);
+    });
+  }
+
+  async function requestTrustedTimestamp(): Promise<void> {
+    await run("Requesting RFC 3161 trusted time", async () => {
+      if (!packageReference || !timestampOutputReference) {
+        throw new Error(
+          "Select a protocol 0.4 package and a new timestamped-package output.",
+        );
+      }
+      const response = await proofHost.requestTrustedTimestamp({
+        package: packageReference,
+        output: timestampOutputReference,
+        confirmDisclosure: true,
+      });
+      if (!response.ok) {
+        const verified = await proofHost.verifyPackage({
+          package: packageReference,
+        });
+        if (verified.ok) {
+          setReport({
+            ...verified.data,
+            assurance: {
+              ...verified.data.assurance,
+              trusted_time: "acquisition_failed",
+            },
+            warnings: [
+              ...verified.data.warnings,
+              {
+                code: "TSA_ACQUISITION_FAILED",
+                message:
+                  "The explicit trusted-time request failed or was cancelled; creator-signature validity is unchanged.",
+              },
+            ],
+          });
+        }
+        return showFailure(response);
+      }
+      setPackageReference(response.data.package);
+      setPackagePath(response.data.displayPath);
+      setTimestampOutputReference(undefined);
+      setTimestampOutputPath("");
+      const verified = await proofHost.verifyPackage({
+        package: response.data.package,
+      });
+      if (verified.ok) setReport(verified.data);
+      showSuccess("Trusted timestamp attached and verified", response.data);
+    });
   }
 
   async function initializeWorkspace(): Promise<void> {
@@ -800,7 +869,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.6.0</span>
+            <span data-testid="workbench-version">Workbench 0.7.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -817,10 +886,10 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       </header>
 
       <section className="assurance-banner" data-testid="assurance-banner">
-        <strong>能力边界：内部完整性与本地创建者数字签名</strong>
+        <strong>能力边界：内部完整性、本地创建者数字签名与可选可信时间</strong>
         <span>
-          显示名称为自我声明 · Ed25519 签名可验证 · 本机信任仅表示密钥匹配 ·
-          可信时间不存在 · 原创性未评估
+          显示名称为自我声明 · Ed25519 签名可验证 · 本机信任仅表示密钥匹配 · RFC
+          3161 时间仅在显式请求并通过信任快照验证后可信 · 原创性与 C2PA 未评估
         </span>
         <small>不是实名、版权登记、公证、权属证明、原创认证或官方验证。</small>
       </section>
@@ -844,7 +913,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       <main className="workflow-canvas" data-testid="unified-workflow">
         <section className="panel intro-panel" data-region="overview">
           <div>
-            <p className="eyebrow">PROTOCOL 0.3.0 · ONE PAGE</p>
+            <p className="eyebrow">PROTOCOL 0.4.0 · ONE PAGE</p>
             <h2>生成图片、保存原图、核对证明，一页完成</h2>
             <p>
               后续步骤始终可见；不满足前置条件时会给出提示。长任务由隔离 Utility
@@ -943,7 +1012,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
             验证图片与证明包
           </button>
           <p className="assurance-inline">
-            匹配表示图片字节与有效包内的生成输出完全一致；不代表创建者身份、原创性、所有权、签名或可信时间已验证。
+            匹配表示图片字节与有效包内的生成输出完全一致；创建者签名与可信时间必须分别查看验证报告，不代表实名、原创性或所有权。
           </p>
           {imageMatch && (
             <article
@@ -982,7 +1051,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                   </span>
                 ))}
                 <small>
-                  仅确认文件与已验证证明包输出的字节对应关系；创建者身份未验证，数字签名与可信时间不存在，原创性与权属未评估。
+                  仅确认文件与已验证证明包输出的字节对应关系；创建者签名与可信时间状态见验证报告，实名、原创性与权属仍未评估。
                 </small>
               </div>
             </article>
@@ -1626,7 +1695,8 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 </p>
               )}
               <small>
-                Provider、模型与时间均为观察值；不代表身份、权属、原创性、授权、签名或可信时间。
+                Provider、模型与本机观察时间均为观察值；不代表身份、权属、原创性、授权、数字签名或
+                RFC 3161 可信时间。
               </small>
             </div>
           )}
@@ -1733,6 +1803,78 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               </button>
             </div>
           </Field>
+          <div className="subpanel" data-testid="trusted-time-panel">
+            <strong>RFC 3161 可信时间</strong>
+            <p>
+              日常验证保持离线；只有点击“请求可信时间”并确认披露后，才会连接已导入配置中的
+              HTTPS 端点。
+            </p>
+            <Field label="显式 TSA 信任快照">
+              <div className="field-row">
+                <input
+                  data-testid="tsa-profile-path"
+                  readOnly
+                  value={tsaProfilePath || tsaProfile?.source_label || ""}
+                  placeholder="导入可移植 TSA 信任快照"
+                />
+                <button
+                  className="secondary"
+                  data-testid="import-tsa-profile"
+                  onClick={() => void importTsaProfile()}
+                >
+                  导入配置
+                </button>
+              </div>
+            </Field>
+            {tsaProfile && (
+              <small data-testid="tsa-profile-summary">
+                {tsaProfile.source_label} · {tsaProfile.endpoint} · 有效期至{" "}
+                {tsaProfile.expires_at}
+              </small>
+            )}
+            <Field label="带时间戳的新证明包">
+              <div className="field-row">
+                <input
+                  data-testid="timestamp-output-path"
+                  readOnly
+                  value={timestampOutputPath}
+                  placeholder="选择新的 .aigcproof 输出"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-timestamp-output"
+                  onClick={() =>
+                    void choose(
+                      setTimestampOutputReference,
+                      setTimestampOutputPath,
+                      () => proofHost.chooseTimestampPackageOutput(),
+                    )
+                  }
+                >
+                  选择输出
+                </button>
+              </div>
+            </Field>
+            <div className="actions">
+              <button
+                className="primary"
+                data-testid="request-trusted-time"
+                disabled={
+                  !tsaProfile || !packageReference || !timestampOutputReference
+                }
+                onClick={() => void requestTrustedTimestamp()}
+              >
+                请求可信时间
+              </button>
+              <button
+                className="secondary"
+                data-testid="cancel-trusted-time"
+                onClick={() => void proofHost.cancelTrustedTimestamp()}
+              >
+                取消请求
+              </button>
+            </div>
+          </div>
           <div className="actions">
             <button
               className="primary"
@@ -2165,6 +2307,22 @@ function VerificationCard({ report }: { report: VerificationReport }) {
           <span>本地信任：{report.creator_signature.local_trust}</span>
           <small>
             显示名称是签名者自我声明；有效签名不证明实名、原创性、版权、权属或授权。
+          </small>
+        </div>
+      )}
+      {report.trusted_time && (
+        <div className="signature-evidence" data-testid="trusted-time-evidence">
+          <strong>{report.trusted_time.source_label ?? "RFC 3161 TSA"}</strong>
+          <code>{report.trusted_time.timestamp_path}</code>
+          <span>生成时间：{report.trusted_time.gen_time ?? "不可用"}</span>
+          <span>
+            策略：
+            {report.trusted_time.granted_policy ??
+              report.trusted_time.requested_policy}
+          </span>
+          <span>吊销证据：{report.trusted_time.revocation}</span>
+          <small>
+            可信时间仅证明时间戳机构在该时刻签署了包内签名字节摘要；不证明实名、原创性、版权、权属或授权。
           </small>
         </div>
       )}

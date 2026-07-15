@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 
 use proof_schema::{
     CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
-    CreatorSignatureDescriptor, EventChainSummary, HASH_ALGORITHM, LEGACY_SCHEMA_VERSION,
-    MANIFEST_PATH, Manifest, ManifestSecurity, SCHEMA_VERSION, ToolInfo, VerificationStatus,
-    validate_manifest_schema,
+    CREATOR_SIGNATURE_PROFILE_V03, CreatorSignatureDescriptor, EventChainSummary, HASH_ALGORITHM,
+    LEGACY_SCHEMA_VERSION, MANIFEST_PATH, Manifest, ManifestSecurity, SCHEMA_VERSION,
+    SIGNED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PREFIX, TRUSTED_TIMESTAMP_PROFILE, ToolInfo,
+    TrustedTimestampDescriptor, VerificationStatus, validate_manifest_schema,
 };
 use tempfile::Builder;
 use zip::CompressionMethod;
@@ -15,8 +16,9 @@ use zip::write::SimpleFileOptions;
 use crate::hash::copy_and_hash;
 use crate::signing::{
     SignatureArtifacts, SignerKeyStore, SignerService, SigningMaterial, random_signature_id,
-    sign_manifest,
+    sign_manifest_with_profile,
 };
+use crate::timestamp::{ParsedTsaProfile, random_timestamp_nonce};
 use crate::workspace::{events_path, load_events, workspace_asset_path};
 use crate::{
     CoreError, CoreResult, ErrorKind, VerificationLimits, canonical_json, load_workspace,
@@ -38,7 +40,7 @@ pub struct SealResult {
 }
 
 pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
-    seal_workspace_internal(options, None)
+    seal_workspace_internal(options, None, None)
 }
 
 pub fn seal_signed_workspace<S: SignerKeyStore>(
@@ -46,12 +48,36 @@ pub fn seal_signed_workspace<S: SignerKeyStore>(
     signer: &SignerService<S>,
 ) -> CoreResult<SealResult> {
     let material = signer.signing_material()?;
-    seal_workspace_internal(options, Some(&material))
+    seal_workspace_internal(options, Some(&material), None)
+}
+
+pub fn seal_signed_workspace_with_timestamp<S: SignerKeyStore>(
+    options: SealOptions,
+    signer: &SignerService<S>,
+    profile: &ParsedTsaProfile,
+    requested_policy: &str,
+) -> CoreResult<SealResult> {
+    if requested_policy != "any"
+        && !profile
+            .profile
+            .allowed_policy_oids
+            .iter()
+            .any(|policy| policy == requested_policy)
+    {
+        return Err(CoreError::new(
+            ErrorKind::TrustedTime,
+            "TSA_PROFILE_POLICY_NOT_ALLOWED",
+            "Requested timestamp policy is not allowed by the imported TSA profile.",
+        ));
+    }
+    let material = signer.signing_material()?;
+    seal_workspace_internal(options, Some(&material), Some((profile, requested_policy)))
 }
 
 fn seal_workspace_internal(
     options: SealOptions,
     signing: Option<&SigningMaterial>,
+    timestamp: Option<(&ParsedTsaProfile, &str)>,
 ) -> CoreResult<SealResult> {
     if options.output.exists() {
         return Err(CoreError::new(
@@ -148,20 +174,38 @@ fn seal_workspace_internal(
             "Event JSON exceeds the configured limit.",
         ));
     }
-    let spec_version = if signing.is_some() {
+    let spec_version = if timestamp.is_some() {
         SCHEMA_VERSION
+    } else if signing.is_some() {
+        SIGNED_SCHEMA_VERSION
     } else {
         LEGACY_SCHEMA_VERSION
     };
-    let security = signing.map(|material| ManifestSecurity {
-        creator_signature: CreatorSignatureDescriptor {
-            profile: CREATOR_SIGNATURE_PROFILE.to_owned(),
-            signature_id: random_signature_id(),
-            display_label: material.display_label.clone(),
-            key_fingerprint: material.key_fingerprint.clone(),
-            public_key_path: format!("{CREATOR_KEY_PREFIX}{}.cbor", material.key_fingerprint),
-            signature_path: CREATOR_SIGNATURE_PATH.to_owned(),
-        },
+    let security = signing.map(|material| {
+        let signature_id = random_signature_id();
+        ManifestSecurity {
+            creator_signature: CreatorSignatureDescriptor {
+                profile: if timestamp.is_some() {
+                    CREATOR_SIGNATURE_PROFILE.to_owned()
+                } else {
+                    CREATOR_SIGNATURE_PROFILE_V03.to_owned()
+                },
+                signature_id: signature_id.clone(),
+                display_label: material.display_label.clone(),
+                key_fingerprint: material.key_fingerprint.clone(),
+                public_key_path: format!("{CREATOR_KEY_PREFIX}{}.cbor", material.key_fingerprint),
+                signature_path: CREATOR_SIGNATURE_PATH.to_owned(),
+            },
+            trusted_timestamp: timestamp.map(|(profile, requested_policy)| {
+                TrustedTimestampDescriptor {
+                    profile: TRUSTED_TIMESTAMP_PROFILE.to_owned(),
+                    timestamp_path: format!("{TRUSTED_TIMESTAMP_PREFIX}{signature_id}.tsr"),
+                    nonce: random_timestamp_nonce(),
+                    requested_policy: requested_policy.to_owned(),
+                    tsa_profile_sha256: profile.digest.clone(),
+                }
+            }),
+        }
     });
     let manifest = Manifest {
         spec_version: spec_version.to_owned(),
@@ -190,7 +234,14 @@ fn seal_workspace_internal(
         ));
     }
     let signature_artifacts = signing
-        .map(|material| sign_manifest(material, &manifest_bytes))
+        .map(|material| {
+            let profile = manifest
+                .security
+                .as_ref()
+                .map(|security| security.creator_signature.profile.as_str())
+                .unwrap_or(CREATOR_SIGNATURE_PROFILE_V03);
+            sign_manifest_with_profile(material, &manifest_bytes, profile)
+        })
         .transpose()?;
 
     let mut temporary = Builder::new()

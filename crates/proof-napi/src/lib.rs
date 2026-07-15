@@ -1,6 +1,7 @@
 mod app_state;
 
 use std::fmt::Write as _;
+use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -10,9 +11,11 @@ use napi_derive::napi;
 use proof_core::{
     AddAssetOptions, CoreError, ExportWorkspaceOutputOptions, InitWorkspaceOptions,
     OsSignerKeyStore, RecordEventOptions, SealOptions, SignerService, VerificationLimits,
-    add_asset, current_timestamp, export_workspace_output, init_workspace, inspect_package,
-    load_workspace, match_image_to_package, media_type_for_path, record_event,
-    seal_signed_workspace, verify_package_with_signer,
+    add_asset, attach_timestamp_response, current_timestamp, export_workspace_output,
+    init_workspace, inspect_package, load_workspace, match_image_to_package, media_type_for_path,
+    parse_tsa_profile, prepare_timestamp_request, record_event, seal_signed_workspace,
+    seal_signed_workspace_with_timestamp, tsa_profile_summary, verify_package_with_signer,
+    verify_package_with_signer_and_profile,
 };
 use proof_schema::{AssetRole, parse_json_strict};
 use rusqlite::Error as SqliteError;
@@ -20,9 +23,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.4.0";
-pub const NATIVE_ENGINE_VERSION: &str = "0.3.0";
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0"];
+pub const NATIVE_API_VERSION: &str = "1.5.0";
+pub const NATIVE_ENGINE_VERSION: &str = "0.4.0";
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0"];
 pub const NATIVE_CAPABILITIES: &[&str] = &[
     "execution.phase-progress",
     "proof.asset.add",
@@ -31,6 +34,8 @@ pub const NATIVE_CAPABILITIES: &[&str] = &[
     "proof.event.record",
     "proof.package.inspect",
     "proof.package.seal",
+    "proof.package.timestamp.attach",
+    "proof.package.timestamp.request",
     "proof.package.verify",
     "proof.signer.create",
     "proof.signer.disable",
@@ -38,6 +43,7 @@ pub const NATIVE_CAPABILITIES: &[&str] = &[
     "proof.signer.status",
     "proof.workspace.create",
     "proof.workspace.open",
+    "trust.tsa-profile.validate",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,8 +118,11 @@ enum Operation {
     MatchImageToPackage(MatchImageToPackageRequest),
     RecordEvent(RecordEventRequest),
     SealPackage(SealPackageRequest),
-    VerifyPackage(PathRequest),
+    VerifyPackage(VerifyPackageRequest),
     InspectPackage(PathRequest),
+    ValidateTsaProfile(TsaProfileRequest),
+    PrepareTimestamp(PrepareTimestampRequest),
+    AttachTimestamp(AttachTimestampRequest),
     GetSignerStatus,
     CreateSigner(SignerLabelRequest),
     RotateSigner(SignerLabelRequest),
@@ -175,6 +184,37 @@ pub struct SealPackageRequest {
     pub workspace: String,
     pub output: String,
     pub confirm_signature: bool,
+    pub tsa_profile_json: Option<String>,
+    pub timestamp_policy: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct VerifyPackageRequest {
+    pub path: String,
+    pub tsa_profile_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct TsaProfileRequest {
+    pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct PrepareTimestampRequest {
+    pub package: String,
+    pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct AttachTimestampRequest {
+    pub package: String,
+    pub output: String,
+    pub response_path: String,
+    pub profile_json: String,
 }
 
 #[derive(Debug, Clone)]
@@ -267,13 +307,28 @@ pub fn seal_proof_package(request: SealPackageRequest) -> AsyncTask<BridgeTask> 
 }
 
 #[napi]
-pub fn verify_proof_package(request: PathRequest) -> AsyncTask<BridgeTask> {
+pub fn verify_proof_package(request: VerifyPackageRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::VerifyPackage(request)))
 }
 
 #[napi]
 pub fn inspect_proof_package(request: PathRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::InspectPackage(request)))
+}
+
+#[napi]
+pub fn validate_tsa_profile(request: TsaProfileRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::ValidateTsaProfile(request)))
+}
+
+#[napi]
+pub fn prepare_proof_timestamp(request: PrepareTimestampRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::PrepareTimestamp(request)))
+}
+
+#[napi]
+pub fn attach_proof_timestamp(request: AttachTimestampRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::AttachTimestamp(request)))
 }
 
 #[napi]
@@ -444,26 +499,45 @@ fn execute<S: proof_core::SignerKeyStore>(
             }
             let workspace = safe_path(&request.workspace, "workspace")?;
             let output = safe_path(&request.output, "output")?;
-            let result = seal_signed_workspace(
-                SealOptions {
-                    workspace,
-                    output,
-                    proof_id: format!("urn:uuid:{}", Uuid::new_v4()),
-                    created_at: current_timestamp().map_err(BridgeFailure::core)?,
-                },
-                signer,
-            )
+            let options = SealOptions {
+                workspace,
+                output,
+                proof_id: format!("urn:uuid:{}", Uuid::new_v4()),
+                created_at: current_timestamp().map_err(BridgeFailure::core)?,
+            };
+            let result = match request.tsa_profile_json.as_deref() {
+                Some(profile_json) => {
+                    let profile = parse_tsa_profile(profile_json).map_err(BridgeFailure::core)?;
+                    seal_signed_workspace_with_timestamp(
+                        options,
+                        signer,
+                        &profile,
+                        request.timestamp_policy.as_deref().unwrap_or("any"),
+                    )
+                }
+                None => seal_signed_workspace(options, signer),
+            }
             .map_err(BridgeFailure::core)?;
             Ok(json!({ "path": result.path, "manifest": result.manifest }))
         }
         Operation::VerifyPackage(request) => {
             let path = safe_path(&request.path, "package")?;
-            let report = verify_package_with_signer(
-                &path,
-                &VerificationLimits::default(),
-                current_timestamp().map_err(BridgeFailure::core)?,
-                signer,
-            );
+            let now = current_timestamp().map_err(BridgeFailure::core)?;
+            let report = match request.tsa_profile_json.as_deref() {
+                Some(profile_json) => {
+                    let profile = parse_tsa_profile(profile_json).map_err(BridgeFailure::core)?;
+                    verify_package_with_signer_and_profile(
+                        &path,
+                        &VerificationLimits::default(),
+                        now,
+                        signer,
+                        &profile,
+                    )
+                }
+                None => {
+                    verify_package_with_signer(&path, &VerificationLimits::default(), now, signer)
+                }
+            };
             Ok(serde_json::to_value(report).map_err(BridgeFailure::serialization)?)
         }
         Operation::InspectPackage(request) => {
@@ -471,6 +545,62 @@ fn execute<S: proof_core::SignerKeyStore>(
             let inspection = inspect_package(&path, &VerificationLimits::default())
                 .map_err(BridgeFailure::core)?;
             Ok(serde_json::to_value(inspection).map_err(BridgeFailure::serialization)?)
+        }
+        Operation::ValidateTsaProfile(request) => {
+            let profile = parse_tsa_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            Ok(serde_json::to_value(tsa_profile_summary(&profile))
+                .map_err(BridgeFailure::serialization)?)
+        }
+        Operation::PrepareTimestamp(request) => {
+            let package = safe_path(&request.package, "package")?;
+            let profile = parse_tsa_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            let prepared = prepare_timestamp_request(
+                &package,
+                &profile,
+                &VerificationLimits::default(),
+                current_timestamp().map_err(BridgeFailure::core)?,
+            )
+            .map_err(BridgeFailure::core)?;
+            Ok(json!({
+                "timestampPath": prepared.timestamp_path,
+                "disclosure": prepared.disclosure,
+            }))
+        }
+        Operation::AttachTimestamp(request) => {
+            let package = safe_path(&request.package, "package")?;
+            let output = safe_path(&request.output, "output")?;
+            let response_path = safe_path(&request.response_path, "timestamp response")?;
+            let profile = parse_tsa_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            let metadata = fs::symlink_metadata(&response_path).map_err(|error| {
+                BridgeFailure::input("TIMESTAMP_RESPONSE_FILE_INVALID", error.to_string())
+            })?;
+            if metadata.file_type().is_symlink()
+                || !metadata.is_file()
+                || metadata.len() == 0
+                || metadata.len() > 1024 * 1024
+            {
+                return Err(BridgeFailure::input(
+                    "TIMESTAMP_RESPONSE_FILE_INVALID",
+                    "Timestamp response must be a regular 1 byte to 1 MiB file.",
+                ));
+            }
+            let response = fs::read(&response_path).map_err(|error| {
+                BridgeFailure::input("TIMESTAMP_RESPONSE_READ_FAILED", error.to_string())
+            })?;
+            let attached = attach_timestamp_response(
+                &package,
+                &output,
+                &response,
+                &profile,
+                &VerificationLimits::default(),
+                current_timestamp().map_err(BridgeFailure::core)?,
+            )
+            .map_err(BridgeFailure::core)?;
+            Ok(json!({
+                "path": attached.path,
+                "timestampPath": attached.timestamp_path,
+                "trustedTime": attached.gen_time,
+            }))
         }
         Operation::GetSignerStatus => {
             Ok(serde_json::to_value(signer.status()).map_err(BridgeFailure::serialization)?)
@@ -621,9 +751,12 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.4.0");
-        assert_eq!(info.engine_version, "0.3.0");
-        assert_eq!(info.supported_protocol_versions, ["0.2.0", "0.3.0"]);
+        assert_eq!(info.api_version, "1.5.0");
+        assert_eq!(info.engine_version, "0.4.0");
+        assert_eq!(
+            info.supported_protocol_versions,
+            ["0.2.0", "0.3.0", "0.4.0"]
+        );
         assert_eq!(
             info.capabilities,
             NATIVE_CAPABILITIES
@@ -689,9 +822,12 @@ mod tests {
             workspace: workspace.to_string_lossy().into_owned(),
             output: package.to_string_lossy().into_owned(),
             confirm_signature: true,
+            tsa_profile_json: None,
+            timestamp_policy: None,
         }));
-        let verification = data(Operation::VerifyPackage(PathRequest {
+        let verification = data(Operation::VerifyPackage(VerifyPackageRequest {
             path: package.to_string_lossy().into_owned(),
+            tsa_profile_json: None,
         }));
         assert_eq!(verification["status"], "valid");
         let inspection = data(Operation::InspectPackage(PathRequest {
@@ -725,6 +861,8 @@ mod tests {
                 workspace: workspace.to_string_lossy().into_owned(),
                 output: package.to_string_lossy().into_owned(),
                 confirm_signature: true,
+                tsa_profile_json: None,
+                timestamp_policy: None,
             }),
             &signer,
         ))

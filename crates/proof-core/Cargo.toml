@@ -10,17 +10,26 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+base64.workspace = true
+cms.workspace = true
+const-oid.workspace = true
 coset.workspace = true
+der.workspace = true
 ed25519-dalek.workspace = true
 proof-schema = { path = "../proof-schema" }
 rand_core.workspace = true
+rustls-pki-types.workspace = true
+webpki.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
 sha2.workspace = true
+sigstore-tsa.workspace = true
 tempfile.workspace = true
 time.workspace = true
 uuid.workspace = true
+x509-cert.workspace = true
+x509-tsp.workspace = true
 zeroize.workspace = true
 zip.workspace = true
 

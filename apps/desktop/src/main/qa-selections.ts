@@ -13,6 +13,8 @@ const qaSelectionsSchema = z
     imageOutputs: z.array(selectedPath).default([]),
     packages: z.array(selectedPath),
     packageOutputs: z.array(selectedPath),
+    tsaProfiles: z.array(selectedPath).default([]),
+    timestampPackageOutputs: z.array(selectedPath).default([]),
     reportOutputs: z.array(selectedPath),
     providerInstallations: z.array(selectedPath).default([]),
   })

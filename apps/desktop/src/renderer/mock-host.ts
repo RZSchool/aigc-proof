@@ -50,7 +50,7 @@ function reference<K extends ReferenceKind>(
 }
 
 const emptyWorkspace = (): Workspace => ({
-  workspace_version: "0.3.0",
+  workspace_version: "0.4.0",
   created_at: "2026-07-13T00:00:00Z",
   project: { name: "Mock project" },
   assets: [],
@@ -64,6 +64,11 @@ export class DeterministicMockProofHost implements ProofHostApi {
   readonly imageOutputReference = reference("image-output", "saved.png");
   readonly packageReference = reference("package", "proof.aigcproof");
   readonly packageOutputReference = reference("package-output", "proof output");
+  readonly tsaProfileReference = reference("tsa-profile", "tsa-profile.json");
+  readonly timestampPackageOutputReference = reference(
+    "timestamp-package-output",
+    "timestamped proof output",
+  );
   readonly reportOutputReference = reference("report-output", "report output");
   readonly diagnosticReference = reference("diagnostic", "mock diagnostics");
   readonly providerReference = reference(
@@ -317,8 +322,44 @@ export class DeterministicMockProofHost implements ProofHostApi {
   choosePackageOutput() {
     return Promise.resolve(this.packageOutputReference);
   }
+  chooseTsaProfile() {
+    return Promise.resolve(this.tsaProfileReference);
+  }
+  chooseTimestampPackageOutput() {
+    return Promise.resolve(this.timestampPackageOutputReference);
+  }
   chooseReportOutput() {
     return Promise.resolve(this.reportOutputReference);
+  }
+  importTsaProfile(_request: Parameters<ProofHostApi["importTsaProfile"]>[0]) {
+    void _request;
+    return Promise.resolve(ok(this.tsaSummary()));
+  }
+  getTsaProfileStatus() {
+    return Promise.resolve(ok(this.tsaSummary()));
+  }
+  requestTrustedTimestamp(
+    _request: Parameters<ProofHostApi["requestTrustedTimestamp"]>[0],
+  ) {
+    void _request;
+    return Promise.resolve(
+      ok({
+        package: this.packageReference,
+        displayPath: this.packageReference.displayPath!,
+        trustedTime: "2026-07-13T00:00:01Z",
+        disclosure: {
+          endpoint: "https://tsa.example.test/rfc3161",
+          content_type: "application/timestamp-query" as const,
+          message_imprint_sha256: "4".repeat(64),
+          nonce: "5".repeat(32),
+          requested_policy: "any",
+          tsa_profile_sha256: "6".repeat(64),
+        },
+      }),
+    );
+  }
+  cancelTrustedTimestamp() {
+    return Promise.resolve(ok({ cancelled: false }));
   }
   previewWorkspaceTarget(
     request: Parameters<ProofHostApi["previewWorkspaceTarget"]>[0],
@@ -470,7 +511,7 @@ export class DeterministicMockProofHost implements ProofHostApi {
   verifyPackage(_request: Parameters<ProofHostApi["verifyPackage"]>[0]) {
     void _request;
     const report: VerificationReport = {
-      spec_version: "0.3.0",
+      spec_version: "0.4.0",
       proof_id: "urn:uuid:00000000-0000-4000-8000-000000000000",
       verified_at: "2026-07-13T00:00:00Z",
       status: "valid",
@@ -478,7 +519,7 @@ export class DeterministicMockProofHost implements ProofHostApi {
         internal_integrity: "valid",
         creator_identity: "self_asserted",
         digital_signature: "valid_locally_trusted",
-        trusted_time: "not_present",
+        trusted_time: "absent",
         originality: "not_evaluated",
       },
       creator_signature: {
@@ -492,6 +533,22 @@ export class DeterministicMockProofHost implements ProofHostApi {
       warnings: [],
     };
     return Promise.resolve(ok(report));
+  }
+
+  private tsaSummary() {
+    return {
+      profile_sha256: "6".repeat(64),
+      source_label: "Mock TSA",
+      endpoint: "https://tsa.example.test/rfc3161",
+      endpoint_scope: "public_https" as const,
+      allowed_policy_oids: ["1.2.3.4.1"],
+      root_count: 1,
+      intermediate_count: 0,
+      https_root_count: 1,
+      revocation_evidence_count: 0,
+      effective_at: "2026-01-01T00:00:00Z",
+      expires_at: "2027-01-01T00:00:00Z",
+    };
   }
   inspectPackage(_request: Parameters<ProofHostApi["inspectPackage"]>[0]) {
     void _request;

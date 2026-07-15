@@ -18,4 +18,10 @@ Digital-signature states are distinct:
 
 Internal integrity, cryptographic signature validity, and local trust are reported independently. A `valid` 0.3 report requires internal integrity and signature validation to pass. Local trust is not a public PKI.
 
-Neither version evaluates real identity, earliest creation time, trusted timestamp, originality, source authorization, copyright, ownership, legal validity, or official verification.
+## Protocol 0.4: optional externally witnessed time
+
+Protocol 0.4 signs a timestamp plan into the Manifest and may append one RFC 3161 response over the exact creator COSE bytes. `valid_trusted` requires the exact nonce, SHA-256 imprint, policy, ESS binding, critical timestamping EKU, ECDSA P-256/P-384 signature, explicit chain, validity at `genTime`, profile time bounds, and available revocation evidence to pass against the bound portable snapshot.
+
+Missing or failed acquisition, malformed/substituted evidence, stale or untrusted evidence, and indeterminate revocation are reported independently and never invalidate an otherwise valid creator signature. Trusted time is evidence that the TSA signed the digest at `genTime`; it is not proof of who created the content or when creation began.
+
+No version evaluates real identity, earliest creation time, originality, source authorization, copyright, ownership, legal validity, C2PA provenance, or official verification.

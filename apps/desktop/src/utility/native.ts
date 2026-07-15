@@ -35,9 +35,25 @@ export interface NativeAddon {
     workspace: string;
     output: string;
     confirmSignature: boolean;
+    tsaProfileJson?: string | undefined;
+    timestampPolicy?: string | undefined;
   }): Promise<string>;
-  verifyProofPackage(request: { path: string }): Promise<string>;
+  verifyProofPackage(request: {
+    path: string;
+    tsaProfileJson?: string | undefined;
+  }): Promise<string>;
   inspectProofPackage(request: { path: string }): Promise<string>;
+  validateTsaProfile(request: { profileJson: string }): Promise<string>;
+  prepareProofTimestamp(request: {
+    package: string;
+    profileJson: string;
+  }): Promise<string>;
+  attachProofTimestamp(request: {
+    package: string;
+    output: string;
+    responsePath: string;
+    profileJson: string;
+  }): Promise<string>;
   getLocalSignerStatus(): Promise<string>;
   createLocalSigner(request: { displayLabel: string }): Promise<string>;
   rotateLocalSigner(request: { displayLabel: string }): Promise<string>;

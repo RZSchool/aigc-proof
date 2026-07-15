@@ -94,6 +94,12 @@ async function execute(job: UtilityJob): Promise<HostEnvelope<unknown>> {
       return invokeNative(addon.verifyProofPackage(job.payload));
     case "inspectPackage":
       return invokeNative(addon.inspectProofPackage(job.payload));
+    case "validateTsaProfile":
+      return invokeNative(addon.validateTsaProfile(job.payload));
+    case "prepareTimestamp":
+      return invokeNative(addon.prepareProofTimestamp(job.payload));
+    case "attachTimestamp":
+      return invokeNative(addon.attachProofTimestamp(job.payload));
     case "validateRecents":
       return validateRecents(job);
   }

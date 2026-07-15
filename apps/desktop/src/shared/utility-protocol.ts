@@ -27,6 +27,9 @@ export const utilityOperations = [
   "sealPackage",
   "verifyPackage",
   "inspectPackage",
+  "validateTsaProfile",
+  "prepareTimestamp",
+  "attachTimestamp",
   "validateRecents",
 ] as const;
 export type UtilityOperation = (typeof utilityOperations)[number];
@@ -70,6 +73,48 @@ const sealPayloadSchema = z
     workspace: localPathSchema,
     output: localPathSchema,
     confirmSignature: z.literal(true),
+    tsaProfileJson: z
+      .string()
+      .max(1024 * 1024)
+      .optional(),
+    timestampPolicy: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+const verifyPayloadSchema = z
+  .object({
+    path: localPathSchema,
+    tsaProfileJson: z
+      .string()
+      .max(1024 * 1024)
+      .optional(),
+  })
+  .strict();
+const tsaProfilePayloadSchema = z
+  .object({
+    profileJson: z
+      .string()
+      .min(2)
+      .max(1024 * 1024),
+  })
+  .strict();
+const prepareTimestampPayloadSchema = z
+  .object({
+    package: localPathSchema,
+    profileJson: z
+      .string()
+      .min(2)
+      .max(1024 * 1024),
+  })
+  .strict();
+const attachTimestampPayloadSchema = z
+  .object({
+    package: localPathSchema,
+    output: localPathSchema,
+    responsePath: localPathSchema,
+    profileJson: z
+      .string()
+      .min(2)
+      .max(1024 * 1024),
   })
   .strict();
 const signerLabelPayloadSchema = z
@@ -146,7 +191,25 @@ export const utilityJobSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("verifyPackage"),
-      payload: pathPayloadSchema,
+      payload: verifyPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("validateTsaProfile"),
+      payload: tsaProfilePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("prepareTimestamp"),
+      payload: prepareTimestampPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("attachTimestamp"),
+      payload: attachTimestampPayloadSchema,
     })
     .strict(),
   z

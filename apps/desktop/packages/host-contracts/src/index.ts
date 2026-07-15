@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.6.0" as const;
-export const HOST_CONTRACT_VERSION = "1.5.0" as const;
-export const NATIVE_API_VERSION = "1.4.0" as const;
-export const NATIVE_ENGINE_VERSION = "0.3.0" as const;
-export const PROTOCOL_VERSION = "0.3.0" as const;
+export const WORKBENCH_VERSION = "0.7.0" as const;
+export const HOST_CONTRACT_VERSION = "1.6.0" as const;
+export const NATIVE_API_VERSION = "1.5.0" as const;
+export const NATIVE_ENGINE_VERSION = "0.4.0" as const;
+export const PROTOCOL_VERSION = "0.4.0" as const;
 
 export const NATIVE_CAPABILITIES = [
   "execution.phase-progress",
@@ -14,6 +14,8 @@ export const NATIVE_CAPABILITIES = [
   "proof.event.record",
   "proof.package.inspect",
   "proof.package.seal",
+  "proof.package.timestamp.attach",
+  "proof.package.timestamp.request",
   "proof.package.verify",
   "proof.signer.create",
   "proof.signer.disable",
@@ -21,6 +23,7 @@ export const NATIVE_CAPABILITIES = [
   "proof.signer.status",
   "proof.workspace.create",
   "proof.workspace.open",
+  "trust.tsa-profile.validate",
 ] as const;
 
 export const HOST_CAPABILITIES = [
@@ -39,6 +42,8 @@ export const HOST_CAPABILITIES = [
   "proof.event.record",
   "proof.package.inspect",
   "proof.package.seal",
+  "proof.package.timestamp.attach",
+  "proof.package.timestamp.request",
   "proof.package.verify",
   "proof.signer.create",
   "proof.signer.disable",
@@ -46,6 +51,8 @@ export const HOST_CAPABILITIES = [
   "proof.signer.status",
   "proof.workspace.create",
   "proof.workspace.open",
+  "trust.tsa-profile.import",
+  "trust.tsa-profile.validate",
   "workbench.state.preferences",
   "workbench.state.recents",
 ] as const;
@@ -66,7 +73,6 @@ export const UNAVAILABLE_FEATURES = [
   "provider.cloud",
   "provider.remote-endpoint",
   "operation.safe-cancellation",
-  "assurance.trusted-time",
   "assurance.c2pa",
   "rights-protection",
   "official-services",
@@ -164,6 +170,8 @@ export const referenceKinds = [
   "diagnostic",
   "provider-installation",
   "creation-session",
+  "tsa-profile",
+  "timestamp-package-output",
 ] as const;
 export type ReferenceKind = (typeof referenceKinds)[number];
 
@@ -215,6 +223,12 @@ export const providerInstallationReferenceSchema = hostReferenceSchema
 export const creationSessionReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("creation-session") })
   .strict();
+export const tsaProfileReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("tsa-profile") })
+  .strict();
+export const timestampPackageOutputReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("timestamp-package-output") })
+  .strict();
 
 export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
   Omit<z.infer<typeof hostReferenceSchema>, "kind"> & { kind: K }
@@ -233,6 +247,9 @@ export type DiagnosticReference = HostReference<"diagnostic">;
 export type ProviderInstallationReference =
   HostReference<"provider-installation">;
 export type CreationSessionReference = HostReference<"creation-session">;
+export type TsaProfileReference = HostReference<"tsa-profile">;
+export type TimestampPackageOutputReference =
+  HostReference<"timestamp-package-output">;
 
 export type AssetRole = "input" | "output" | "reference" | "license" | "other";
 export type VerificationStatus = "valid" | "invalid" | "error";
@@ -249,7 +266,7 @@ export interface Asset {
 }
 
 export interface Workspace {
-  workspace_version: "0.2.0" | "0.3.0";
+  workspace_version: "0.2.0" | "0.3.0" | "0.4.0";
   created_at: string;
   project: { name?: string | undefined };
   assets: Asset[];
@@ -262,6 +279,28 @@ export interface CreatorSignatureDescriptor {
   key_fingerprint: string;
   public_key_path: string;
   signature_path: string;
+}
+
+export interface TrustedTimestampDescriptor {
+  profile: string;
+  timestamp_path: string;
+  nonce: string;
+  requested_policy: string;
+  tsa_profile_sha256: string;
+}
+
+export interface TsaProfileSummary {
+  profile_sha256: string;
+  source_label: string;
+  endpoint: string;
+  endpoint_scope: "public_https" | "loopback_test";
+  allowed_policy_oids: string[];
+  root_count: number;
+  intermediate_count: number;
+  https_root_count: number;
+  revocation_evidence_count: number;
+  effective_at: string;
+  expires_at: string;
 }
 
 export type LocalSignerState =
@@ -301,7 +340,7 @@ export interface EventRecord {
 }
 
 export interface VerificationReport {
-  spec_version: "0.2.0" | "0.3.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0";
   proof_id: string | null;
   verified_at: string;
   status: VerificationStatus;
@@ -317,7 +356,23 @@ export interface VerificationReport {
       | "valid_untrusted"
       | "valid_locally_trusted"
       | "disabled";
-    trusted_time: "not_present";
+    trusted_time:
+      | "not_present"
+      | "absent"
+      | "acquisition_failed"
+      | "malformed"
+      | "imprint_mismatch"
+      | "nonce_mismatch"
+      | "policy_mismatch"
+      | "invalid_signature"
+      | "invalid_chain"
+      | "invalid_eku"
+      | "invalid_ess"
+      | "untrusted"
+      | "expired_or_stale"
+      | "indeterminate_revocation"
+      | "unsupported_algorithm"
+      | "valid_trusted";
     originality: "not_evaluated";
   };
   creator_signature?:
@@ -326,6 +381,18 @@ export interface VerificationReport {
         key_fingerprint: string;
         profile: string;
         local_trust: "untrusted" | "trusted" | "disabled";
+      }
+    | undefined;
+  trusted_time?:
+    | {
+        profile: string;
+        timestamp_path: string;
+        tsa_profile_sha256: string;
+        requested_policy: string;
+        granted_policy?: string | undefined;
+        gen_time?: string | undefined;
+        source_label?: string | undefined;
+        revocation: "not_provided" | "valid_crl" | "revoked" | "indeterminate";
       }
     | undefined;
   checks: Array<{
@@ -339,7 +406,7 @@ export interface VerificationReport {
 }
 
 export interface Inspection {
-  spec_version: "0.2.0" | "0.3.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0";
   proof_id: string;
   created_at: string;
   project: { name?: string | undefined };
@@ -352,6 +419,7 @@ export interface Inspection {
   assurance_level: string;
   verification_performed: false;
   creator_signature?: CreatorSignatureDescriptor | undefined;
+  trusted_timestamp?: TrustedTimestampDescriptor | undefined;
 }
 
 export interface RecentItem<K extends "workspace" | "package"> {
@@ -763,6 +831,16 @@ export const sealPackageRequestSchema = z
     confirmSignature: z.literal(true),
   })
   .strict();
+export const tsaProfileRequestSchema = z
+  .object({ profile: tsaProfileReferenceSchema })
+  .strict();
+export const requestTrustedTimestampSchema = z
+  .object({
+    package: packageReferenceSchema,
+    output: timestampPackageOutputReferenceSchema,
+    confirmDisclosure: z.literal(true),
+  })
+  .strict();
 function isForbiddenCreatorLabelCharacter(character: string): boolean {
   const code = character.codePointAt(0) ?? 0;
   return (
@@ -837,7 +915,7 @@ export const creatorSignatureEvidenceSchema = z
   .strict();
 export const verificationReportSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
     proof_id: z.string().nullable(),
     verified_at: z.string(),
     status: z.enum(["valid", "invalid", "error"]),
@@ -855,11 +933,46 @@ export const verificationReportSchema = z
           "valid_locally_trusted",
           "disabled",
         ]),
-        trusted_time: z.literal("not_present"),
+        trusted_time: z.enum([
+          "not_present",
+          "absent",
+          "acquisition_failed",
+          "malformed",
+          "imprint_mismatch",
+          "nonce_mismatch",
+          "policy_mismatch",
+          "invalid_signature",
+          "invalid_chain",
+          "invalid_eku",
+          "invalid_ess",
+          "untrusted",
+          "expired_or_stale",
+          "indeterminate_revocation",
+          "unsupported_algorithm",
+          "valid_trusted",
+        ]),
         originality: z.literal("not_evaluated"),
       })
       .strict(),
     creator_signature: creatorSignatureEvidenceSchema.optional(),
+    trusted_time: z
+      .object({
+        profile: z.string().min(1),
+        timestamp_path: z.string().min(1),
+        tsa_profile_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        requested_policy: z.string().min(1),
+        granted_policy: z.string().min(1).optional(),
+        gen_time: z.string().min(1).optional(),
+        source_label: z.string().min(1).optional(),
+        revocation: z.enum([
+          "not_provided",
+          "valid_crl",
+          "revoked",
+          "indeterminate",
+        ]),
+      })
+      .strict()
+      .optional(),
     checks: z.array(
       verificationIssueSchema
         .extend({ status: z.enum(["pass", "fail", "skipped"]) })
@@ -1137,7 +1250,33 @@ export interface ProofHostApi {
   }): Promise<ImageOutputReference | null>;
   choosePackage(): Promise<PackageReference | null>;
   choosePackageOutput(): Promise<PackageOutputReference | null>;
+  chooseTsaProfile(): Promise<TsaProfileReference | null>;
+  chooseTimestampPackageOutput(): Promise<TimestampPackageOutputReference | null>;
   chooseReportOutput(): Promise<ReportOutputReference | null>;
+  importTsaProfile(request: {
+    profile: TsaProfileReference;
+  }): Promise<HostEnvelope<TsaProfileSummary>>;
+  getTsaProfileStatus(): Promise<HostEnvelope<TsaProfileSummary | null>>;
+  requestTrustedTimestamp(request: {
+    package: PackageReference;
+    output: TimestampPackageOutputReference;
+    confirmDisclosure: true;
+  }): Promise<
+    HostEnvelope<{
+      package: PackageReference;
+      displayPath: string;
+      trustedTime: string;
+      disclosure: {
+        endpoint: string;
+        content_type: "application/timestamp-query";
+        message_imprint_sha256: string;
+        nonce: string;
+        requested_policy: string;
+        tsa_profile_sha256: string;
+      };
+    }>
+  >;
+  cancelTrustedTimestamp(): Promise<HostEnvelope<{ cancelled: boolean }>>;
   previewWorkspaceTarget(request: {
     parent: WorkspaceParentReference;
     folderName: string;
@@ -1250,9 +1389,35 @@ export const creatorSignatureDescriptorSchema = z
     signature_path: z.literal("security/signatures/creator.cose"),
   })
   .strict();
+export const trustedTimestampDescriptorSchema = z
+  .object({
+    profile: z.string().min(1),
+    timestamp_path: z
+      .string()
+      .regex(/^security\/timestamps\/[0-9a-f]{64}\.tsr$/u),
+    nonce: z.string().regex(/^[0-9a-f]{32}$/u),
+    requested_policy: z.string().min(1),
+    tsa_profile_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict();
+export const tsaProfileSummarySchema = z
+  .object({
+    profile_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    source_label: z.string().min(1),
+    endpoint: z.string().url(),
+    endpoint_scope: z.enum(["public_https", "loopback_test"]),
+    allowed_policy_oids: z.array(z.string().min(1)).min(1),
+    root_count: z.number().int().positive(),
+    intermediate_count: z.number().int().nonnegative(),
+    https_root_count: z.number().int().nonnegative(),
+    revocation_evidence_count: z.number().int().nonnegative(),
+    effective_at: z.string().min(1),
+    expires_at: z.string().min(1),
+  })
+  .strict();
 export const workspaceSchema = z
   .object({
-    workspace_version: z.enum(["0.2.0", "0.3.0"]),
+    workspace_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
     assets: z.array(assetSchema),
@@ -1289,7 +1454,7 @@ export const eventRecordSchema = z
   .strict();
 export const inspectionSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
     proof_id: z.string().min(1),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
@@ -1307,6 +1472,24 @@ export const inspectionSchema = z
     assurance_level: z.string().min(1),
     verification_performed: z.literal(false),
     creator_signature: creatorSignatureDescriptorSchema.optional(),
+    trusted_timestamp: trustedTimestampDescriptorSchema.optional(),
+  })
+  .strict();
+export const timestampAcquisitionResultSchema = z
+  .object({
+    package: packageReferenceSchema,
+    displayPath: localDisplayPath,
+    trustedTime: z.string().min(1),
+    disclosure: z
+      .object({
+        endpoint: z.string().url(),
+        content_type: z.literal("application/timestamp-query"),
+        message_imprint_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        nonce: z.string().regex(/^[0-9a-f]{32}$/u),
+        requested_policy: z.string().min(1),
+        tsa_profile_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      })
+      .strict(),
   })
   .strict();
 const recentWorkspaceSchema = z
@@ -1688,7 +1871,20 @@ export const proofHostResponseSchemas = {
   chooseCreationOutput: imageOutputReferenceSchema.nullable(),
   choosePackage: packageReferenceSchema.nullable(),
   choosePackageOutput: packageOutputReferenceSchema.nullable(),
+  chooseTsaProfile: tsaProfileReferenceSchema.nullable(),
+  chooseTimestampPackageOutput:
+    timestampPackageOutputReferenceSchema.nullable(),
   chooseReportOutput: reportOutputReferenceSchema.nullable(),
+  importTsaProfile: hostEnvelopeSchemaFor(tsaProfileSummarySchema),
+  getTsaProfileStatus: hostEnvelopeSchemaFor(
+    tsaProfileSummarySchema.nullable(),
+  ),
+  requestTrustedTimestamp: hostEnvelopeSchemaFor(
+    timestampAcquisitionResultSchema,
+  ),
+  cancelTrustedTimestamp: hostEnvelopeSchemaFor(
+    z.object({ cancelled: z.boolean() }).strict(),
+  ),
   previewWorkspaceTarget: hostEnvelopeSchemaFor(workspaceTargetPreviewSchema),
   initializeWorkspace: hostEnvelopeSchemaFor(workspaceSummarySchema),
   loadWorkspace: hostEnvelopeSchemaFor(workspaceSummarySchema),

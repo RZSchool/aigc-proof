@@ -50,6 +50,10 @@ import {
   signerLabelRequestSchema,
   setPreferenceRequestSchema,
   taskReferenceSchema,
+  timestampAcquisitionResultSchema,
+  requestTrustedTimestampSchema,
+  tsaProfileRequestSchema,
+  tsaProfileSummarySchema,
   verificationReportSchema,
   workspaceRequestSchema,
   workspaceSchema,
@@ -65,6 +69,7 @@ import {
   type JobResult,
   type JobSnapshot,
   type VerificationReport,
+  type TsaProfileSummary,
   type WorkbenchState,
   type WorkspaceParentReference,
   type WorkspaceSummary,
@@ -86,6 +91,7 @@ import { JobScheduler } from "./job-scheduler";
 import type { QaSelectionKind, QaSelectionProvider } from "./qa-selections";
 import { UtilitySupervisor } from "./utility-supervisor";
 import { resolveWorkspaceTarget } from "./workspace-path";
+import { postTimestampRequest } from "./tsa-transport";
 
 const localPathSchema = z.string().min(1).max(32_767);
 const WORKSPACE_PERMISSIONS = [
@@ -144,6 +150,44 @@ const nativeValidatedRecentsSchema = z
       .max(40),
   })
   .strict();
+const nativePreparedTimestampSchema = z
+  .object({
+    timestampPath: localPathSchema,
+    disclosure: z
+      .object({
+        endpoint: z.string().url(),
+        content_type: z.literal("application/timestamp-query"),
+        message_imprint_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        nonce: z.string().regex(/^[0-9a-f]{32}$/u),
+        requested_policy: z.string().min(1),
+        tsa_profile_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+        request_der_base64: z
+          .string()
+          .min(1)
+          .max(2 * 1024 * 1024),
+      })
+      .strict(),
+  })
+  .strict();
+const nativeAttachedTimestampSchema = z
+  .object({
+    path: localPathSchema,
+    timestampPath: localPathSchema,
+    trustedTime: z.string().min(1),
+  })
+  .strict();
+const tsaProfileTransportSchema = z
+  .object({
+    https_roots_der_base64: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(512 * 1024),
+      )
+      .max(16),
+  })
+  .passthrough();
 
 class HostEnvelopeError extends Error {
   constructor(readonly hostError: HostError) {
@@ -173,6 +217,36 @@ function failure(error: unknown): Extract<HostEnvelope<never>, { ok: false }> {
       ok: false,
       error: { code: error.code, kind: "authority", message: error.message },
     };
+  }
+  if (error instanceof Error) {
+    const systemCode = (error as NodeJS.ErrnoException).code;
+    if (systemCode && /^[A-Z][A-Z0-9_]{2,159}$/u.test(systemCode)) {
+      return {
+        ok: false,
+        error: {
+          code: systemCode,
+          kind: systemCode === "ABORT_ERR" ? "trusted-time" : "system",
+          message: error.message,
+        },
+      };
+    }
+    const structured = /^([A-Z][A-Z0-9_]{2,159}):\s*(.+)$/su.exec(
+      error.message,
+    );
+    if (structured) {
+      const code = structured[1] ?? "IPC_REQUEST_INVALID";
+      return {
+        ok: false,
+        error: {
+          code,
+          kind:
+            code.startsWith("TSA_") || code.startsWith("TIMESTAMP_")
+              ? "trusted-time"
+              : "input",
+          message: structured[2] ?? error.message,
+        },
+      };
+    }
   }
   return {
     ok: false,
@@ -328,6 +402,12 @@ export async function registerIpc(
     `run_${randomUUID().replaceAll("-", "")}`,
   );
   await fs.mkdir(creationStagingRoot, { recursive: true });
+  const timestampStagingRoot = path.join(
+    app.getPath("userData"),
+    "timestamp-staging",
+    `run_${randomUUID().replaceAll("-", "")}`,
+  );
+  await fs.mkdir(timestampStagingRoot, { recursive: true });
   const providerSupervisor = new ComfyUiSupervisor(app.getPath("userData"));
   const creationScopes = new CreationSessionScopeRegistry();
   const executionPrompts = new Map<
@@ -335,12 +415,27 @@ export async function registerIpc(
     { prompt: string; negativePrompt: string }
   >();
   const creationAbortControllers = new Map<string, AbortController>();
+  const tsaProfiles = new Map<
+    number,
+    { rawJson: string; summary: TsaProfileSummary; httpsRoots: string[] }
+  >();
+  const timestampAbortControllers = new Map<number, AbortController>();
   let creationEventSequence = 0;
   const diagnosticReference = Object.freeze({
     id: `ref_${randomUUID().replaceAll("-", "")}`,
     kind: "diagnostic",
     displayLabel: "Workbench 运行诊断",
   }) as DiagnosticReference;
+
+  async function executeUtility(job: UtilityJob): Promise<unknown> {
+    const result = await utility.execute(
+      `job_${randomUUID().replaceAll("-", "")}`,
+      job,
+      () => undefined,
+    );
+    if (!result.ok) throw new HostEnvelopeError(result.error);
+    return result.data;
+  }
 
   function resolveCreationSession(
     owner: number,
@@ -400,6 +495,7 @@ export async function registerIpc(
           "verifyPackage",
           "inspectPackage",
           "matchImageToPackage",
+          "requestTrustedTimestamp",
         ])
       : undefined;
     return creationSessionSummarySchema.parse({
@@ -482,7 +578,12 @@ export async function registerIpc(
                 owner,
                 kind === "workspace"
                   ? WORKSPACE_PERMISSIONS
-                  : ["verifyPackage", "inspectPackage", "matchImageToPackage"],
+                  : [
+                      "verifyPackage",
+                      "inspectPackage",
+                      "matchImageToPackage",
+                      "requestTrustedTimestamp",
+                    ],
               ),
               displayPath: item.path,
               lastOpenedAt: item.lastOpenedAt,
@@ -800,6 +901,12 @@ export async function registerIpc(
               workspace,
               output,
               confirmSignature: request.input.confirmSignature,
+              ...(tsaProfiles.get(owner)
+                ? {
+                    tsaProfileJson: tsaProfiles.get(owner)!.rawJson,
+                    timestampPolicy: "any",
+                  }
+                : {}),
             },
           };
           oneUse.push({
@@ -817,6 +924,7 @@ export async function registerIpc(
                   "verifyPackage",
                   "inspectPackage",
                   "matchImageToPackage",
+                  "requestTrustedTimestamp",
                 ]),
                 displayPath: native.path,
                 manifest: native.manifest,
@@ -834,7 +942,15 @@ export async function registerIpc(
             owner,
             operation,
           );
-          utilityJob = { operation, payload: { path: selected } };
+          utilityJob = {
+            operation,
+            payload: {
+              path: selected,
+              ...(operation === "verifyPackage" && tsaProfiles.get(owner)
+                ? { tsaProfileJson: tsaProfiles.get(owner)!.rawJson }
+                : {}),
+            },
+          };
           publish = async (raw) => {
             stateStore.remember("package", selected);
             return operation === "verifyPackage"
@@ -1578,6 +1694,7 @@ export async function registerIpc(
           "verifyPackage",
           "inspectPackage",
           "matchImageToPackage",
+          "requestTrustedTimestamp",
         ])
       : null;
   });
@@ -1596,6 +1713,238 @@ export async function registerIpc(
           true,
         )
       : null;
+  });
+  ipcMain.handle(channels.chooseTsaProfile, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "tsaProfiles", {
+      title: "Import TSA trust snapshot",
+      buttonLabel: "Import trust snapshot",
+      properties: ["openFile"],
+      filters: [{ name: "TSA trust snapshot", extensions: ["json"] }],
+    });
+    return selected
+      ? registry.issue(
+          "tsa-profile",
+          selected,
+          event.sender.id,
+          ["importTsaProfile"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.chooseTimestampPackageOutput, async (event) => {
+    const selected = await selectedSavePath(
+      qaSelections,
+      "timestampPackageOutputs",
+      {
+        title: "Save timestamped proof package",
+        buttonLabel: "Save timestamped package",
+        filters: [{ name: "AIGC-Proof", extensions: ["aigcproof"] }],
+      },
+    );
+    return selected
+      ? registry.issue(
+          "timestamp-package-output",
+          selected,
+          event.sender.id,
+          ["requestTrustedTimestamp"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.importTsaProfile, async (event, raw: unknown) => {
+    const request = validated(tsaProfileRequestSchema, raw);
+    if (isFailure(request)) return request;
+    try {
+      const selected = await registry.resolve(
+        request.profile,
+        "tsa-profile",
+        event.sender.id,
+        "importTsaProfile",
+      );
+      const metadata = await fs.lstat(selected);
+      if (
+        !metadata.isFile() ||
+        metadata.isSymbolicLink() ||
+        metadata.size > 768 * 1024
+      ) {
+        throw new Error(
+          "TSA_PROFILE_FILE_INVALID: trust snapshot must be a regular file no larger than 768 KiB.",
+        );
+      }
+      const rawJson = await fs.readFile(selected, "utf8");
+      const summary = tsaProfileSummarySchema.parse(
+        await executeUtility({
+          operation: "validateTsaProfile",
+          payload: { profileJson: rawJson },
+        }),
+      );
+      const transport = tsaProfileTransportSchema.parse(JSON.parse(rawJson));
+      const endpoint = new URL(summary.endpoint);
+      const loopback = ["localhost", "127.0.0.1", "::1"].includes(
+        endpoint.hostname.toLowerCase(),
+      );
+      if (
+        (summary.endpoint_scope === "loopback_test" && !loopback) ||
+        (summary.endpoint_scope === "public_https" && loopback)
+      ) {
+        throw new Error(
+          "TSA_ENDPOINT_SCOPE_MISMATCH: endpoint is outside its declared public/loopback scope.",
+        );
+      }
+      tsaProfiles.set(event.sender.id, {
+        rawJson,
+        summary,
+        httpsRoots: transport.https_roots_der_base64,
+      });
+      registry.consume(
+        request.profile,
+        "tsa-profile",
+        event.sender.id,
+        "importTsaProfile",
+      );
+      return { ok: true, data: summary };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+  ipcMain.handle(channels.getTsaProfileStatus, (event) => ({
+    ok: true,
+    data: tsaProfiles.get(event.sender.id)?.summary ?? null,
+  }));
+  ipcMain.handle(
+    channels.requestTrustedTimestamp,
+    async (event, raw: unknown) => {
+      const request = validated(requestTrustedTimestampSchema, raw);
+      if (isFailure(request)) return request;
+      const owner = event.sender.id;
+      let responsePath: string | undefined;
+      try {
+        const imported = tsaProfiles.get(owner);
+        if (!imported) {
+          throw new Error(
+            "TSA_PROFILE_NOT_IMPORTED: import an explicit trust snapshot first.",
+          );
+        }
+        if (timestampAbortControllers.has(owner)) {
+          throw new Error(
+            "TSA_REQUEST_ALREADY_RUNNING: one trusted-time request is already active.",
+          );
+        }
+        const packagePath = await registry.resolve(
+          request.package,
+          "package",
+          owner,
+          "requestTrustedTimestamp",
+        );
+        const outputPath = await registry.resolve(
+          request.output,
+          "timestamp-package-output",
+          owner,
+          "requestTrustedTimestamp",
+        );
+        const prepared = nativePreparedTimestampSchema.parse(
+          await executeUtility({
+            operation: "prepareTimestamp",
+            payload: { package: packagePath, profileJson: imported.rawJson },
+          }),
+        );
+        if (
+          prepared.disclosure.endpoint !== imported.summary.endpoint ||
+          prepared.disclosure.tsa_profile_sha256 !==
+            imported.summary.profile_sha256
+        ) {
+          throw new Error(
+            "TSA_DISCLOSURE_MISMATCH: prepared request does not match the imported profile.",
+          );
+        }
+        if (!qaMode) {
+          const confirmation = await dialog.showMessageBox({
+            type: "warning",
+            title: "Send trusted-time request?",
+            message:
+              "The creator-signature digest and a random nonce will be sent to the configured TSA.",
+            detail: `Endpoint: ${prepared.disclosure.endpoint}\nPolicy: ${prepared.disclosure.requested_policy}\nImprint: ${prepared.disclosure.message_imprint_sha256}`,
+            buttons: ["Cancel", "Send request"],
+            defaultId: 1,
+            cancelId: 0,
+            noLink: true,
+          });
+          if (confirmation.response !== 1) {
+            throw new Error(
+              "TSA_REQUEST_NOT_CONFIRMED: network disclosure was cancelled.",
+            );
+          }
+        }
+        const controller = new AbortController();
+        timestampAbortControllers.set(owner, controller);
+        const requestDer = Buffer.from(
+          prepared.disclosure.request_der_base64,
+          "base64",
+        );
+        const response = await postTimestampRequest(
+          prepared.disclosure.endpoint,
+          requestDer,
+          imported.httpsRoots,
+          controller.signal,
+        );
+        responsePath = path.join(
+          timestampStagingRoot,
+          `response_${randomUUID().replaceAll("-", "")}.tsr`,
+        );
+        await fs.writeFile(responsePath, response, { flag: "wx", mode: 0o600 });
+        const attached = nativeAttachedTimestampSchema.parse(
+          await executeUtility({
+            operation: "attachTimestamp",
+            payload: {
+              package: packagePath,
+              output: outputPath,
+              responsePath,
+              profileJson: imported.rawJson,
+            },
+          }),
+        );
+        registry.consume(
+          request.output,
+          "timestamp-package-output",
+          owner,
+          "requestTrustedTimestamp",
+        );
+        stateStore.remember("package", attached.path);
+        const published = timestampAcquisitionResultSchema.parse({
+          package: await registry.issue("package", attached.path, owner, [
+            "verifyPackage",
+            "inspectPackage",
+            "matchImageToPackage",
+            "requestTrustedTimestamp",
+          ]),
+          displayPath: attached.path,
+          trustedTime: attached.trustedTime,
+          disclosure: {
+            endpoint: prepared.disclosure.endpoint,
+            content_type: prepared.disclosure.content_type,
+            message_imprint_sha256: prepared.disclosure.message_imprint_sha256,
+            nonce: prepared.disclosure.nonce,
+            requested_policy: prepared.disclosure.requested_policy,
+            tsa_profile_sha256: prepared.disclosure.tsa_profile_sha256,
+          },
+        });
+        return { ok: true, data: published };
+      } catch (error) {
+        return failure(error);
+      } finally {
+        timestampAbortControllers.delete(owner);
+        if (responsePath) await fs.rm(responsePath, { force: true });
+      }
+    },
+  );
+  ipcMain.handle(channels.cancelTrustedTimestamp, (event) => {
+    const controller = timestampAbortControllers.get(event.sender.id);
+    controller?.abort();
+    return { ok: true, data: { cancelled: Boolean(controller) } };
   });
   ipcMain.handle(channels.chooseReportOutput, async (event) => {
     const selected = await selectedSavePath(qaSelections, "reportOutputs", {
@@ -1816,9 +2165,13 @@ export async function registerIpc(
     for (const controller of creationAbortControllers.values()) {
       controller.abort();
     }
+    for (const controller of timestampAbortControllers.values()) {
+      controller.abort();
+    }
     await providerSupervisor.close();
     await scheduler.shutdown();
     await fs.rm(creationStagingRoot, { recursive: true, force: true });
+    await fs.rm(timestampStagingRoot, { recursive: true, force: true });
     stateStore.close();
   };
   ipcMain.handle(channels.closeApp, async () => {

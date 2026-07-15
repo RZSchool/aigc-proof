@@ -2,13 +2,18 @@ use serde_json::Value;
 
 const MANIFEST_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/manifest.schema.json");
 const MANIFEST_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/manifest.schema.json");
+const MANIFEST_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/manifest.schema.json");
 const EVENT_SCHEMA: &str = include_str!("../../../schemas/v0.2/event.schema.json");
 const REPORT_SCHEMA_V02: &str =
     include_str!("../../../schemas/v0.2/verification-result.schema.json");
 const REPORT_SCHEMA_V03: &str =
     include_str!("../../../schemas/v0.3/verification-result.schema.json");
+const REPORT_SCHEMA_V04: &str =
+    include_str!("../../../schemas/v0.4/verification-result.schema.json");
 const WORKSPACE_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
 const WORKSPACE_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/workspace.schema.json");
+const WORKSPACE_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/workspace.schema.json");
+const TSA_PROFILE_SCHEMA: &str = include_str!("../../../schemas/v0.4/tsa-profile.schema.json");
 
 pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(
@@ -17,6 +22,7 @@ pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
             "spec_version",
             MANIFEST_SCHEMA_V02,
             MANIFEST_SCHEMA_V03,
+            MANIFEST_SCHEMA_V04,
         ),
         value,
     )
@@ -28,7 +34,13 @@ pub fn validate_event_schema(value: &Value) -> Result<(), Vec<String>> {
 
 pub fn validate_verification_result_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(
-        versioned(value, "spec_version", REPORT_SCHEMA_V02, REPORT_SCHEMA_V03),
+        versioned(
+            value,
+            "spec_version",
+            REPORT_SCHEMA_V02,
+            REPORT_SCHEMA_V03,
+            REPORT_SCHEMA_V04,
+        ),
         value,
     )
 }
@@ -40,16 +52,27 @@ pub fn validate_workspace_schema(value: &Value) -> Result<(), Vec<String>> {
             "workspace_version",
             WORKSPACE_SCHEMA_V02,
             WORKSPACE_SCHEMA_V03,
+            WORKSPACE_SCHEMA_V04,
         ),
         value,
     )
 }
 
-fn versioned<'a>(value: &Value, field: &str, legacy: &'a str, current: &'a str) -> &'a str {
-    if value.get(field).and_then(Value::as_str) == Some(crate::LEGACY_SCHEMA_VERSION) {
-        legacy
-    } else {
-        current
+pub fn validate_tsa_profile_schema(value: &Value) -> Result<(), Vec<String>> {
+    validate(TSA_PROFILE_SCHEMA, value)
+}
+
+fn versioned<'a>(
+    value: &Value,
+    field: &str,
+    legacy: &'a str,
+    signed: &'a str,
+    current: &'a str,
+) -> &'a str {
+    match value.get(field).and_then(Value::as_str) {
+        Some(crate::LEGACY_SCHEMA_VERSION) => legacy,
+        Some(crate::SIGNED_SCHEMA_VERSION) => signed,
+        _ => current,
     }
 }
 

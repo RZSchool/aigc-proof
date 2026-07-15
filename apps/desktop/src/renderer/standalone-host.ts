@@ -74,8 +74,28 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   choosePackageOutput() {
     return this.bridge.choosePackageOutput();
   }
+  chooseTsaProfile() {
+    return this.bridge.chooseTsaProfile();
+  }
+  chooseTimestampPackageOutput() {
+    return this.bridge.chooseTimestampPackageOutput();
+  }
   chooseReportOutput() {
     return this.bridge.chooseReportOutput();
+  }
+  importTsaProfile(request: Parameters<ProofHostApi["importTsaProfile"]>[0]) {
+    return this.bridge.importTsaProfile(request);
+  }
+  getTsaProfileStatus() {
+    return this.bridge.getTsaProfileStatus();
+  }
+  requestTrustedTimestamp(
+    request: Parameters<ProofHostApi["requestTrustedTimestamp"]>[0],
+  ) {
+    return this.bridge.requestTrustedTimestamp(request);
+  }
+  cancelTrustedTimestamp() {
+    return this.bridge.cancelTrustedTimestamp();
   }
   previewWorkspaceTarget(
     request: Parameters<ProofHostApi["previewWorkspaceTarget"]>[0],

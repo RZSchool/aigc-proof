@@ -6,8 +6,9 @@ use std::path::Path;
 use proof_schema::{
     Assurance, CheckResult, CheckStatus, CreatorSignatureEvidence, EVENTS_PATH, Event,
     IdentityAssurance, Inspection, InternalIntegrity, LEGACY_SCHEMA_VERSION, LocalTrust,
-    MANIFEST_PATH, Manifest, SCHEMA_VERSION, SignatureAssurance, VerificationError,
-    VerificationReport, VerificationStatus, VerificationWarning,
+    MANIFEST_PATH, Manifest, RevocationEvidenceState, SCHEMA_VERSION, SIGNED_SCHEMA_VERSION,
+    SignatureAssurance, TRUSTED_TIMESTAMP_PROFILE, TimeAssurance, TrustedTimeEvidence,
+    VerificationError, VerificationReport, VerificationStatus, VerificationWarning,
     display_label_needs_confusable_warning, parse_json_strict, validate_event_schema,
     validate_manifest_schema, validate_package_path, validate_proof_id,
 };
@@ -15,6 +16,7 @@ use serde_json::Value;
 use zip::{CompressionMethod, ZipArchive};
 
 use crate::signing::{SignatureFailure, SignerKeyStore, SignerService, verify_manifest_signature};
+use crate::timestamp::{ParsedTsaProfile, verify_timestamp_strict};
 use crate::{CoreError, CoreResult, ErrorKind, canonical_json, sha256_reader, verify_event_chain};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub struct VerificationLimits {
     pub max_event_bytes: u64,
     pub max_public_key_bytes: u64,
     pub max_signature_bytes: u64,
+    pub max_timestamp_response_bytes: u64,
     pub max_total_uncompressed_bytes: u64,
     pub max_single_entry_bytes: u64,
     pub max_compression_ratio: u64,
@@ -39,6 +42,7 @@ impl Default for VerificationLimits {
             max_event_bytes: 16 * 1024 * 1024,
             max_public_key_bytes: 256,
             max_signature_bytes: 1024,
+            max_timestamp_response_bytes: 1024 * 1024,
             max_total_uncompressed_bytes: 2 * 1024 * 1024 * 1024,
             max_single_entry_bytes: 512 * 1024 * 1024,
             max_compression_ratio: 100,
@@ -58,7 +62,23 @@ pub fn verify_package(
     limits: &VerificationLimits,
     verified_at: String,
 ) -> VerificationReport {
-    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted).0
+    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted, None).0
+}
+
+pub fn verify_package_with_profile(
+    path: &Path,
+    limits: &VerificationLimits,
+    verified_at: String,
+    profile: &ParsedTsaProfile,
+) -> VerificationReport {
+    verify_package_internal(
+        path,
+        limits,
+        verified_at,
+        &|_| LocalTrust::Untrusted,
+        Some(profile),
+    )
+    .0
 }
 
 pub fn verify_package_with_signer<S: SignerKeyStore>(
@@ -67,9 +87,30 @@ pub fn verify_package_with_signer<S: SignerKeyStore>(
     verified_at: String,
     signer: &SignerService<S>,
 ) -> VerificationReport {
-    verify_package_internal(path, limits, verified_at, &|fingerprint| {
-        signer.trust_for(fingerprint)
-    })
+    verify_package_internal(
+        path,
+        limits,
+        verified_at,
+        &|fingerprint| signer.trust_for(fingerprint),
+        None,
+    )
+    .0
+}
+
+pub fn verify_package_with_signer_and_profile<S: SignerKeyStore>(
+    path: &Path,
+    limits: &VerificationLimits,
+    verified_at: String,
+    signer: &SignerService<S>,
+    profile: &ParsedTsaProfile,
+) -> VerificationReport {
+    verify_package_internal(
+        path,
+        limits,
+        verified_at,
+        &|fingerprint| signer.trust_for(fingerprint),
+        Some(profile),
+    )
     .0
 }
 
@@ -78,7 +119,7 @@ pub(crate) fn verify_package_with_manifest(
     limits: &VerificationLimits,
     verified_at: String,
 ) -> (VerificationReport, Option<Manifest>) {
-    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted)
+    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted, None)
 }
 
 fn verify_package_internal(
@@ -86,6 +127,7 @@ fn verify_package_internal(
     limits: &VerificationLimits,
     verified_at: String,
     trust: &dyn Fn(&str) -> LocalTrust,
+    tsa_profile: Option<&ParsedTsaProfile>,
 ) -> (VerificationReport, Option<Manifest>) {
     let verification_timestamp_valid =
         proof_schema::validate_canonical_timestamp(&verified_at).is_ok();
@@ -222,7 +264,7 @@ fn verify_package_internal(
     };
     if matches!(
         manifest.spec_version.as_str(),
-        LEGACY_SCHEMA_VERSION | SCHEMA_VERSION
+        LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         report.spec_version = manifest.spec_version.clone();
     }
@@ -230,6 +272,11 @@ fn verify_package_internal(
         SignatureAssurance::NotPresent
     } else {
         SignatureAssurance::Absent
+    };
+    report.trusted_time = if report.spec_version == SCHEMA_VERSION {
+        TimeAssurance::Absent
+    } else {
+        TimeAssurance::NotPresent
     };
     if validate_proof_id(&manifest.proof_id).is_ok() {
         report.proof_id = Some(manifest.proof_id.clone());
@@ -266,7 +313,10 @@ fn verify_package_internal(
         InternalIntegrity::Invalid
     });
 
-    if manifest.spec_version == SCHEMA_VERSION {
+    if matches!(
+        manifest.spec_version.as_str(),
+        SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
+    ) {
         let signature_error_start = report.errors.len();
         verify_creator_signature(
             &mut archive,
@@ -292,6 +342,16 @@ fn verify_package_internal(
             } else {
                 "Creator signature is absent, unsupported, malformed, or invalid."
             },
+        );
+    }
+    if manifest.spec_version == SCHEMA_VERSION {
+        verify_trusted_timestamp(
+            &mut archive,
+            &entries,
+            limits,
+            &manifest,
+            tsa_profile,
+            &mut report,
         );
     }
     let report = report.finish();
@@ -361,6 +421,10 @@ pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<I
         .security
         .as_ref()
         .map(|security| security.creator_signature.clone());
+    let trusted_timestamp = manifest
+        .security
+        .as_ref()
+        .and_then(|security| security.trusted_timestamp.clone());
     Ok(Inspection {
         spec_version: manifest.spec_version,
         proof_id: manifest.proof_id,
@@ -368,13 +432,17 @@ pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<I
         project: manifest.project,
         assets: manifest.assets,
         event_chain: manifest.event_chain,
-        assurance_level: if creator_signature.is_some() {
+        assurance_level: if trusted_timestamp.is_some() {
+            "Creator signature and RFC 3161 timestamp plan metadata present (not verified by inspect)"
+                .to_owned()
+        } else if creator_signature.is_some() {
             "Creator signature metadata present (not verified by inspect)".to_owned()
         } else {
             "Internal Integrity (not evaluated by inspect)".to_owned()
         },
         verification_performed: false,
         creator_signature,
+        trusted_timestamp,
     })
 }
 
@@ -625,13 +693,21 @@ fn check_entry_coverage(
     if let Some(security) = &manifest.security {
         expected.push(security.creator_signature.public_key_path.clone());
         expected.push(security.creator_signature.signature_path.clone());
+        if let Some(timestamp) = &security.trusted_timestamp {
+            if entries
+                .iter()
+                .any(|entry| entry.name == timestamp.timestamp_path)
+            {
+                expected.push(timestamp.timestamp_path.clone());
+            }
+        }
     }
     let actual: Vec<String> = entries.iter().map(|entry| entry.name.clone()).collect();
     if actual != expected {
         report.error(
             "ZIP_ENTRY_ORDER_INVALID",
             None,
-            "ZIP entry order must be manifest.json, sorted assets, events.json, then declared creator key and signature entries.",
+            "ZIP entry order must be manifest.json, sorted assets, events.json, creator key/signature, then the optional predeclared timestamp response.",
         );
     }
     let expected_set: HashSet<&str> = expected.iter().map(String::as_str).collect();
@@ -660,6 +736,138 @@ fn check_entry_coverage(
             "ZIP entry is not declared by the manifest.",
         );
     }
+}
+
+fn verify_trusted_timestamp<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    entries: &[EntryMetadata],
+    limits: &VerificationLimits,
+    manifest: &Manifest,
+    profile: Option<&ParsedTsaProfile>,
+    report: &mut ReportBuilder,
+) {
+    let Some(security) = &manifest.security else {
+        report.stage(
+            "TRUSTED_TIME",
+            false,
+            "Protocol 0.4 timestamp plan is missing.",
+        );
+        return;
+    };
+    let Some(descriptor) = &security.trusted_timestamp else {
+        report.stage(
+            "TRUSTED_TIME",
+            false,
+            "Protocol 0.4 timestamp plan is missing.",
+        );
+        return;
+    };
+    let base_evidence = || TrustedTimeEvidence {
+        profile: TRUSTED_TIMESTAMP_PROFILE.to_owned(),
+        timestamp_path: descriptor.timestamp_path.clone(),
+        tsa_profile_sha256: descriptor.tsa_profile_sha256.clone(),
+        requested_policy: descriptor.requested_policy.clone(),
+        granted_policy: None,
+        gen_time: None,
+        source_label: profile.map(|value| value.profile.source_label.clone()),
+        revocation: RevocationEvidenceState::NotProvided,
+    };
+    let Some(timestamp_metadata) = entries
+        .iter()
+        .find(|entry| entry.name == descriptor.timestamp_path)
+    else {
+        report.trusted_time = TimeAssurance::Absent;
+        report.trusted_time_evidence = Some(base_evidence());
+        report.timestamp_warning = Some((
+            "TRUSTED_TIMESTAMP_ABSENT".to_owned(),
+            "Creator signature is valid, but no RFC 3161 response is attached.".to_owned(),
+        ));
+        report.stage(
+            "TRUSTED_TIME",
+            false,
+            "No RFC 3161 response is attached; creator-signature validity is unchanged.",
+        );
+        return;
+    };
+    let response = match read_entry_limited(
+        archive,
+        timestamp_metadata,
+        limits.max_timestamp_response_bytes,
+        "TRUSTED_TIMESTAMP_LIMIT_EXCEEDED",
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            report.trusted_time = TimeAssurance::Malformed;
+            report.trusted_time_evidence = Some(base_evidence());
+            report.timestamp_warning = Some((error.code.to_owned(), error.message));
+            report.stage(
+                "TRUSTED_TIME",
+                false,
+                "Attached RFC 3161 response is malformed or exceeds its bound.",
+            );
+            return;
+        }
+    };
+    let Some(signature_metadata) = entries
+        .iter()
+        .find(|entry| entry.name == security.creator_signature.signature_path)
+    else {
+        report.trusted_time = TimeAssurance::Malformed;
+        report.trusted_time_evidence = Some(base_evidence());
+        report.stage(
+            "TRUSTED_TIME",
+            false,
+            "Creator signature bytes required for timestamp verification are missing.",
+        );
+        return;
+    };
+    let signature = match read_entry_limited(
+        archive,
+        signature_metadata,
+        limits.max_signature_bytes,
+        "CREATOR_SIGNATURE_LIMIT_EXCEEDED",
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            report.trusted_time = TimeAssurance::Malformed;
+            report.trusted_time_evidence = Some(base_evidence());
+            report.timestamp_warning = Some((error.code.to_owned(), error.message));
+            report.stage(
+                "TRUSTED_TIME",
+                false,
+                "Creator signature bytes required for timestamp verification are invalid.",
+            );
+            return;
+        }
+    };
+    let Some(profile) = profile else {
+        report.trusted_time = TimeAssurance::Untrusted;
+        report.trusted_time_evidence = Some(base_evidence());
+        report.timestamp_warning = Some((
+            "TSA_PROFILE_NOT_IMPORTED".to_owned(),
+            "Timestamp response is attached but no matching explicit TSA trust snapshot was supplied for offline verification.".to_owned(),
+        ));
+        report.stage(
+            "TRUSTED_TIME",
+            false,
+            "Timestamp response was not trusted because no matching profile was supplied.",
+        );
+        return;
+    };
+    let verified = verify_timestamp_strict(
+        &response,
+        &signature,
+        descriptor,
+        profile,
+        &report.verified_at,
+    );
+    let passed = verified.state == TimeAssurance::ValidTrusted;
+    report.trusted_time = verified.state;
+    report.trusted_time_evidence = Some(verified.evidence);
+    if !passed {
+        report.timestamp_warning = Some((verified.code.to_owned(), verified.message.clone()));
+    }
+    report.stage("TRUSTED_TIME", passed, &verified.message);
 }
 
 fn verify_creator_signature<R: Read + Seek>(
@@ -986,6 +1194,9 @@ struct ReportBuilder {
     identity: IdentityAssurance,
     signature: SignatureAssurance,
     creator_signature: Option<CreatorSignatureEvidence>,
+    trusted_time: TimeAssurance,
+    trusted_time_evidence: Option<TrustedTimeEvidence>,
+    timestamp_warning: Option<(String, String)>,
     checks: Vec<CheckResult>,
     errors: Vec<VerificationError>,
     operational_error: bool,
@@ -1006,6 +1217,9 @@ impl ReportBuilder {
             identity: IdentityAssurance::NotVerified,
             signature: SignatureAssurance::Absent,
             creator_signature: None,
+            trusted_time: TimeAssurance::Absent,
+            trusted_time_evidence: None,
+            timestamp_warning: None,
             checks: Vec::new(),
             errors: Vec::new(),
             operational_error: false,
@@ -1055,6 +1269,7 @@ impl ReportBuilder {
         let mut assurance = Assurance::for_integrity(integrity);
         assurance.creator_identity = self.identity;
         assurance.digital_signature = self.signature.clone();
+        assurance.trusted_time = self.trusted_time.clone();
         let mut warnings = Vec::new();
         if self.spec_version == LEGACY_SCHEMA_VERSION {
             warnings.push(VerificationWarning {
@@ -1064,7 +1279,11 @@ impl ReportBuilder {
         } else {
             warnings.push(VerificationWarning {
                 code: "ASSURANCE_LIMITS".to_owned(),
-                message: "Creator display label is self-asserted. Trusted time and originality are not evaluated.".to_owned(),
+                message: if self.spec_version == SCHEMA_VERSION {
+                    "Creator display label remains self-asserted. Trusted time, when valid, witnesses only the exact creator signature; originality and rights are not evaluated.".to_owned()
+                } else {
+                    "Creator display label is self-asserted. Trusted time and originality are not evaluated.".to_owned()
+                },
             });
             match self.signature {
                 SignatureAssurance::ValidUntrusted => warnings.push(VerificationWarning {
@@ -1086,6 +1305,9 @@ impl ReportBuilder {
                 });
             }
         }
+        if let Some((code, message)) = self.timestamp_warning {
+            warnings.push(VerificationWarning { code, message });
+        }
         VerificationReport {
             spec_version: self.spec_version,
             proof_id: self.proof_id,
@@ -1093,6 +1315,7 @@ impl ReportBuilder {
             status,
             assurance,
             creator_signature: self.creator_signature,
+            trusted_time: self.trusted_time_evidence,
             checks: self.checks,
             errors: self.errors,
             warnings,
