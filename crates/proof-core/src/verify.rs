@@ -4,14 +4,17 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use proof_schema::{
-    Assurance, CheckResult, CheckStatus, EVENTS_PATH, Event, Inspection, InternalIntegrity,
-    MANIFEST_PATH, Manifest, SCHEMA_VERSION, VerificationError, VerificationReport,
-    VerificationStatus, VerificationWarning, parse_json_strict, validate_event_schema,
+    Assurance, CheckResult, CheckStatus, CreatorSignatureEvidence, EVENTS_PATH, Event,
+    IdentityAssurance, Inspection, InternalIntegrity, LEGACY_SCHEMA_VERSION, LocalTrust,
+    MANIFEST_PATH, Manifest, SCHEMA_VERSION, SignatureAssurance, VerificationError,
+    VerificationReport, VerificationStatus, VerificationWarning,
+    display_label_needs_confusable_warning, parse_json_strict, validate_event_schema,
     validate_manifest_schema, validate_package_path, validate_proof_id,
 };
 use serde_json::Value;
 use zip::{CompressionMethod, ZipArchive};
 
+use crate::signing::{SignatureFailure, SignerKeyStore, SignerService, verify_manifest_signature};
 use crate::{CoreError, CoreResult, ErrorKind, canonical_json, sha256_reader, verify_event_chain};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +23,8 @@ pub struct VerificationLimits {
     pub max_entries: usize,
     pub max_manifest_bytes: u64,
     pub max_event_bytes: u64,
+    pub max_public_key_bytes: u64,
+    pub max_signature_bytes: u64,
     pub max_total_uncompressed_bytes: u64,
     pub max_single_entry_bytes: u64,
     pub max_compression_ratio: u64,
@@ -32,6 +37,8 @@ impl Default for VerificationLimits {
             max_entries: 1024,
             max_manifest_bytes: 1024 * 1024,
             max_event_bytes: 16 * 1024 * 1024,
+            max_public_key_bytes: 256,
+            max_signature_bytes: 1024,
             max_total_uncompressed_bytes: 2 * 1024 * 1024 * 1024,
             max_single_entry_bytes: 512 * 1024 * 1024,
             max_compression_ratio: 100,
@@ -51,13 +58,34 @@ pub fn verify_package(
     limits: &VerificationLimits,
     verified_at: String,
 ) -> VerificationReport {
-    verify_package_with_manifest(path, limits, verified_at).0
+    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted).0
+}
+
+pub fn verify_package_with_signer<S: SignerKeyStore>(
+    path: &Path,
+    limits: &VerificationLimits,
+    verified_at: String,
+    signer: &SignerService<S>,
+) -> VerificationReport {
+    verify_package_internal(path, limits, verified_at, &|fingerprint| {
+        signer.trust_for(fingerprint)
+    })
+    .0
 }
 
 pub(crate) fn verify_package_with_manifest(
     path: &Path,
     limits: &VerificationLimits,
     verified_at: String,
+) -> (VerificationReport, Option<Manifest>) {
+    verify_package_internal(path, limits, verified_at, &|_| LocalTrust::Untrusted)
+}
+
+fn verify_package_internal(
+    path: &Path,
+    limits: &VerificationLimits,
+    verified_at: String,
+    trust: &dyn Fn(&str) -> LocalTrust,
 ) -> (VerificationReport, Option<Manifest>) {
     let verification_timestamp_valid =
         proof_schema::validate_canonical_timestamp(&verified_at).is_ok();
@@ -189,8 +217,19 @@ pub(crate) fn verify_package_with_manifest(
             "Manifest failed one or more validation checks."
         },
     );
-    let Some(manifest) = manifest else {
+    let Some((manifest, manifest_bytes)) = manifest else {
         return (report.finish(), None);
+    };
+    if matches!(
+        manifest.spec_version.as_str(),
+        LEGACY_SCHEMA_VERSION | SCHEMA_VERSION
+    ) {
+        report.spec_version = manifest.spec_version.clone();
+    }
+    report.signature = if manifest.spec_version == LEGACY_SCHEMA_VERSION {
+        SignatureAssurance::NotPresent
+    } else {
+        SignatureAssurance::Absent
     };
     if validate_proof_id(&manifest.proof_id).is_ok() {
         report.proof_id = Some(manifest.proof_id.clone());
@@ -221,6 +260,40 @@ pub(crate) fn verify_package_with_manifest(
             "Event chain failed one or more integrity checks."
         },
     );
+    report.internal_integrity = Some(if report.errors.is_empty() {
+        InternalIntegrity::Valid
+    } else {
+        InternalIntegrity::Invalid
+    });
+
+    if manifest.spec_version == SCHEMA_VERSION {
+        let signature_error_start = report.errors.len();
+        verify_creator_signature(
+            &mut archive,
+            &entries,
+            limits,
+            &manifest,
+            &manifest_bytes,
+            trust,
+            &mut report,
+        );
+        let signature_valid = report.errors.len() == signature_error_start
+            && matches!(
+                report.signature,
+                SignatureAssurance::ValidUntrusted
+                    | SignatureAssurance::ValidLocallyTrusted
+                    | SignatureAssurance::Disabled
+            );
+        report.stage(
+            "CREATOR_SIGNATURE",
+            signature_valid,
+            if signature_valid {
+                "Creator Ed25519 signature is cryptographically valid for the canonical Manifest."
+            } else {
+                "Creator signature is absent, unsupported, malformed, or invalid."
+            },
+        );
+    }
     let report = report.finish();
     let verified_manifest = (report.status == VerificationStatus::Valid).then_some(manifest);
     (report, verified_manifest)
@@ -277,13 +350,17 @@ pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<I
             format!("{}: {}", error.code, error.message),
         ));
     }
-    let manifest = manifest.ok_or_else(|| {
+    let (manifest, _) = manifest.ok_or_else(|| {
         CoreError::new(
             ErrorKind::PackageFormat,
             "MANIFEST_MISSING",
             "manifest.json is missing.",
         )
     })?;
+    let creator_signature = manifest
+        .security
+        .as_ref()
+        .map(|security| security.creator_signature.clone());
     Ok(Inspection {
         spec_version: manifest.spec_version,
         proof_id: manifest.proof_id,
@@ -291,8 +368,13 @@ pub fn inspect_package(path: &Path, limits: &VerificationLimits) -> CoreResult<I
         project: manifest.project,
         assets: manifest.assets,
         event_chain: manifest.event_chain,
-        assurance_level: "Internal Integrity (not evaluated by inspect)".to_owned(),
+        assurance_level: if creator_signature.is_some() {
+            "Creator signature metadata present (not verified by inspect)".to_owned()
+        } else {
+            "Internal Integrity (not evaluated by inspect)".to_owned()
+        },
         verification_performed: false,
+        creator_signature,
     })
 }
 
@@ -459,7 +541,7 @@ fn read_and_validate_manifest<R: Read + Seek>(
     entries: &[EntryMetadata],
     limits: &VerificationLimits,
     report: &mut ReportBuilder,
-) -> Option<Manifest> {
+) -> Option<(Manifest, Vec<u8>)> {
     let Some(metadata) = entries.iter().find(|entry| entry.name == MANIFEST_PATH) else {
         report.error(
             "MANIFEST_MISSING",
@@ -524,7 +606,7 @@ fn read_and_validate_manifest<R: Read + Seek>(
         report.error(issue.code, Some(issue.field), issue.message);
     }
     check_entry_coverage(entries, &manifest, report);
-    Some(manifest)
+    Some((manifest, bytes))
 }
 
 fn check_entry_coverage(
@@ -540,12 +622,16 @@ fn check_entry_coverage(
             .map(|asset| asset.package_path.clone()),
     );
     expected.push(EVENTS_PATH.to_owned());
+    if let Some(security) = &manifest.security {
+        expected.push(security.creator_signature.public_key_path.clone());
+        expected.push(security.creator_signature.signature_path.clone());
+    }
     let actual: Vec<String> = entries.iter().map(|entry| entry.name.clone()).collect();
     if actual != expected {
         report.error(
             "ZIP_ENTRY_ORDER_INVALID",
             None,
-            "ZIP entry order must be manifest.json, assets sorted by package_path, then events.json.",
+            "ZIP entry order must be manifest.json, sorted assets, events.json, then declared creator key and signature entries.",
         );
     }
     let expected_set: HashSet<&str> = expected.iter().map(String::as_str).collect();
@@ -556,6 +642,8 @@ fn check_entry_coverage(
         report.error(
             if path == EVENTS_PATH {
                 "EVENTS_MISSING"
+            } else if path.starts_with("security/") {
+                "SECURITY_ENTRY_MISSING"
             } else {
                 "ASSET_MISSING"
             },
@@ -571,6 +659,107 @@ fn check_entry_coverage(
             Some(path.to_owned()),
             "ZIP entry is not declared by the manifest.",
         );
+    }
+}
+
+fn verify_creator_signature<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    entries: &[EntryMetadata],
+    limits: &VerificationLimits,
+    manifest: &Manifest,
+    manifest_bytes: &[u8],
+    trust: &dyn Fn(&str) -> LocalTrust,
+    report: &mut ReportBuilder,
+) {
+    let Some(security) = &manifest.security else {
+        report.signature = SignatureAssurance::Absent;
+        report.error(
+            "CREATOR_SIGNATURE_ABSENT",
+            Some("security".to_owned()),
+            "Protocol 0.3 package has no creator signature descriptor.",
+        );
+        return;
+    };
+    let descriptor = &security.creator_signature;
+    let Some(key_metadata) = entries
+        .iter()
+        .find(|entry| entry.name == descriptor.public_key_path)
+    else {
+        report.signature = SignatureAssurance::Absent;
+        report.error(
+            "CREATOR_KEY_MISSING",
+            Some(descriptor.public_key_path.clone()),
+            "Manifest-declared creator public key entry is missing.",
+        );
+        return;
+    };
+    let Some(signature_metadata) = entries
+        .iter()
+        .find(|entry| entry.name == descriptor.signature_path)
+    else {
+        report.signature = SignatureAssurance::Absent;
+        report.error(
+            "CREATOR_SIGNATURE_MISSING",
+            Some(descriptor.signature_path.clone()),
+            "Manifest-declared creator signature entry is missing.",
+        );
+        return;
+    };
+    let public_key = match read_entry_limited(
+        archive,
+        key_metadata,
+        limits.max_public_key_bytes,
+        "CREATOR_KEY_LIMIT_EXCEEDED",
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            report.signature = SignatureAssurance::Malformed;
+            report.error(
+                error.code,
+                Some(descriptor.public_key_path.clone()),
+                error.message,
+            );
+            return;
+        }
+    };
+    let signature = match read_entry_limited(
+        archive,
+        signature_metadata,
+        limits.max_signature_bytes,
+        "CREATOR_SIGNATURE_LIMIT_EXCEEDED",
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            report.signature = SignatureAssurance::Malformed;
+            report.error(
+                error.code,
+                Some(descriptor.signature_path.clone()),
+                error.message,
+            );
+            return;
+        }
+    };
+    let local_trust = trust(&descriptor.key_fingerprint);
+    match verify_manifest_signature(
+        manifest_bytes,
+        descriptor,
+        &public_key,
+        &signature,
+        local_trust,
+    ) {
+        Ok(verified) => {
+            report.signature = verified.state;
+            report.identity = IdentityAssurance::SelfAsserted;
+            report.creator_signature = Some(verified.evidence);
+        }
+        Err(SignatureFailure {
+            state,
+            code,
+            message,
+        }) => {
+            report.signature = state;
+            report.error(code, Some(descriptor.signature_path.clone()), message);
+        }
     }
 }
 
@@ -790,8 +979,13 @@ fn read_entry_limited<R: Read + Seek>(
 }
 
 struct ReportBuilder {
+    spec_version: String,
     verified_at: String,
     proof_id: Option<String>,
+    internal_integrity: Option<InternalIntegrity>,
+    identity: IdentityAssurance,
+    signature: SignatureAssurance,
+    creator_signature: Option<CreatorSignatureEvidence>,
     checks: Vec<CheckResult>,
     errors: Vec<VerificationError>,
     operational_error: bool,
@@ -805,8 +999,13 @@ impl ReportBuilder {
             "1970-01-01T00:00:00Z".to_owned()
         };
         Self {
+            spec_version: SCHEMA_VERSION.to_owned(),
             verified_at,
             proof_id: None,
+            internal_integrity: None,
+            identity: IdentityAssurance::NotVerified,
+            signature: SignatureAssurance::Absent,
+            creator_signature: None,
             checks: Vec::new(),
             errors: Vec::new(),
             operational_error: false,
@@ -842,23 +1041,61 @@ impl ReportBuilder {
         } else {
             VerificationStatus::Invalid
         };
-        let integrity = match status {
-            VerificationStatus::Valid => InternalIntegrity::Valid,
-            VerificationStatus::Invalid => InternalIntegrity::Invalid,
-            VerificationStatus::Error => InternalIntegrity::NotEvaluated,
+        let integrity = if self.operational_error {
+            InternalIntegrity::NotEvaluated
+        } else {
+            self.internal_integrity.unwrap_or({
+                if self.errors.is_empty() {
+                    InternalIntegrity::Valid
+                } else {
+                    InternalIntegrity::Invalid
+                }
+            })
         };
+        let mut assurance = Assurance::for_integrity(integrity);
+        assurance.creator_identity = self.identity;
+        assurance.digital_signature = self.signature.clone();
+        let mut warnings = Vec::new();
+        if self.spec_version == LEGACY_SCHEMA_VERSION {
+            warnings.push(VerificationWarning {
+                code: "INTERNAL_INTEGRITY_ONLY".to_owned(),
+                message: "Protocol 0.2 evaluates package internal integrity only; creator identity, digital signature, trusted time and originality are not asserted.".to_owned(),
+            });
+        } else {
+            warnings.push(VerificationWarning {
+                code: "ASSURANCE_LIMITS".to_owned(),
+                message: "Creator display label is self-asserted. Trusted time and originality are not evaluated.".to_owned(),
+            });
+            match self.signature {
+                SignatureAssurance::ValidUntrusted => warnings.push(VerificationWarning {
+                    code: "CREATOR_KEY_NOT_LOCALLY_TRUSTED".to_owned(),
+                    message: "Signature is cryptographically valid, but this key is not the current local creator key.".to_owned(),
+                }),
+                SignatureAssurance::Disabled => warnings.push(VerificationWarning {
+                    code: "CREATOR_KEY_LOCALLY_DISABLED".to_owned(),
+                    message: "Signature is cryptographically valid, but the matching local creator key is disabled for new signing.".to_owned(),
+                }),
+                _ => {}
+            }
+            if self.creator_signature.as_ref().is_some_and(|evidence| {
+                display_label_needs_confusable_warning(&evidence.display_label)
+            }) {
+                warnings.push(VerificationWarning {
+                    code: "CREATOR_DISPLAY_LABEL_CONFUSABLE_REVIEW".to_owned(),
+                    message: "The self-asserted display label contains non-ASCII characters; compare the full key fingerprint before trusting it.".to_owned(),
+                });
+            }
+        }
         VerificationReport {
-            spec_version: SCHEMA_VERSION.to_owned(),
+            spec_version: self.spec_version,
             proof_id: self.proof_id,
             verified_at: self.verified_at,
             status,
-            assurance: Assurance::for_integrity(integrity),
+            assurance,
+            creator_signature: self.creator_signature,
             checks: self.checks,
             errors: self.errors,
-            warnings: vec![VerificationWarning {
-                code: "INTERNAL_INTEGRITY_ONLY".to_owned(),
-                message: "Package internal integrity is evaluated. Creator identity is not verified; digital signature and trusted timestamp are not present; originality is not evaluated.".to_owned(),
-            }],
+            warnings,
         }
     }
 }

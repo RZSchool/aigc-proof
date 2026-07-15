@@ -1,5 +1,6 @@
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
+use unicode_normalization::UnicodeNormalization;
 
 pub fn validate_sha256_hex(value: &str) -> Result<(), &'static str> {
     if value.len() == 64
@@ -11,6 +12,33 @@ pub fn validate_sha256_hex(value: &str) -> Result<(), &'static str> {
     } else {
         Err("must be exactly 64 lowercase hexadecimal characters")
     }
+}
+
+pub fn validate_display_label(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 200 {
+        return Err("display label must contain 1-200 UTF-8 bytes");
+    }
+    if value.nfc().collect::<String>() != value {
+        return Err("display label must be Unicode NFC normalized");
+    }
+    if value.chars().any(|character| {
+        character.is_control()
+            || matches!(
+                character,
+                '\u{061c}'
+                    | '\u{200e}'
+                    | '\u{200f}'
+                    | '\u{202a}'..='\u{202e}'
+                    | '\u{2066}'..='\u{2069}'
+            )
+    }) {
+        return Err("display label must not contain control or bidi-control characters");
+    }
+    Ok(())
+}
+
+pub fn display_label_needs_confusable_warning(value: &str) -> bool {
+    !value.is_ascii()
 }
 
 pub fn validate_package_path(value: &str) -> Result<(), &'static str> {
@@ -257,5 +285,14 @@ mod tests {
         assert!(validate_sha256_hex(&valid).is_ok());
         assert!(validate_sha256_hex(&"A".repeat(64)).is_err());
         assert!(validate_sha256_hex(&"a".repeat(63)).is_err());
+    }
+
+    #[test]
+    fn display_labels_require_nfc_and_reject_controls() {
+        assert!(validate_display_label("Creator 甲").is_ok());
+        assert!(validate_display_label("e\u{301}").is_err());
+        assert!(validate_display_label("bad\nlabel").is_err());
+        assert!(validate_display_label("\u{202e}spoof").is_err());
+        assert!(display_label_needs_confusable_warning("Creator 甲"));
     }
 }

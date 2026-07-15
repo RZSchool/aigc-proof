@@ -1,4 +1,7 @@
-import { hostReferenceSchema } from "@aigc-proof/host-contracts";
+import {
+  HOST_CONTRACT_VERSION,
+  hostReferenceSchema,
+} from "@aigc-proof/host-contracts";
 import { describe, expect, it } from "vitest";
 
 import { DeterministicMockProofHost } from "./mock-host";
@@ -10,7 +13,9 @@ describe("deterministic ProofHostApi mock", () => {
       hostReferenceSchema.parse(await host.chooseWorkspaceParent()).kind,
     ).toBe("workspace-parent");
     const diagnostics = await host.getDiagnostics();
-    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe("1.4.0");
+    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe(
+      HOST_CONTRACT_VERSION,
+    );
     expect(
       diagnostics.ok && diagnostics.data.execution.utilityProcessIsolation,
     ).toBe(true);
@@ -19,7 +24,7 @@ describe("deterministic ProofHostApi mock", () => {
       folderName: "mock-project",
     });
     expect(created.ok && created.data.workspace.workspace_version).toBe(
-      "0.2.0",
+      "0.3.0",
     );
     const job = await host.startJob({
       operation: "loadWorkspace",

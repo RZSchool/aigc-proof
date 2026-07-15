@@ -1,5 +1,5 @@
 Project: AIGC-Proof-Skill Open Source
-Stage: Phase 1 - v0.2 Verifiable Package MVP WIP
+Stage: Phase 1 - v0.3 Signed Verifiable Package MVP WIP
 Status: Ready for review
 
 Implemented in source:
@@ -19,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.4.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 1.5.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -34,6 +34,10 @@ Implemented in source:
 19. Workspace-scoped creation-session listing, explicit historical restore, deterministic
     cross-workspace/new-session UI reset, and collapsed manual proof tools outside the primary
     three-step journey.
+20. Protocol 0.3 Ed25519 creator signatures with deterministic COSE_Key/COSE_Sign1 encoding,
+    offline verification, OS-credential-store custody, key create/rotate/disable lifecycle, a
+    self-asserted display label and full fingerprint, and separate integrity/signature/local-trust
+    assurance results; protocol 0.2 remains valid unsigned Internal Integrity.
 
 Verification status:
 
@@ -265,14 +269,53 @@ SHA-256 is `8f0971ee8f42c25db0133c43d1f314293ff354896f4c8cb8efef06282efdbf29`.
 Final structured evidence and reviewed screenshots are under
 `app/AIGC-Proof-Workbench/acceptance-evidence-final/`. macOS was not executed and is not claimed.
 
+Signed creator proof (AP-031, 2026-07-16): passed through Workbench 0.6.0 at workspace-root
+`app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Protocol/engine/workspace 0.3.0 bind the exact RFC 8785
+Manifest bytes to a tagged detached-payload COSE_Sign1 Ed25519 signature. The deterministic
+COSE_Key SHA-256 is the full public fingerprint. The private key remains in the current user's OS
+credential store and is never exposed through Node-API, IPC, Renderer, SQLite, packages, reports,
+logs or fixtures. The displayed creator label is explicitly self-asserted: signature validity and
+local trust do not prove real identity, originality, copyright, ownership or authorization.
+
+The final lock contains the reviewed exact `coset 0.4.2`, `ed25519-dalek 2.2.0` and `keyring
+3.6.3` dependencies. Native Windows `x86_64-pc-windows-msvc` Rust 1.85.0 passed locked formatting,
+all-target checks, warnings-denied Clippy, 51 workspace tests, the separately enabled real OS
+credential create/read/use/rotate/disable/cleanup test, documentation, metadata/tree and real CLI
+status. Actual Ubuntu `x86_64-unknown-linux-gnu` Rust 1.85.0 passed the equivalent gates with 54
+workspace tests and the explicit persistent-store-unavailable fail-closed path. An independent
+Python-stdlib CBOR plus OpenSSL 3.2.1 verifier accepted the frozen creator vector and rejected a
+substituted Manifest. Cargo.lock SHA-256 is
+`662722ea61261270e77994cd20ccb49682c3881196a83b331a455bfa617b5589`.
+
+Windows Node v24.14.0/pnpm 11.7.0 passed Prettier, all TypeScript checks, ESLint, 7 Host-contract
+tests, 16 creation-core tests, 67 Desktop tests and production builds. Development and exact
+packaged Electron/CDP QA each passed the complete real workflow. The final packaged run recorded
+55 passing assertions, including OS-store key creation, full fingerprint display/copy, explicit
+signature confirmation, real ComfyUI v0.27.0 output ingestion, signed seal/verify/report, key
+rotation, historical valid-untrusted verification, signature tamper rejection, key disable with
+continued cryptographic verification, workspace reset/restart/recovery and clean exits. The real
+output SHA-256 is `e454d7f4db23f89f27709e5f176d1bf37e11a0b7d34887e440849d55edbe3fdb`;
+the creation package SHA-256 is
+`b3ffaf30f3445c4141cb2bdb4b0981134683cc8f391a970989bef792db4224ba`.
+
+Package-boundary QA found 428 packaged files, zero source maps/sources/PDBs, Utility-only addon
+loading and coherent 0.6.0/1.5.0/1.4.0/0.3.0 versions. Textual private-material fields and
+test-only private-key markers were absent from the ASAR and QA evidence, and the dedicated QA
+credential namespace was cleaned. A separate normal launch created a visible window with QA/CDP
+ports disabled and exited cleanly. The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
+`4edfdd00334398aabe0a3bc2ce5a043feb61fabf81ad0625956f84fa2f1d1512`; ASAR SHA-256 is
+`7bf2fe5bf071a7b5a68080acf71365049de9192f142d94121b13442275d57ad3`; native-addon SHA-256 is
+`e57541cb407878a526425e005b33d0183f21f40af17acc8d62754d3331222e74`. Final structured
+evidence and screenshots are under `test-results/AP-031/desktop-packaged/`. macOS was not
+executed and is not claimed.
+
 Not implemented:
 
-- Creator identity verification
-- Digital signature or COSE_Sign1
+- Externally verified creator identity, accounts or legal-name attestation
 - Trusted timestamp, RFC 3161, or C2PA
 - Originality or copyright evaluation
 - Official verification, accounts, network APIs, official-service databases, WASM, or upload
 
-Ready for review does not expand the Internal Integrity-only assurance boundary or imply a
-release, signature, creator identity, trusted timestamp, originality judgment, or official
-verification.
+Ready for review does not turn a valid local creator signature into verified identity, trusted
+time, originality, copyright, ownership, authorization or official verification, and does not
+imply publication or release.

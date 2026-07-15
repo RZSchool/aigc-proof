@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.5.1" as const;
-export const HOST_CONTRACT_VERSION = "1.4.0" as const;
-export const NATIVE_API_VERSION = "1.3.0" as const;
-export const NATIVE_ENGINE_VERSION = "0.2.0" as const;
-export const PROTOCOL_VERSION = "0.2.0" as const;
+export const WORKBENCH_VERSION = "0.6.0" as const;
+export const HOST_CONTRACT_VERSION = "1.5.0" as const;
+export const NATIVE_API_VERSION = "1.4.0" as const;
+export const NATIVE_ENGINE_VERSION = "0.3.0" as const;
+export const PROTOCOL_VERSION = "0.3.0" as const;
 
 export const NATIVE_CAPABILITIES = [
   "execution.phase-progress",
@@ -15,6 +15,10 @@ export const NATIVE_CAPABILITIES = [
   "proof.package.inspect",
   "proof.package.seal",
   "proof.package.verify",
+  "proof.signer.create",
+  "proof.signer.disable",
+  "proof.signer.rotate",
+  "proof.signer.status",
   "proof.workspace.create",
   "proof.workspace.open",
 ] as const;
@@ -36,6 +40,10 @@ export const HOST_CAPABILITIES = [
   "proof.package.inspect",
   "proof.package.seal",
   "proof.package.verify",
+  "proof.signer.create",
+  "proof.signer.disable",
+  "proof.signer.rotate",
+  "proof.signer.status",
   "proof.workspace.create",
   "proof.workspace.open",
   "workbench.state.preferences",
@@ -58,7 +66,6 @@ export const UNAVAILABLE_FEATURES = [
   "provider.cloud",
   "provider.remote-endpoint",
   "operation.safe-cancellation",
-  "assurance.creator-signature",
   "assurance.trusted-time",
   "assurance.c2pa",
   "rights-protection",
@@ -242,10 +249,32 @@ export interface Asset {
 }
 
 export interface Workspace {
-  workspace_version: "0.2.0";
+  workspace_version: "0.2.0" | "0.3.0";
   created_at: string;
   project: { name?: string | undefined };
   assets: Asset[];
+}
+
+export interface CreatorSignatureDescriptor {
+  profile: string;
+  signature_id: string;
+  display_label: string;
+  key_fingerprint: string;
+  public_key_path: string;
+  signature_path: string;
+}
+
+export type LocalSignerState =
+  | "missing"
+  | "active"
+  | "disabled"
+  | "unavailable";
+
+export interface LocalSignerStatus {
+  state: LocalSignerState;
+  display_label?: string | undefined;
+  key_fingerprint?: string | undefined;
+  warning_codes: string[];
 }
 
 export interface WorkspaceSummary {
@@ -272,17 +301,33 @@ export interface EventRecord {
 }
 
 export interface VerificationReport {
-  spec_version: "0.2.0";
+  spec_version: "0.2.0" | "0.3.0";
   proof_id: string | null;
   verified_at: string;
   status: VerificationStatus;
   assurance: {
     internal_integrity: "valid" | "invalid" | "not_evaluated";
-    creator_identity: "not_verified";
-    digital_signature: "not_present";
+    creator_identity: "not_verified" | "self_asserted";
+    digital_signature:
+      | "not_present"
+      | "absent"
+      | "unsupported"
+      | "malformed"
+      | "invalid"
+      | "valid_untrusted"
+      | "valid_locally_trusted"
+      | "disabled";
     trusted_time: "not_present";
     originality: "not_evaluated";
   };
+  creator_signature?:
+    | {
+        display_label: string;
+        key_fingerprint: string;
+        profile: string;
+        local_trust: "untrusted" | "trusted" | "disabled";
+      }
+    | undefined;
   checks: Array<{
     code: string;
     status: CheckStatus;
@@ -294,7 +339,7 @@ export interface VerificationReport {
 }
 
 export interface Inspection {
-  spec_version: "0.2.0";
+  spec_version: "0.2.0" | "0.3.0";
   proof_id: string;
   created_at: string;
   project: { name?: string | undefined };
@@ -306,6 +351,7 @@ export interface Inspection {
   };
   assurance_level: string;
   verification_performed: false;
+  creator_signature?: CreatorSignatureDescriptor | undefined;
 }
 
 export interface RecentItem<K extends "workspace" | "package"> {
@@ -626,11 +672,11 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
 export interface HostDiagnostics {
   reference: DiagnosticReference;
   hostKind: "standalone" | "mock" | "compatible-host";
-  workbenchVersion: "0.5.1";
-  contractVersion: "1.4.0";
+  workbenchVersion: typeof WORKBENCH_VERSION;
+  contractVersion: typeof HOST_CONTRACT_VERSION;
   nativeApiVersion: string;
   engineVersion: string;
-  protocolVersion: "0.2.0";
+  protocolVersion: typeof PROTOCOL_VERSION;
   supportedProtocolVersions: string[];
   capabilities: string[];
   execution: NativeDiscovery["execution"];
@@ -714,7 +760,42 @@ export const sealPackageRequestSchema = z
   .object({
     workspace: workspaceReferenceSchema,
     output: packageOutputReferenceSchema,
+    confirmSignature: z.literal(true),
   })
+  .strict();
+function isForbiddenCreatorLabelCharacter(character: string): boolean {
+  const code = character.codePointAt(0) ?? 0;
+  return (
+    code <= 0x1f ||
+    (code >= 0x7f && code <= 0x9f) ||
+    code === 0x061c ||
+    code === 0x200e ||
+    code === 0x200f ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  );
+}
+export const signerLabelSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((value) => new TextEncoder().encode(value).length <= 200, {
+    message: "Creator display label must not exceed 200 UTF-8 bytes.",
+  })
+  .refine((value) => value.normalize("NFC") === value, {
+    message: "Creator display label must be NFC normalized.",
+  })
+  .refine((value) => ![...value].some(isForbiddenCreatorLabelCharacter), {
+    message: "Creator display label contains a forbidden control character.",
+  });
+export const signerLabelRequestSchema = z
+  .object({ displayLabel: signerLabelSchema })
+  .strict();
+export const rotateSignerRequestSchema = signerLabelRequestSchema
+  .extend({ confirm: z.literal(true) })
+  .strict();
+export const disableSignerRequestSchema = z
+  .object({ confirm: z.literal(true) })
   .strict();
 export const packageRequestSchema = z
   .object({ package: packageReferenceSchema })
@@ -746,21 +827,39 @@ const verificationIssueSchema = z
     message: z.string(),
   })
   .strict();
+export const creatorSignatureEvidenceSchema = z
+  .object({
+    display_label: z.string().min(1).max(200),
+    key_fingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
+    profile: z.string().min(1),
+    local_trust: z.enum(["untrusted", "trusted", "disabled"]),
+  })
+  .strict();
 export const verificationReportSchema = z
   .object({
-    spec_version: z.literal("0.2.0"),
+    spec_version: z.enum(["0.2.0", "0.3.0"]),
     proof_id: z.string().nullable(),
     verified_at: z.string(),
     status: z.enum(["valid", "invalid", "error"]),
     assurance: z
       .object({
         internal_integrity: z.enum(["valid", "invalid", "not_evaluated"]),
-        creator_identity: z.literal("not_verified"),
-        digital_signature: z.literal("not_present"),
+        creator_identity: z.enum(["not_verified", "self_asserted"]),
+        digital_signature: z.enum([
+          "not_present",
+          "absent",
+          "unsupported",
+          "malformed",
+          "invalid",
+          "valid_untrusted",
+          "valid_locally_trusted",
+          "disabled",
+        ]),
         trusted_time: z.literal("not_present"),
         originality: z.literal("not_evaluated"),
       })
       .strict(),
+    creator_signature: creatorSignatureEvidenceSchema.optional(),
     checks: z.array(
       verificationIssueSchema
         .extend({ status: z.enum(["pass", "fail", "skipped"]) })
@@ -818,6 +917,7 @@ export const completeCreationProofRequestSchema = z
     session: creationSessionReferenceSchema,
     packageOutput: packageOutputReferenceSchema,
     reportOutput: reportOutputReferenceSchema,
+    confirmSignature: z.literal(true),
   })
   .strict();
 
@@ -848,6 +948,10 @@ export const jobOperations = [
   "exportWorkspaceOutput",
   "matchImageToPackage",
   "recordEvent",
+  "getSignerStatus",
+  "createSigner",
+  "rotateSigner",
+  "disableSigner",
   "sealPackage",
   "verifyPackage",
   "inspectPackage",
@@ -931,6 +1035,19 @@ export type JobCreateRequest =
       operation: "recordEvent";
       input: z.infer<typeof recordEventRequestSchema>;
     }
+  | { operation: "getSignerStatus"; input: Record<string, never> }
+  | {
+      operation: "createSigner";
+      input: z.infer<typeof signerLabelRequestSchema>;
+    }
+  | {
+      operation: "rotateSigner";
+      input: z.infer<typeof rotateSignerRequestSchema>;
+    }
+  | {
+      operation: "disableSigner";
+      input: z.infer<typeof disableSignerRequestSchema>;
+    }
   | {
       operation: "sealPackage";
       input: z.infer<typeof sealPackageRequestSchema>;
@@ -953,6 +1070,14 @@ export type JobResult =
   | { operation: "exportWorkspaceOutput"; data: ExportedCreationOutput }
   | { operation: "matchImageToPackage"; data: ImageMatchResult }
   | { operation: "recordEvent"; data: { event: EventRecord } }
+  | {
+      operation:
+        | "getSignerStatus"
+        | "createSigner"
+        | "rotateSigner"
+        | "disableSigner";
+      data: LocalSignerStatus;
+    }
   | {
       operation: "sealPackage";
       data: {
@@ -1000,6 +1125,7 @@ export interface ProofHostApi {
     session: CreationSessionReference;
     packageOutput: PackageOutputReference;
     reportOutput: ReportOutputReference;
+    confirmSignature: true;
   }): Promise<HostEnvelope<CreationSessionSummary>>;
   subscribeCreationEvents(listener: CreationSessionEventListener): () => void;
   chooseWorkspaceParent(): Promise<WorkspaceParentReference | null>;
@@ -1042,9 +1168,21 @@ export interface ProofHostApi {
     eventType: string;
     payloadJson: string;
   }): Promise<HostEnvelope<{ event: EventRecord }>>;
+  getSignerStatus(): Promise<HostEnvelope<LocalSignerStatus>>;
+  createSigner(request: {
+    displayLabel: string;
+  }): Promise<HostEnvelope<LocalSignerStatus>>;
+  rotateSigner(request: {
+    displayLabel: string;
+    confirm: true;
+  }): Promise<HostEnvelope<LocalSignerStatus>>;
+  disableSigner(request: {
+    confirm: true;
+  }): Promise<HostEnvelope<LocalSignerStatus>>;
   sealPackage(request: {
     workspace: WorkspaceReference;
     output: PackageOutputReference;
+    confirmSignature: true;
   }): Promise<
     HostEnvelope<{
       package: PackageReference;
@@ -1091,9 +1229,30 @@ export const assetSchema = z
     sha256: z.string().regex(/^[0-9a-f]{64}$/u),
   })
   .strict();
+export const localSignerStatusSchema = z
+  .object({
+    state: z.enum(["missing", "active", "disabled", "unavailable"]),
+    display_label: z.string().min(1).max(200).optional(),
+    key_fingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
+    warning_codes: z.array(z.string()),
+  })
+  .strict();
+export const creatorSignatureDescriptorSchema = z
+  .object({
+    profile: z.string().min(1),
+    signature_id: z.string().regex(/^[0-9a-f]{64}$/u),
+    display_label: z.string().min(1).max(200),
+    key_fingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
+    public_key_path: z.string().regex(/^security\/keys\/[0-9a-f]{64}\.cbor$/u),
+    signature_path: z.literal("security/signatures/creator.cose"),
+  })
+  .strict();
 export const workspaceSchema = z
   .object({
-    workspace_version: z.literal("0.2.0"),
+    workspace_version: z.enum(["0.2.0", "0.3.0"]),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
     assets: z.array(assetSchema),
@@ -1130,7 +1289,7 @@ export const eventRecordSchema = z
   .strict();
 export const inspectionSchema = z
   .object({
-    spec_version: z.literal("0.2.0"),
+    spec_version: z.enum(["0.2.0", "0.3.0"]),
     proof_id: z.string().min(1),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
@@ -1147,6 +1306,7 @@ export const inspectionSchema = z
       .strict(),
     assurance_level: z.string().min(1),
     verification_performed: z.literal(false),
+    creator_signature: creatorSignatureDescriptorSchema.optional(),
   })
   .strict();
 const recentWorkspaceSchema = z
@@ -1352,6 +1512,30 @@ export const jobCreateRequestSchema = z.discriminatedUnion("operation", [
     .strict(),
   z
     .object({
+      operation: z.literal("getSignerStatus"),
+      input: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("createSigner"),
+      input: signerLabelRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("rotateSigner"),
+      input: rotateSignerRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("disableSigner"),
+      input: disableSignerRequestSchema,
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal("sealPackage"),
       input: sealPackageRequestSchema,
     })
@@ -1451,6 +1635,17 @@ export const jobResultSchema = z.discriminatedUnion("operation", [
     .strict(),
   z
     .object({
+      operation: z.enum([
+        "getSignerStatus",
+        "createSigner",
+        "rotateSigner",
+        "disableSigner",
+      ]),
+      data: localSignerStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal("sealPackage"),
       data: sealPackageResultSchema,
     })
@@ -1501,6 +1696,10 @@ export const proofHostResponseSchemas = {
   exportCreationOutput: hostEnvelopeSchemaFor(exportedCreationOutputSchema),
   matchImageToPackage: hostEnvelopeSchemaFor(imageMatchResultSchema),
   recordEvent: hostEnvelopeSchemaFor(recordEventResultSchema),
+  getSignerStatus: hostEnvelopeSchemaFor(localSignerStatusSchema),
+  createSigner: hostEnvelopeSchemaFor(localSignerStatusSchema),
+  rotateSigner: hostEnvelopeSchemaFor(localSignerStatusSchema),
+  disableSigner: hostEnvelopeSchemaFor(localSignerStatusSchema),
   sealPackage: hostEnvelopeSchemaFor(sealPackageResultSchema),
   verifyPackage: hostEnvelopeSchemaFor(verificationReportSchema),
   inspectPackage: hostEnvelopeSchemaFor(inspectionSchema),

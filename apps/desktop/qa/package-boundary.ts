@@ -19,12 +19,18 @@ const packageRoot = path.resolve(
     path.join(workspaceRoot, "app", "AIGC-Proof-Workbench"),
 );
 const executable = path.join(packageRoot, "AIGC-Proof.exe");
+const readme = path.join(packageRoot, "README.txt");
 const asar = path.join(packageRoot, "resources", "app.asar");
 const addon = path.join(packageRoot, "resources", "native", "proof_napi.node");
 const requireNative = createRequire(__filename);
 
 async function main(): Promise<void> {
-  await Promise.all([fs.access(executable), fs.access(asar), fs.access(addon)]);
+  await Promise.all([
+    fs.access(executable),
+    fs.access(readme),
+    fs.access(asar),
+    fs.access(addon),
+  ]);
   const files = listPackage(asar, { isPack: false }).map((file) =>
     file.replaceAll("\\", "/"),
   );
@@ -60,10 +66,20 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.5.1") {
+  if (packagedManifest.version !== "0.6.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
+  }
+  const readmeSource = await fs.readFile(readme, "utf8");
+  if (
+    !readmeSource.includes("AIGC-Proof Workbench 0.6.0 Preview") ||
+    !readmeSource.includes(
+      "Workbench 0.6.0 使用 ProofHostApi 1.5.0 / native API 1.4.0",
+    ) ||
+    !readmeSource.includes("AIGC-Proof 0.3.0")
+  ) {
+    throw new Error("Packaged README version or protocol boundary is stale.");
   }
   if (
     !mainSource.includes("nodeIntegration: false") ||
@@ -112,7 +128,8 @@ async function main(): Promise<void> {
   if (
     discovery.apiVersion !== NATIVE_API_VERSION ||
     discovery.engineVersion !== NATIVE_ENGINE_VERSION ||
-    discovery.supportedProtocolVersions.join(",") !== PROTOCOL_VERSION ||
+    discovery.supportedProtocolVersions.join(",") !==
+      ["0.2.0", PROTOCOL_VERSION].join(",") ||
     discovery.capabilities.join(",") !== NATIVE_CAPABILITIES.join(",")
   ) {
     throw new Error(
@@ -126,10 +143,10 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.4.0",
+    contractVersion: "1.5.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
-    protocolVersion: "0.2.0",
+    protocolVersion: "0.3.0",
     utilityOnlyAddonLoading: true,
     capabilities: discovery.capabilities,
     packagedFiles: files.length,

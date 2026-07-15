@@ -14,6 +14,12 @@ $nodeBin = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runti
 $toolRoot = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\bin"
 $overrideBin = Join-Path $toolRoot "override"
 $fallbackBin = Join-Path $toolRoot "fallback"
+$rustToolchain = if ([string]::IsNullOrWhiteSpace($env:AIGC_PROOF_RUST_TOOLCHAIN)) {
+    Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-msvc"
+} else {
+    $env:AIGC_PROOF_RUST_TOOLCHAIN
+}
+$rustc = Join-Path $rustToolchain "bin\rustc.exe"
 $pnpm = @(
     (Join-Path $toolRoot "pnpm.cmd"),
     (Join-Path $fallbackBin "pnpm.cmd")
@@ -148,15 +154,13 @@ $asar = Join-Path $Destination "resources\app.asar"
 $addon = Join-Path $Destination "resources\native\proof_napi.node"
 $nodeVersion = Get-VersionText (Join-Path $nodeBin "node.exe") "--version"
 $pnpmVersion = Get-VersionText $env:ComSpec "/d /c call `"$pnpm`" --version"
-$rustcVersion = Get-VersionText (Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-gnu\bin\rustc.exe") "-Vv"
-$gccPath = (Get-Command "x86_64-w64-mingw32-gcc.exe" -ErrorAction Stop).Source
-$gccVersion = Get-VersionText $gccPath "--version"
+$rustcVersion = Get-VersionText $rustc "-Vv"
 $metadata = [ordered]@{
-    workbench_version = "0.5.1"
-    host_contract_version = "1.4.0"
-    native_api_version = "1.3.0"
-    native_engine_version = "0.2.0"
-    protocol_version = "0.2.0"
+    workbench_version = "0.6.0"
+    host_contract_version = "1.5.0"
+    native_api_version = "1.4.0"
+    native_engine_version = "0.3.0"
+    protocol_version = "0.3.0"
     platform = "Windows x64"
     windows_version = [Environment]::OSVersion.VersionString
     executable = $executable
@@ -172,7 +176,7 @@ $metadata = [ordered]@{
     comfyui_license = "GPL-3.0-only; external user-managed component"
     comfyui_distribution = "user-authorized external installation; not packaged"
     rust_toolchain = $rustcVersion
-    c_toolchain = $gccVersion
+    linker_toolchain = "MSVC selected by Rust target x86_64-pc-windows-msvc"
     node = $nodeVersion
     pnpm = $pnpmVersion
     build_command = "apps/desktop/scripts/package-workbench.ps1"

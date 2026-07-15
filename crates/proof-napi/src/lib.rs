@@ -9,9 +9,10 @@ use napi::{Env, Task};
 use napi_derive::napi;
 use proof_core::{
     AddAssetOptions, CoreError, ExportWorkspaceOutputOptions, InitWorkspaceOptions,
-    RecordEventOptions, SealOptions, VerificationLimits, add_asset, current_timestamp,
-    export_workspace_output, init_workspace, inspect_package, load_workspace,
-    match_image_to_package, media_type_for_path, record_event, seal_workspace, verify_package,
+    OsSignerKeyStore, RecordEventOptions, SealOptions, SignerService, VerificationLimits,
+    add_asset, current_timestamp, export_workspace_output, init_workspace, inspect_package,
+    load_workspace, match_image_to_package, media_type_for_path, record_event,
+    seal_signed_workspace, verify_package_with_signer,
 };
 use proof_schema::{AssetRole, parse_json_strict};
 use rusqlite::Error as SqliteError;
@@ -19,9 +20,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.3.0";
-pub const NATIVE_ENGINE_VERSION: &str = "0.2.0";
-pub const SUPPORTED_PROTOCOL_VERSION: &str = "0.2.0";
+pub const NATIVE_API_VERSION: &str = "1.4.0";
+pub const NATIVE_ENGINE_VERSION: &str = "0.3.0";
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0"];
 pub const NATIVE_CAPABILITIES: &[&str] = &[
     "execution.phase-progress",
     "proof.asset.add",
@@ -31,6 +32,10 @@ pub const NATIVE_CAPABILITIES: &[&str] = &[
     "proof.package.inspect",
     "proof.package.seal",
     "proof.package.verify",
+    "proof.signer.create",
+    "proof.signer.disable",
+    "proof.signer.rotate",
+    "proof.signer.status",
     "proof.workspace.create",
     "proof.workspace.open",
 ];
@@ -72,7 +77,10 @@ pub fn get_api_info() -> NativeApiInfo {
     NativeApiInfo {
         api_version: NATIVE_API_VERSION.to_owned(),
         engine_version: NATIVE_ENGINE_VERSION.to_owned(),
-        supported_protocol_versions: vec![SUPPORTED_PROTOCOL_VERSION.to_owned()],
+        supported_protocol_versions: SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .map(|version| (*version).to_owned())
+            .collect(),
         capabilities: NATIVE_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_owned())
@@ -106,6 +114,10 @@ enum Operation {
     SealPackage(SealPackageRequest),
     VerifyPackage(PathRequest),
     InspectPackage(PathRequest),
+    GetSignerStatus,
+    CreateSigner(SignerLabelRequest),
+    RotateSigner(SignerLabelRequest),
+    DisableSigner,
     InitializeAppState(DatabaseRequest),
     GetAppState(DatabaseRequest),
     SetPreference(SetPreferenceRequest),
@@ -162,6 +174,13 @@ pub struct RecordEventRequest {
 pub struct SealPackageRequest {
     pub workspace: String,
     pub output: String,
+    pub confirm_signature: bool,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct SignerLabelRequest {
+    pub display_label: String,
 }
 
 #[derive(Debug, Clone)]
@@ -258,6 +277,26 @@ pub fn inspect_proof_package(request: PathRequest) -> AsyncTask<BridgeTask> {
 }
 
 #[napi]
+pub fn get_local_signer_status() -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::GetSignerStatus))
+}
+
+#[napi]
+pub fn create_local_signer(request: SignerLabelRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::CreateSigner(request)))
+}
+
+#[napi]
+pub fn rotate_local_signer(request: SignerLabelRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::RotateSigner(request)))
+}
+
+#[napi]
+pub fn disable_local_signer() -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::DisableSigner))
+}
+
+#[napi]
 pub fn initialize_app_state(request: DatabaseRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::InitializeAppState(request)))
 }
@@ -283,7 +322,34 @@ pub fn rebuild_recent_indexes(request: DatabaseRequest) -> AsyncTask<BridgeTask>
 }
 
 fn run_operation(operation: &Operation) -> String {
-    let result = execute(operation);
+    run_operation_with_signer(operation, &configured_signer())
+}
+
+fn configured_signer() -> SignerService<OsSignerKeyStore> {
+    let enabled = std::env::var("AIGC_PROOF_TEST_SIGNER_ENABLED").as_deref() == Ok("1");
+    let service = std::env::var("AIGC_PROOF_TEST_SIGNER_SERVICE").ok();
+    if enabled
+        && service.as_deref().is_some_and(|value| {
+            value.starts_with("org.aigcproof.qa.")
+                && value.len() <= 120
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+        })
+    {
+        return SignerService::new(OsSignerKeyStore::new(
+            service.unwrap(),
+            proof_core::DEFAULT_SIGNER_USER,
+        ));
+    }
+    SignerService::production()
+}
+
+fn run_operation_with_signer<S: proof_core::SignerKeyStore>(
+    operation: &Operation,
+    signer: &SignerService<S>,
+) -> String {
+    let result = execute(operation, signer);
     let envelope = match result {
         Ok(data) => json!({ "ok": true, "data": data }),
         Err(error) => json!({ "ok": false, "error": error }),
@@ -295,7 +361,10 @@ fn run_operation(operation: &Operation) -> String {
     })
 }
 
-fn execute(operation: &Operation) -> Result<Value, BridgeFailure> {
+fn execute<S: proof_core::SignerKeyStore>(
+    operation: &Operation,
+    signer: &SignerService<S>,
+) -> Result<Value, BridgeFailure> {
     match operation {
         Operation::InitializeWorkspace(request) => {
             let path = safe_path(&request.path, "workspace")?;
@@ -367,23 +436,33 @@ fn execute(operation: &Operation) -> Result<Value, BridgeFailure> {
             Ok(json!({ "event": event }))
         }
         Operation::SealPackage(request) => {
+            if !request.confirm_signature {
+                return Err(BridgeFailure::input(
+                    "SIGNATURE_NOT_CONFIRMED",
+                    "Explicit creator-signature confirmation is required.",
+                ));
+            }
             let workspace = safe_path(&request.workspace, "workspace")?;
             let output = safe_path(&request.output, "output")?;
-            let result = seal_workspace(SealOptions {
-                workspace,
-                output,
-                proof_id: format!("urn:uuid:{}", Uuid::new_v4()),
-                created_at: current_timestamp().map_err(BridgeFailure::core)?,
-            })
+            let result = seal_signed_workspace(
+                SealOptions {
+                    workspace,
+                    output,
+                    proof_id: format!("urn:uuid:{}", Uuid::new_v4()),
+                    created_at: current_timestamp().map_err(BridgeFailure::core)?,
+                },
+                signer,
+            )
             .map_err(BridgeFailure::core)?;
             Ok(json!({ "path": result.path, "manifest": result.manifest }))
         }
         Operation::VerifyPackage(request) => {
             let path = safe_path(&request.path, "package")?;
-            let report = verify_package(
+            let report = verify_package_with_signer(
                 &path,
                 &VerificationLimits::default(),
                 current_timestamp().map_err(BridgeFailure::core)?,
+                signer,
             );
             Ok(serde_json::to_value(report).map_err(BridgeFailure::serialization)?)
         }
@@ -393,6 +472,25 @@ fn execute(operation: &Operation) -> Result<Value, BridgeFailure> {
                 .map_err(BridgeFailure::core)?;
             Ok(serde_json::to_value(inspection).map_err(BridgeFailure::serialization)?)
         }
+        Operation::GetSignerStatus => {
+            Ok(serde_json::to_value(signer.status()).map_err(BridgeFailure::serialization)?)
+        }
+        Operation::CreateSigner(request) => Ok(serde_json::to_value(
+            signer
+                .create(&request.display_label)
+                .map_err(BridgeFailure::core)?,
+        )
+        .map_err(BridgeFailure::serialization)?),
+        Operation::RotateSigner(request) => Ok(serde_json::to_value(
+            signer
+                .rotate(&request.display_label)
+                .map_err(BridgeFailure::core)?,
+        )
+        .map_err(BridgeFailure::serialization)?),
+        Operation::DisableSigner => Ok(serde_json::to_value(
+            signer.disable().map_err(BridgeFailure::core)?,
+        )
+        .map_err(BridgeFailure::serialization)?),
         Operation::InitializeAppState(request) | Operation::GetAppState(request) => {
             let database = safe_path(&request.database, "database")?;
             let state = app_state::initialize(&database)?;
@@ -488,18 +586,44 @@ impl BridgeFailure {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Mutex;
 
     use serde_json::Value;
     use tempfile::tempdir;
+    use zeroize::Zeroizing;
 
     use super::*;
+
+    #[derive(Default)]
+    struct MemoryStore(Mutex<Option<Zeroizing<Vec<u8>>>>);
+
+    impl proof_core::SignerKeyStore for MemoryStore {
+        fn load(&self) -> Result<Option<Zeroizing<Vec<u8>>>, proof_core::KeyStoreError> {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|value| Zeroizing::new(value.to_vec())))
+        }
+
+        fn store(&self, value: &[u8]) -> Result<(), proof_core::KeyStoreError> {
+            *self.0.lock().unwrap() = Some(Zeroizing::new(value.to_vec()));
+            Ok(())
+        }
+
+        fn delete(&self) -> Result<(), proof_core::KeyStoreError> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
 
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.3.0");
-        assert_eq!(info.engine_version, "0.2.0");
-        assert_eq!(info.supported_protocol_versions, ["0.2.0"]);
+        assert_eq!(info.api_version, "1.4.0");
+        assert_eq!(info.engine_version, "0.3.0");
+        assert_eq!(info.supported_protocol_versions, ["0.2.0", "0.3.0"]);
         assert_eq!(
             info.capabilities,
             NATIVE_CAPABILITIES
@@ -526,6 +650,14 @@ mod tests {
     #[test]
     fn bridge_matches_core_workflow_and_preserves_no_clobber() {
         let root = tempdir().unwrap();
+        let signer = SignerService::new(MemoryStore::default());
+        signer.create("Bridge test creator").unwrap();
+        let data = |operation| {
+            let envelope: Value =
+                serde_json::from_str(&run_operation_with_signer(&operation, &signer)).unwrap();
+            assert_eq!(envelope["ok"], true, "{envelope}");
+            envelope["data"].clone()
+        };
         let workspace = root.path().join("项目 工作区");
         let input = root.path().join("输入 文件.txt");
         let output_asset = root.path().join("output.png");
@@ -556,6 +688,7 @@ mod tests {
         data(Operation::SealPackage(SealPackageRequest {
             workspace: workspace.to_string_lossy().into_owned(),
             output: package.to_string_lossy().into_owned(),
+            confirm_signature: true,
         }));
         let verification = data(Operation::VerifyPackage(PathRequest {
             path: package.to_string_lossy().into_owned(),
@@ -587,12 +720,14 @@ mod tests {
             b"\x89PNG\r\n\x1a\nbridge output"
         );
 
-        let second: Value = serde_json::from_str(&run_operation(&Operation::SealPackage(
-            SealPackageRequest {
+        let second: Value = serde_json::from_str(&run_operation_with_signer(
+            &Operation::SealPackage(SealPackageRequest {
                 workspace: workspace.to_string_lossy().into_owned(),
                 output: package.to_string_lossy().into_owned(),
-            },
-        )))
+                confirm_signature: true,
+            }),
+            &signer,
+        ))
         .unwrap();
         assert_eq!(second["ok"], false);
         assert_eq!(second["error"]["code"], "OUTPUT_ALREADY_EXISTS");

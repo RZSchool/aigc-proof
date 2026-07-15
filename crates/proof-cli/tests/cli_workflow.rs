@@ -49,7 +49,13 @@ fn full_cli_workflow_accepts_crlf_json_and_cleans_temporary_files() {
     );
     success(
         temp.path(),
-        &["seal", "demo-workspace", "--output", "demo.aigcproof"],
+        &[
+            "seal",
+            "demo-workspace",
+            "--output",
+            "demo.aigcproof",
+            "--legacy-unsigned-v02",
+        ],
     );
     let verify = success(temp.path(), &["verify", "demo.aigcproof"]);
     let report: Value = serde_json::from_slice(&verify.stdout).unwrap();
@@ -118,7 +124,13 @@ fn real_cli_rejects_tampering_and_malicious_zip() {
     );
     success(
         temp.path(),
-        &["seal", "workspace", "--output", "valid.aigcproof"],
+        &[
+            "seal",
+            "workspace",
+            "--output",
+            "valid.aigcproof",
+            "--legacy-unsigned-v02",
+        ],
     );
 
     for (name, mutation, expected_code) in [

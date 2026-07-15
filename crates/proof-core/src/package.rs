@@ -3,14 +3,20 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use proof_schema::{
-    EventChainSummary, HASH_ALGORITHM, MANIFEST_PATH, Manifest, SCHEMA_VERSION, ToolInfo,
-    VerificationStatus, validate_manifest_schema,
+    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
+    CreatorSignatureDescriptor, EventChainSummary, HASH_ALGORITHM, LEGACY_SCHEMA_VERSION,
+    MANIFEST_PATH, Manifest, ManifestSecurity, SCHEMA_VERSION, ToolInfo, VerificationStatus,
+    validate_manifest_schema,
 };
 use tempfile::Builder;
 use zip::CompressionMethod;
 use zip::write::SimpleFileOptions;
 
 use crate::hash::copy_and_hash;
+use crate::signing::{
+    SignatureArtifacts, SignerKeyStore, SignerService, SigningMaterial, random_signature_id,
+    sign_manifest,
+};
 use crate::workspace::{events_path, load_events, workspace_asset_path};
 use crate::{
     CoreError, CoreResult, ErrorKind, VerificationLimits, canonical_json, load_workspace,
@@ -32,6 +38,21 @@ pub struct SealResult {
 }
 
 pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
+    seal_workspace_internal(options, None)
+}
+
+pub fn seal_signed_workspace<S: SignerKeyStore>(
+    options: SealOptions,
+    signer: &SignerService<S>,
+) -> CoreResult<SealResult> {
+    let material = signer.signing_material()?;
+    seal_workspace_internal(options, Some(&material))
+}
+
+fn seal_workspace_internal(
+    options: SealOptions,
+    signing: Option<&SigningMaterial>,
+) -> CoreResult<SealResult> {
     if options.output.exists() {
         return Err(CoreError::new(
             ErrorKind::OutputAlreadyExists,
@@ -55,7 +76,8 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
         ));
     }
     let limits = VerificationLimits::default();
-    if workspace.assets.len().saturating_add(2) > limits.max_entries {
+    let structural_entries = if signing.is_some() { 4 } else { 2 };
+    if workspace.assets.len().saturating_add(structural_entries) > limits.max_entries {
         return Err(CoreError::new(
             ErrorKind::LimitExceeded,
             "ZIP_ENTRY_COUNT_LIMIT_EXCEEDED",
@@ -126,13 +148,28 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
             "Event JSON exceeds the configured limit.",
         ));
     }
+    let spec_version = if signing.is_some() {
+        SCHEMA_VERSION
+    } else {
+        LEGACY_SCHEMA_VERSION
+    };
+    let security = signing.map(|material| ManifestSecurity {
+        creator_signature: CreatorSignatureDescriptor {
+            profile: CREATOR_SIGNATURE_PROFILE.to_owned(),
+            signature_id: random_signature_id(),
+            display_label: material.display_label.clone(),
+            key_fingerprint: material.key_fingerprint.clone(),
+            public_key_path: format!("{CREATOR_KEY_PREFIX}{}.cbor", material.key_fingerprint),
+            signature_path: CREATOR_SIGNATURE_PATH.to_owned(),
+        },
+    });
     let manifest = Manifest {
-        spec_version: SCHEMA_VERSION.to_owned(),
+        spec_version: spec_version.to_owned(),
         proof_id: options.proof_id,
         created_at: options.created_at.clone(),
         tool: ToolInfo {
             name: "aigc-proof".to_owned(),
-            version: SCHEMA_VERSION.to_owned(),
+            version: spec_version.to_owned(),
         },
         project: workspace.project,
         assets: workspace.assets,
@@ -141,6 +178,7 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
             event_count: events.len() as u64,
             root_hash: events.last().map(|event| event.event_hash.clone()),
         },
+        security,
     };
     validate_manifest(&manifest)?;
     let manifest_bytes = canonical_json(&manifest)?;
@@ -151,6 +189,9 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
             "Manifest exceeds the configured limit.",
         ));
     }
+    let signature_artifacts = signing
+        .map(|material| sign_manifest(material, &manifest_bytes))
+        .transpose()?;
 
     let mut temporary = Builder::new()
         .prefix(".aigc-proof-package-")
@@ -162,6 +203,7 @@ pub fn seal_workspace(options: SealOptions) -> CoreResult<SealResult> {
         &manifest,
         &manifest_bytes,
         &event_bytes,
+        signature_artifacts.as_ref(),
     )?;
     temporary
         .as_file()
@@ -234,6 +276,7 @@ fn write_zip(
     manifest: &Manifest,
     manifest_bytes: &[u8],
     event_bytes: &[u8],
+    signature_artifacts: Option<&SignatureArtifacts>,
 ) -> CoreResult<()> {
     let mut archive = zip::ZipWriter::new(output);
     start_entry(&mut archive, MANIFEST_PATH, manifest_bytes.len() as u64)?;
@@ -264,6 +307,35 @@ fn write_zip(
     archive.write_all(event_bytes).map_err(|error| {
         CoreError::new(ErrorKind::Io, "PACKAGE_WRITE_FAILED", error.to_string())
     })?;
+    if let Some(artifacts) = signature_artifacts {
+        let security = manifest.security.as_ref().ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::Signing,
+                "CREATOR_SIGNATURE_METADATA_MISSING",
+                "Signed package Manifest is missing creator signature metadata.",
+            )
+        })?;
+        start_entry(
+            &mut archive,
+            &security.creator_signature.public_key_path,
+            artifacts.public_key_cose.len() as u64,
+        )?;
+        archive
+            .write_all(&artifacts.public_key_cose)
+            .map_err(|error| {
+                CoreError::new(ErrorKind::Io, "PACKAGE_WRITE_FAILED", error.to_string())
+            })?;
+        start_entry(
+            &mut archive,
+            &security.creator_signature.signature_path,
+            artifacts.signature_cose.len() as u64,
+        )?;
+        archive
+            .write_all(&artifacts.signature_cose)
+            .map_err(|error| {
+                CoreError::new(ErrorKind::Io, "PACKAGE_WRITE_FAILED", error.to_string())
+            })?;
+    }
     archive.finish()?;
     Ok(())
 }

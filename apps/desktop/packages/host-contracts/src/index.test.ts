@@ -9,12 +9,14 @@ import {
   NATIVE_ENGINE_VERSION,
   PROTOCOL_VERSION,
   RUNTIME_LIMITS,
+  WORKBENCH_VERSION,
   getCreationSessionsRequestSchema,
   hostReferenceSchema,
   hostDiagnosticsSchema,
   initializeWorkspaceRequestSchema,
   isCompatibleSemVer,
   proofHostResponseSchemas,
+  signerLabelSchema,
   validateNativeDiscovery,
   workspaceSummarySchema,
 } from "./index";
@@ -23,7 +25,7 @@ function discovery(overrides: Record<string, unknown> = {}) {
   return {
     apiVersion: NATIVE_API_VERSION,
     engineVersion: NATIVE_ENGINE_VERSION,
-    supportedProtocolVersions: [PROTOCOL_VERSION],
+    supportedProtocolVersions: ["0.2.0", PROTOCOL_VERSION],
     capabilities: [...NATIVE_CAPABILITIES].sort(),
     execution: {
       napiAsyncTasks: true,
@@ -38,10 +40,11 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(HOST_CONTRACT_VERSION).toBe("1.4.0");
-    expect(NATIVE_API_VERSION).toBe("1.3.0");
-    expect(NATIVE_ENGINE_VERSION).toBe("0.2.0");
-    expect(PROTOCOL_VERSION).toBe("0.2.0");
+    expect(WORKBENCH_VERSION).toBe("0.6.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.5.0");
+    expect(NATIVE_API_VERSION).toBe("1.4.0");
+    expect(NATIVE_ENGINE_VERSION).toBe("0.3.0");
+    expect(PROTOCOL_VERSION).toBe("0.3.0");
   });
 
   it("applies fail-closed SemVer and capability compatibility", () => {
@@ -49,10 +52,10 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.3.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.4.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
-      discovery({ engineVersion: "0.3.0" }),
+      discovery({ engineVersion: "0.4.0" }),
       discovery({ supportedProtocolVersions: ["0.1.0"] }),
       discovery({ capabilities: NATIVE_CAPABILITIES.slice(1) }),
       discovery({
@@ -98,6 +101,13 @@ describe("@aigc-proof/host-contracts", () => {
     ).toThrow();
   });
 
+  it("enforces the creator label canonical and UTF-8 byte boundaries", () => {
+    expect(signerLabelSchema.parse("创建者".repeat(22))).toHaveLength(66);
+    expect(() => signerLabelSchema.parse("创建者".repeat(23))).toThrow();
+    expect(() => signerLabelSchema.parse("e\u0301")).toThrow();
+    expect(() => signerLabelSchema.parse("creator\u202eexe")).toThrow();
+  });
+
   it("rejects malformed, missing, duplicate, and unsorted 1.3 capabilities", () => {
     const cases = [
       {},
@@ -141,12 +151,12 @@ describe("@aigc-proof/host-contracts", () => {
         displayLabel: "diagnostics",
       },
       hostKind: "standalone",
-      workbenchVersion: "0.5.1",
-      contractVersion: "1.4.0",
-      nativeApiVersion: "1.3.0",
-      engineVersion: "0.2.0",
-      protocolVersion: "0.2.0",
-      supportedProtocolVersions: ["0.2.0"],
+      workbenchVersion: WORKBENCH_VERSION,
+      contractVersion: HOST_CONTRACT_VERSION,
+      nativeApiVersion: NATIVE_API_VERSION,
+      engineVersion: NATIVE_ENGINE_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
+      supportedProtocolVersions: ["0.2.0", PROTOCOL_VERSION],
       capabilities: [...HOST_CAPABILITIES],
       execution: discovery().execution,
       limits: RUNTIME_LIMITS,
@@ -261,12 +271,12 @@ describe("@aigc-proof/host-contracts", () => {
     const diagnostics = {
       reference: references.diagnostic,
       hostKind: "standalone",
-      workbenchVersion: "0.5.1",
-      contractVersion: "1.4.0",
-      nativeApiVersion: "1.3.0",
-      engineVersion: "0.2.0",
-      protocolVersion: "0.2.0",
-      supportedProtocolVersions: ["0.2.0"],
+      workbenchVersion: WORKBENCH_VERSION,
+      contractVersion: HOST_CONTRACT_VERSION,
+      nativeApiVersion: NATIVE_API_VERSION,
+      engineVersion: NATIVE_ENGINE_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
+      supportedProtocolVersions: ["0.2.0", PROTOCOL_VERSION],
       capabilities: [...HOST_CAPABILITIES],
       execution: discovery().execution,
       limits: RUNTIME_LIMITS,
@@ -405,6 +415,42 @@ describe("@aigc-proof/host-contracts", () => {
         },
       },
       recordEvent: { ok: true, data: { event } },
+      getSignerStatus: {
+        ok: true,
+        data: {
+          state: "active",
+          display_label: "Local creator",
+          key_fingerprint: "9".repeat(64),
+          warning_codes: [],
+        },
+      },
+      createSigner: {
+        ok: true,
+        data: {
+          state: "active",
+          display_label: "Local creator",
+          key_fingerprint: "9".repeat(64),
+          warning_codes: [],
+        },
+      },
+      rotateSigner: {
+        ok: true,
+        data: {
+          state: "active",
+          display_label: "Local creator",
+          key_fingerprint: "8".repeat(64),
+          warning_codes: [],
+        },
+      },
+      disableSigner: {
+        ok: true,
+        data: {
+          state: "disabled",
+          display_label: "Local creator",
+          key_fingerprint: "8".repeat(64),
+          warning_codes: [],
+        },
+      },
       sealPackage: {
         ok: true,
         data: {

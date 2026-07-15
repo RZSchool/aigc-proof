@@ -10,7 +10,10 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+coset.workspace = true
+ed25519-dalek.workspace = true
 proof-schema = { path = "../proof-schema" }
+rand_core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_json_canonicalizer.workspace = true
@@ -18,4 +21,11 @@ sha2.workspace = true
 tempfile.workspace = true
 time.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 zip.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", default-features = false, features = ["crypto-rust", "linux-native-sync-persistent"] }

@@ -144,12 +144,12 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.5.1",
-        contractVersion: "1.4.0",
-        nativeApiVersion: "1.3.0",
-        engineVersion: "0.2.0",
-        protocolVersion: "0.2.0",
-        supportedProtocolVersions: ["0.2.0"],
+        workbenchVersion: "0.6.0",
+        contractVersion: "1.5.0",
+        nativeApiVersion: "1.4.0",
+        engineVersion: "0.3.0",
+        protocolVersion: "0.3.0",
+        supportedProtocolVersions: ["0.2.0", "0.3.0"],
         capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,
@@ -188,6 +188,18 @@ beforeEach(() => {
     exportCreationOutput: vi.fn(),
     matchImageToPackage: vi.fn(),
     recordEvent: vi.fn(),
+    getSignerStatus: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        state: "active",
+        display_label: "Test creator",
+        key_fingerprint: "2".repeat(64),
+        warning_codes: [],
+      },
+    }),
+    createSigner: vi.fn(),
+    rotateSigner: vi.fn(),
+    disableSigner: vi.fn(),
     sealPackage: vi.fn(),
     verifyPackage: vi.fn(),
     inspectPackage: vi.fn(),
@@ -203,15 +215,15 @@ beforeEach(() => {
 });
 
 describe("workbench shell", () => {
-  it("keeps the exact Internal Integrity assurance boundary visible", async () => {
+  it("keeps the exact signed-local-identity assurance boundary visible", async () => {
     render(<App />);
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
-      "仅验证证明包内部完整性",
+      "内部完整性与本地创建者数字签名",
     );
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
-      "创建者身份未验证",
+      "显示名称为自我声明",
     );
-    expect(screen.getByText("Workbench 0.5.1")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.6.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
@@ -223,12 +235,56 @@ describe("workbench shell", () => {
   it("shows exact compatible versions and explicitly unavailable features", async () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
-    expect(card).toHaveTextContent("0.2.0");
-    expect(card).toHaveTextContent("1.4.0");
+    expect(card).toHaveTextContent("0.3.0");
+    expect(card).toHaveTextContent("1.5.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
     expect(card).toHaveTextContent("不是认证");
+  });
+
+  it("creates a self-asserted local signer and exposes the full fingerprint", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => true),
+    });
+    vi.mocked(window.aigcProof.getSignerStatus).mockResolvedValue({
+      ok: true,
+      data: { state: "missing", warning_codes: [] },
+    });
+    vi.mocked(window.aigcProof.createSigner).mockResolvedValue({
+      ok: true,
+      data: {
+        state: "active",
+        display_label: "Local creator",
+        key_fingerprint: "a".repeat(64),
+        warning_codes: [],
+      },
+    });
+    render(<App />);
+    await user.type(
+      await screen.findByTestId("signer-display-label"),
+      "Local creator",
+    );
+    await user.click(screen.getByTestId("create-signer"));
+    await waitFor(() =>
+      expect(window.aigcProof.createSigner).toHaveBeenCalledWith({
+        displayLabel: "Local creator",
+      }),
+    );
+    expect(await screen.findByTestId("signer-state")).toHaveTextContent(
+      "active",
+    );
+    expect(screen.getByTestId("signer-fingerprint")).toHaveValue(
+      "a".repeat(64),
+    );
+    expect(screen.getByTestId("signer-card")).toHaveTextContent("自我声明");
+    await user.click(screen.getByTestId("copy-signer-fingerprint"));
+    expect(document.execCommand).toHaveBeenCalledWith("copy");
+    expect(screen.getByTestId("result-text")).toHaveTextContent(
+      "完整 SHA-256 指纹已复制",
+    );
   });
 
   it("creates only from a Main-resolved parent and folder name", async () => {
@@ -582,6 +638,9 @@ describe("workbench shell", () => {
     );
     await user.click(screen.getByTestId("choose-creation-package-output"));
     await user.click(screen.getByTestId("choose-creation-report-output"));
+    expect(screen.getByTestId("complete-creation-proof")).toBeDisabled();
+    await user.click(screen.getByTestId("confirm-creation-signature"));
+    expect(screen.getByTestId("complete-creation-proof")).toBeEnabled();
     await user.click(screen.getByTestId("complete-creation-proof"));
     await waitFor(() =>
       expect(screen.getByTestId("creation-state")).toHaveTextContent(

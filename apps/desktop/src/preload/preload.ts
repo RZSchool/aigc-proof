@@ -50,6 +50,11 @@ const api: ProofHostApi = {
   matchImageToPackage: (request) =>
     ipcRenderer.invoke(channels.matchImageToPackage, request),
   recordEvent: (request) => ipcRenderer.invoke(channels.recordEvent, request),
+  getSignerStatus: () => ipcRenderer.invoke(channels.getSignerStatus),
+  createSigner: (request) => ipcRenderer.invoke(channels.createSigner, request),
+  rotateSigner: (request) => ipcRenderer.invoke(channels.rotateSigner, request),
+  disableSigner: (request) =>
+    ipcRenderer.invoke(channels.disableSigner, request),
   sealPackage: (request) => ipcRenderer.invoke(channels.sealPackage, request),
   verifyPackage: (request) =>
     ipcRenderer.invoke(channels.verifyPackage, request),

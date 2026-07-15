@@ -1,12 +1,25 @@
 use serde_json::Value;
 
-const MANIFEST_SCHEMA: &str = include_str!("../../../schemas/v0.2/manifest.schema.json");
+const MANIFEST_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/manifest.schema.json");
+const MANIFEST_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/manifest.schema.json");
 const EVENT_SCHEMA: &str = include_str!("../../../schemas/v0.2/event.schema.json");
-const REPORT_SCHEMA: &str = include_str!("../../../schemas/v0.2/verification-result.schema.json");
-const WORKSPACE_SCHEMA: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
+const REPORT_SCHEMA_V02: &str =
+    include_str!("../../../schemas/v0.2/verification-result.schema.json");
+const REPORT_SCHEMA_V03: &str =
+    include_str!("../../../schemas/v0.3/verification-result.schema.json");
+const WORKSPACE_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
+const WORKSPACE_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/workspace.schema.json");
 
 pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
-    validate(MANIFEST_SCHEMA, value)
+    validate(
+        versioned(
+            value,
+            "spec_version",
+            MANIFEST_SCHEMA_V02,
+            MANIFEST_SCHEMA_V03,
+        ),
+        value,
+    )
 }
 
 pub fn validate_event_schema(value: &Value) -> Result<(), Vec<String>> {
@@ -14,11 +27,30 @@ pub fn validate_event_schema(value: &Value) -> Result<(), Vec<String>> {
 }
 
 pub fn validate_verification_result_schema(value: &Value) -> Result<(), Vec<String>> {
-    validate(REPORT_SCHEMA, value)
+    validate(
+        versioned(value, "spec_version", REPORT_SCHEMA_V02, REPORT_SCHEMA_V03),
+        value,
+    )
 }
 
 pub fn validate_workspace_schema(value: &Value) -> Result<(), Vec<String>> {
-    validate(WORKSPACE_SCHEMA, value)
+    validate(
+        versioned(
+            value,
+            "workspace_version",
+            WORKSPACE_SCHEMA_V02,
+            WORKSPACE_SCHEMA_V03,
+        ),
+        value,
+    )
+}
+
+fn versioned<'a>(value: &Value, field: &str, legacy: &'a str, current: &'a str) -> &'a str {
+    if value.get(field).and_then(Value::as_str) == Some(crate::LEGACY_SCHEMA_VERSION) {
+        legacy
+    } else {
+        current
+    }
 }
 
 fn validate(schema_text: &str, instance: &Value) -> Result<(), Vec<String>> {
@@ -53,7 +85,7 @@ mod tests {
     fn embedded_schemas_load_and_reject_invalid_values() {
         let invalid = json!({"spec_version": "0.2.0"});
         assert!(validate_manifest_schema(&invalid).is_err());
-        let schema = serde_json::from_str::<Value>(MANIFEST_SCHEMA).unwrap();
+        let schema = serde_json::from_str::<Value>(MANIFEST_SCHEMA_V03).unwrap();
         assert!(jsonschema::validator_for(&schema).is_ok());
     }
 
@@ -84,6 +116,7 @@ mod tests {
                 event_count: 0,
                 root_hash: None,
             },
+            security: None,
         };
         let valid = serde_json::to_value(&manifest).unwrap();
         assert!(validate_manifest_schema(&valid).is_ok());

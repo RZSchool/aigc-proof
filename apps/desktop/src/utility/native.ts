@@ -34,9 +34,14 @@ export interface NativeAddon {
   sealProofPackage(request: {
     workspace: string;
     output: string;
+    confirmSignature: boolean;
   }): Promise<string>;
   verifyProofPackage(request: { path: string }): Promise<string>;
   inspectProofPackage(request: { path: string }): Promise<string>;
+  getLocalSignerStatus(): Promise<string>;
+  createLocalSigner(request: { displayLabel: string }): Promise<string>;
+  rotateLocalSigner(request: { displayLabel: string }): Promise<string>;
+  disableLocalSigner(): Promise<string>;
 }
 
 const nativeEnvelopeSchema = z.discriminatedUnion("ok", [

@@ -21,6 +21,7 @@ import {
   addAssetResultSchema,
   assetSchema,
   completeCreationProofRequestSchema,
+  disableSignerRequestSchema,
   createCreationSessionRequestSchema,
   creationOutputSummarySchema,
   creationSessionRequestSchema,
@@ -38,12 +39,15 @@ import {
   inspectProviderInstallationRequestSchema,
   inspectionSchema,
   jobCreateRequestSchema,
+  localSignerStatusSchema,
   packageRequestSchema,
   recordEventRequestSchema,
   recordEventResultSchema,
+  rotateSignerRequestSchema,
   resultReferenceSchema,
   saveReportRequestSchema,
   sealPackageRequestSchema,
+  signerLabelRequestSchema,
   setPreferenceRequestSchema,
   taskReferenceSchema,
   verificationReportSchema,
@@ -739,6 +743,44 @@ export async function registerIpc(
           });
           break;
         }
+        case "getSignerStatus": {
+          utilityJob = { operation: "getSignerStatus", payload: {} };
+          publish = async (raw) => ({
+            operation: "getSignerStatus",
+            data: localSignerStatusSchema.parse(raw),
+          });
+          break;
+        }
+        case "createSigner": {
+          utilityJob = {
+            operation: "createSigner",
+            payload: { displayLabel: request.input.displayLabel },
+          };
+          publish = async (raw) => ({
+            operation: "createSigner",
+            data: localSignerStatusSchema.parse(raw),
+          });
+          break;
+        }
+        case "rotateSigner": {
+          utilityJob = {
+            operation: "rotateSigner",
+            payload: { displayLabel: request.input.displayLabel },
+          };
+          publish = async (raw) => ({
+            operation: "rotateSigner",
+            data: localSignerStatusSchema.parse(raw),
+          });
+          break;
+        }
+        case "disableSigner": {
+          utilityJob = { operation: "disableSigner", payload: {} };
+          publish = async (raw) => ({
+            operation: "disableSigner",
+            data: localSignerStatusSchema.parse(raw),
+          });
+          break;
+        }
         case "sealPackage": {
           const workspace = await registry.resolve(
             request.input.workspace,
@@ -754,7 +796,11 @@ export async function registerIpc(
           );
           utilityJob = {
             operation: "sealPackage",
-            payload: { workspace, output },
+            payload: {
+              workspace,
+              output,
+              confirmSignature: request.input.confirmSignature,
+            },
           };
           oneUse.push({
             raw: request.input.output,
@@ -1371,7 +1417,11 @@ export async function registerIpc(
         );
         const sealed = await legacy(event.sender.id, {
           operation: "sealPackage",
-          input: { workspace, output: request.packageOutput },
+          input: {
+            workspace,
+            output: request.packageOutput,
+            confirmSignature: true,
+          },
         });
         if (!sealed.ok) return sealed;
         const sealedData = sealed.data as {
@@ -1622,6 +1672,24 @@ export async function registerIpc(
     imageMatchRequestSchema,
   );
   registerLegacy(channels.recordEvent, "recordEvent", recordEventRequestSchema);
+  ipcMain.handle(channels.getSignerStatus, (event) =>
+    legacy(event.sender.id, { operation: "getSignerStatus", input: {} }),
+  );
+  registerLegacy(
+    channels.createSigner,
+    "createSigner",
+    signerLabelRequestSchema,
+  );
+  registerLegacy(
+    channels.rotateSigner,
+    "rotateSigner",
+    rotateSignerRequestSchema,
+  );
+  registerLegacy(
+    channels.disableSigner,
+    "disableSigner",
+    disableSignerRequestSchema,
+  );
   registerLegacy(channels.sealPackage, "sealPackage", sealPackageRequestSchema);
   registerLegacy(channels.verifyPackage, "verifyPackage", packageRequestSchema);
   registerLegacy(

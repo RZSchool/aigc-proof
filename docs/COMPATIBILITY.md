@@ -1,75 +1,27 @@
 # Compatibility Notes
 
-## 0.1 to 0.2
+## Protocol 0.2 to 0.3
 
-The retained schemas/v0.1 files are draft history and are not valid 0.2 artifacts.
+Protocol 0.3 preserves the 0.2 asset, event-chain, canonical JSON, timestamp, portable-path, ZIP/ZIP64, and no-clobber rules. It adds required creator-signature metadata and two security entries. Existing 0.2 packages remain valid unsigned Internal Integrity packages and are never reinterpreted as signed or identity-verified.
 
-Version 0.2 introduces the workspace workflow; Manifest tool/project/assets model; event sequence starting at 1; canonical UTC Z timestamps; structured assurance; stable error codes; exact stable ZIP entry order; and centralized defensive limits. The previous temporary hash/create CLI and files/event-chain draft model are incompatible and removed from public documentation.
+The verifier dispatches Schemas by declared version and accepts both 0.2 and 0.3. New normal workspaces use 0.3. The CLI exposes `--legacy-unsigned-v02` only for explicit compatibility output.
 
-Small packages may use ordinary ZIP records. ZIP64 is supported only when standard fields are insufficient; it is not forced for every package.
+Display labels are new untrusted protocol text. They require NFC and strict length/control checks; a non-ASCII label produces a visual-confusable review warning. A label is never an authority identifier.
 
-JSON Schema describes field structure, basic lexical constraints, event/root relationships,
-and verification status/assurance relationships. It cannot express every uniqueness, ordering,
-archive-metadata, role/path, or cross-platform filesystem rule. Shared Rust validators are the
-execution layer and must not change the Schema field meanings. Package components reject
-Windows device names, forbidden characters, control characters, and trailing dots/spaces;
-backslashes, drive/UNC paths, dot components, and NUL remain forbidden on every platform.
+## Workbench 0.6.0 matrix
 
-The pinned zip crate interprets explicit Unix symbolic-link metadata and supports standard
-ZIP/ZIP64 reading. It also collapses duplicate decoded names in its public archive map, so the
-verifier independently compares EOCD/ZIP64 declared counts before trusting that map. Because
-producer metadata varies, symbolic links and Unix special-file types are rejected, entries are
-never extracted, and Windows/Linux/macOS CI remains a release gate. Windows CI is configured to
-run the native PowerShell smoke path as well as the shared integration and security tests; those
-tests exercise relative Windows paths, CRLF JSON, case-conflicting archive names, no-clobber
-writes, and internal temporary-file cleanup.
+| Layer | Version | Compatibility behavior |
+|---|---:|---|
+| Workbench | 0.6.0 | Local signer management, explicit signing consent, signed verification UI |
+| `ProofHostApi` | 1.5.0 | Adds narrow signer status/create/rotate/disable operations and signature confirmation |
+| Native API | 1.4.0 | Adds signer operations and signed seal while preserving reviewed 1.3 operations |
+| Native engine | 0.3.0 | Current signed engine; verifies legacy 0.2 |
+| Proof protocol | 0.3.0 | Current signed format; supported list is 0.2.0 and 0.3.0 |
+| Creation core | 1.0.0 | Unchanged host-independent local creation lifecycle |
+| ComfyUI profile | 0.27.0 | Existing external local installation; never bundled |
 
-Cargo.lock is committed. Direct dependencies retain the exact Cargo.toml versions; only the
-idna/ICU4X transitive line is held to Rust 1.85-compatible releases rather than the newer
-Rust-1.86-only line.
+Unknown major versions, missing required capabilities, inconsistent limits, malformed handshakes, or a missing current protocol fail closed before proof IPC registration. Portable workspaces, packages, and reports remain authoritative; SQLite remains disposable application metadata.
 
-Unsigned 0.2 packages must never be reinterpreted as signed, identity-verified, officially verified, or trusted-time evidence by later versions.
+Windows x64 is the packaged-workbench target. Windows and Linux are required core regression platforms for this stage. macOS remains a compatibility target but is not claimed as executed without evidence.
 
-Workbench 0.5.1 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
-public Rust core as the CLI, and its SQLite database is application metadata only. Workspaces,
-packages, and JSON reports remain portable across clients without SQLite. Windows x64 is the
-required packaged-workbench platform; Linux remains a required core/CLI regression platform and
-macOS evidence is informational unless actually executed.
-
-Workbench 0.5.1 preserves the separate create and open path semantics introduced in 0.1.1.
-Creation accepts an existing parent and a new portable folder component; Electron Main resolves
-the final target and preserves the core's strict no-overwrite rule. Opening continues to require
-an existing valid workspace.
-
-Workbench 0.5.1 retains the supervised Utility Process, bounded asynchronous proof jobs, phase
-progress, truthful cancellation states, one-page UI, SQLite v2 creation sessions, and reusable
-ComfyUI v0.27.0 creation core from 0.4, plus exact no-clobber export and byte-for-byte image
-matching from 0.5.0. Host contract 1.4 scopes creation-session listing to a Main-resolved workspace,
-removes automatic historical restoration, and keeps manual event/seal/import controls in one
-collapsed advanced disclosure. Native API remains 1.3.0. These are application/runtime and
-evidence-orchestration changes
-only; they do not change workspace files, `.aigcproof` packages, reports, protocol 0.2.0, or
-assurance.
-
-The ComfyUI profile is exact and capability-based for this release: the installation and server
-must report v0.27.0; required loopback routes, WebSocket, six core node classes, and at least one
-checkpoint must exist. ComfyUI, Python, custom nodes, and models remain separately installed and
-licensed. Their presence or observation does not change proof assurance.
-
-## Workbench 0.5.1 compatibility matrix
-
-| Layer                   | Version | Compatibility behavior                                                                                                                                          |
-| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workbench application   | 0.5.1   | Product/UI/runtime version; does not change proof assurance                                                                                                     |
-| `ProofHostApi` contract | 1.4.0   | 1.4 adds workspace-scoped creation-session listing; 1.3 image/export semantics remain; unknown major fails closed                                               |
-| Native API              | 1.3.0   | Main validates the Utility discovery handshake before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities/limits fail closed |
-| Creation core           | 1.0.0   | Host/UI/database-independent lifecycle, snapshot, fixed workflow, provider adapter and evidence mapping                                                         |
-| ComfyUI profile         | 0.27.0  | External local installation; exact version plus reviewed capabilities required; never bundled                                                                   |
-| Native engine           | 0.2.0   | Exact engine expected by this Workbench                                                                                                                         |
-| Proof protocol          | 0.2.0   | Exact supported portable workspace/package/report semantics                                                                                                     |
-
-Native API 1.3.0 advertises only reviewed workspace, asset, event, package, verification,
-inspection, image correspondence, verified output export and execution capabilities. It truthfully reports napi-rs asynchronous tasks, Utility
-Process isolation, and phase progress as available, while safe interruption of running atomic Rust
-operations remains unavailable. Display paths returned with Host references are never
-compatibility or authorization credentials.
+Cargo.lock is committed. Direct dependencies are exact. The idna/ICU4X transitive line remains pinned to Rust-1.85-compatible releases for AP-031.

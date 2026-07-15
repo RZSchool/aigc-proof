@@ -1,10 +1,10 @@
-# Privacy Profile 0.2
+# Privacy Profile 0.3
 
 The CLI runs offline and does not automatically upload workspaces, packages, prompts, parameters, or assets.
 
 Event payloads are supplied through JSON files so sensitive prompt text does not need to appear directly in shell command history. The JSON file and package may still contain sensitive prompts, model parameters, personal data, licenses, and source assets.
 
-Version 0.2 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace and package contents before sharing them. File digests can also reveal equality with known content and should not be treated as anonymous.
+Version 0.3 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace and package contents before sharing them. File and key digests can reveal equality and should not be treated as anonymous.
 
 Raw external absolute paths are not stored in the Manifest. original_name is retained, so filenames themselves may be sensitive.
 
@@ -17,7 +17,7 @@ directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.5.1 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 0.6.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
@@ -44,3 +44,9 @@ keeps the execution text in memory only; it is intentionally unavailable after r
 evidence omits credentials, absolute external installation/output paths, environment dumps, and
 unbounded logs. Declared checkpoint names and original asset filenames can still be sensitive,
 and hashes may reveal equality with known content.
+
+The local creator display label and public key fingerprint are intentionally embedded in each
+signed 0.3 package and may link packages made with the same key. The private key remains in the
+operating-system credential store and is never written to packages, workspaces, reports, SQLite,
+renderer/preload IPC, or logs. Rotation creates a new linkability domain; it does not erase the
+public identity evidence in already shared packages.

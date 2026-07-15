@@ -7,8 +7,9 @@ use std::str::FromStr;
 use clap::{Parser, Subcommand};
 use proof_core::{
     AddAssetOptions, CoreError, InitWorkspaceOptions, RecordEventOptions, SealOptions,
-    VerificationLimits, add_asset, current_timestamp, init_workspace, inspect_package,
-    media_type_for_path, record_event, seal_workspace, verify_package,
+    SignerService, VerificationLimits, add_asset, current_timestamp, init_workspace,
+    inspect_package, media_type_for_path, record_event, seal_signed_workspace, seal_workspace,
+    verify_package_with_signer,
 };
 use proof_schema::{
     AssetRole, VerificationStatus, parse_json_strict, validate_verification_result_schema,
@@ -21,8 +22,8 @@ use uuid::Uuid;
 #[command(
     name = "aigc-proof",
     version,
-    about = "Offline AIGC-Proof 0.2 internal-integrity workflow",
-    long_about = "Creates and verifies unsigned AIGC-Proof 0.2 packages. Creator identity is not verified; digital signature and trusted timestamp are not present; originality is not evaluated."
+    about = "Offline AIGC-Proof 0.3 creator-signature workflow",
+    long_about = "Creates and verifies AIGC-Proof 0.3 packages signed by a local OS-protected Ed25519 key. The display label is self-asserted; trusted time and originality are not evaluated."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -31,6 +32,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Manage the current user's OS-protected local creator key.
+    Key {
+        #[command(subcommand)]
+        command: KeyCommand,
+    },
     /// Create a new local proof workspace without overwriting existing data.
     Init {
         workspace: PathBuf,
@@ -57,6 +63,12 @@ enum Command {
         workspace: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Confirm that this operation will create a creator signature.
+        #[arg(long)]
+        confirm_signature: bool,
+        /// Produce a legacy unsigned protocol 0.2 package for compatibility testing.
+        #[arg(long, conflicts_with = "confirm_signature")]
+        legacy_unsigned_v02: bool,
     },
     /// Verify package structure and internal integrity offline.
     Verify {
@@ -69,6 +81,34 @@ enum Command {
         package: PathBuf,
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyCommand {
+    /// Report public local-key metadata without exposing private bytes.
+    Status,
+    /// Create the first local creator key.
+    Create {
+        #[arg(long)]
+        display_label: String,
+    },
+    /// Replace the current local key after explicit confirmation.
+    Rotate {
+        #[arg(long)]
+        display_label: String,
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Disable the current key for new signing after explicit confirmation.
+    Disable {
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Export only the deterministic public COSE_Key bytes.
+    ExportPublic {
+        #[arg(long)]
+        output: PathBuf,
     },
 }
 
@@ -91,6 +131,42 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode, CliError> {
     match cli.command {
+        Command::Key { command } => {
+            let signer = SignerService::production();
+            match command {
+                KeyCommand::Status => {
+                    print_json(&serde_json::to_value(signer.status()).map_err(|error| {
+                        CliError::new("KEY_STATUS_SERIALIZATION_FAILED", error.to_string())
+                    })?)?
+                }
+                KeyCommand::Create { display_label } => {
+                    let status = signer.create(&display_label).map_err(CliError::from_core)?;
+                    print_json(&json!({"status": "created", "signer": status}))?;
+                }
+                KeyCommand::Rotate {
+                    display_label,
+                    confirm,
+                } => {
+                    require_confirmation(confirm, "KEY_ROTATION_NOT_CONFIRMED")?;
+                    let status = signer.rotate(&display_label).map_err(CliError::from_core)?;
+                    print_json(&json!({"status": "rotated", "signer": status}))?;
+                }
+                KeyCommand::Disable { confirm } => {
+                    require_confirmation(confirm, "KEY_DISABLE_NOT_CONFIRMED")?;
+                    let status = signer.disable().map_err(CliError::from_core)?;
+                    print_json(&json!({"status": "disabled", "signer": status}))?;
+                }
+                KeyCommand::ExportPublic { output } => {
+                    let public_key = signer.export_public_key().map_err(CliError::from_core)?;
+                    write_new_file(&output, &public_key)?;
+                    print_json(&json!({
+                        "status": "exported",
+                        "public_key": output.display().to_string()
+                    }))?;
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Init {
             workspace,
             project_name,
@@ -145,22 +221,36 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
             print_json(&json!({"status": "recorded", "event": event}))?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Seal { workspace, output } => {
-            let result = seal_workspace(SealOptions {
+        Command::Seal {
+            workspace,
+            output,
+            confirm_signature,
+            legacy_unsigned_v02,
+        } => {
+            if !legacy_unsigned_v02 {
+                require_confirmation(confirm_signature, "SIGNATURE_NOT_CONFIRMED")?;
+            }
+            let options = SealOptions {
                 workspace,
                 output,
                 proof_id: Uuid::new_v4().urn().to_string(),
                 created_at: current_timestamp().map_err(CliError::from_core)?,
-            })
+            };
+            let result = if legacy_unsigned_v02 {
+                seal_workspace(options)
+            } else {
+                seal_signed_workspace(options, &SignerService::production())
+            }
             .map_err(CliError::from_core)?;
+            let signed = result.manifest.security.is_some();
             print_json(&json!({
                 "status": "sealed",
                 "package": result.path.display().to_string(),
                 "proof_id": result.manifest.proof_id,
                 "assurance": {
                     "internal_integrity": "self-checked",
-                    "creator_identity": "not_verified",
-                    "digital_signature": "not_present",
+                    "creator_identity": if signed { "self_asserted" } else { "not_verified" },
+                    "digital_signature": if signed { "self_checked" } else { "not_present" },
                     "trusted_time": "not_present",
                     "originality": "not_evaluated"
                 }
@@ -171,10 +261,11 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
             package,
             json_output,
         } => {
-            let report = verify_package(
+            let report = verify_package_with_signer(
                 &package,
                 &VerificationLimits::default(),
                 current_timestamp().map_err(CliError::from_core)?,
+                &SignerService::production(),
             );
             let value = serde_json::to_value(&report)
                 .map_err(|error| CliError::new("REPORT_SERIALIZATION_FAILED", error.to_string()))?;
@@ -210,13 +301,30 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                 println!("Created at (untrusted): {}", inspection.created_at);
                 println!("Assets: {}", inspection.assets.len());
                 println!("Events: {}", inspection.event_chain.event_count);
-                println!("Creator identity: not verified");
-                println!("Digital signature: not present");
+                if let Some(signature) = inspection.creator_signature {
+                    println!("Creator label (self-asserted): {}", signature.display_label);
+                    println!("Key fingerprint: {}", signature.key_fingerprint);
+                    println!("Digital signature: present but not verified by inspect");
+                } else {
+                    println!("Creator identity: not verified");
+                    println!("Digital signature: not present");
+                }
                 println!("Trusted timestamp: not present");
                 println!("Originality: not evaluated");
             }
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+fn require_confirmation(confirmed: bool, code: &'static str) -> Result<(), CliError> {
+    if confirmed {
+        Ok(())
+    } else {
+        Err(CliError::new(
+            code,
+            "Explicit confirmation flag is required for this key or signing operation.",
+        ))
     }
 }
 

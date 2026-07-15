@@ -106,6 +106,18 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   recordEvent(request: Parameters<ProofHostApi["recordEvent"]>[0]) {
     return this.bridge.recordEvent(request);
   }
+  getSignerStatus() {
+    return this.bridge.getSignerStatus();
+  }
+  createSigner(request: Parameters<ProofHostApi["createSigner"]>[0]) {
+    return this.bridge.createSigner(request);
+  }
+  rotateSigner(request: Parameters<ProofHostApi["rotateSigner"]>[0]) {
+    return this.bridge.rotateSigner(request);
+  }
+  disableSigner(request: Parameters<ProofHostApi["disableSigner"]>[0]) {
+    return this.bridge.disableSigner(request);
+  }
   sealPackage(request: Parameters<ProofHostApi["sealPackage"]>[0]) {
     return this.bridge.sealPackage(request);
   }

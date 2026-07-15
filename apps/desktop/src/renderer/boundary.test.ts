@@ -60,8 +60,8 @@ describe("renderer dependency boundary", () => {
       path.resolve(process.cwd(), "scripts/build-native.ps1"),
       "utf8",
     );
-    expect(nativeScript).toContain('Get-Command "x86_64-w64-mingw32-gcc.exe"');
+    expect(nativeScript).toContain("1.85.0-x86_64-pc-windows-msvc");
     expect(nativeScript).not.toContain("link-self-contained");
-    expect(nativeScript).toContain('"target\\windows-gnu"');
+    expect(nativeScript).toContain('"target\\windows-msvc"');
   });
 });

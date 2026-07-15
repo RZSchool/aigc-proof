@@ -25,4 +25,5 @@ napi-build = "=2.1.3"
 
 [dev-dependencies]
 tempfile.workspace = true
+zeroize.workspace = true
 zip.workspace = true

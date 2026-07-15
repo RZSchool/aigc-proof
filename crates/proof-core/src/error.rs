@@ -22,6 +22,8 @@ pub enum ErrorKind {
     MalformedJson,
     PackageFormat,
     OutputAlreadyExists,
+    CredentialStore,
+    Signing,
 }
 
 #[derive(Debug)]

@@ -59,6 +59,8 @@ const comfyUiInstallation = path.resolve(
 );
 const selectionManifest = path.join(evidence, "qa-selections.json");
 const addonPath = path.join(desktop, "native", "proof_napi.node");
+const qaSignerService = `org.aigcproof.qa.ap031-${process.pid}`;
+const qaSignerTarget = `current-user.${qaSignerService}`;
 const steps: Array<{ name: string; result: string; detail?: string }> = [];
 let launch: Launch | undefined;
 let testedExecutable = "";
@@ -118,10 +120,28 @@ async function setControl(
   })()`);
 }
 
+async function setChecked(
+  cdp: CdpClient,
+  testId: string,
+  checked: boolean,
+): Promise<void> {
+  await cdp.evaluate(`(() => {
+    const element = document.querySelector('[data-testid=${js(testId)}]');
+    if (!(element instanceof HTMLInputElement) || element.type !== 'checkbox') throw new Error('Checkbox not found: ${testId}');
+    if (element.checked !== ${checked}) element.click();
+    if (element.checked !== ${checked}) throw new Error('Checkbox did not reach the requested state: ${testId}');
+  })()`);
+}
+
+async function cleanupQaSigner(): Promise<void> {
+  await runProcess("cmdkey.exe", [`/delete:${qaSignerTarget}`]);
+}
+
 async function click(cdp: CdpClient, testId: string): Promise<void> {
   await cdp.evaluate(`(() => {
     const element = document.querySelector('[data-testid=${js(testId)}]');
     if (!(element instanceof HTMLButtonElement)) throw new Error('Button not found: ${testId}');
+    if (element.disabled) throw new Error('Button is disabled: ${testId}');
     element.click();
   })()`);
 }
@@ -199,6 +219,22 @@ async function controlValue(cdp: CdpClient, testId: string): Promise<string> {
   );
 }
 
+async function waitForEnabled(
+  cdp: CdpClient,
+  testId: string,
+  timeout = 30_000,
+): Promise<void> {
+  await waitFor(
+    () =>
+      cdp.evaluate<boolean>(
+        `document.querySelector('[data-testid=${js(testId)}]') instanceof HTMLButtonElement && !document.querySelector('[data-testid=${js(testId)}]').disabled`,
+      ),
+    (enabled) => enabled,
+    `${testId} to become enabled`,
+    timeout,
+  );
+}
+
 async function clickAndWait(
   cdp: CdpClient,
   testId: string,
@@ -210,6 +246,28 @@ async function clickAndWait(
     () => resultText(cdp),
     (value) => value.includes(expected),
     `${testId} result containing ${expected}`,
+    timeout,
+  );
+}
+
+async function confirmClickAndWait(
+  cdp: CdpClient,
+  testId: string,
+  expected: string,
+  timeout = 120_000,
+): Promise<string> {
+  const dialog = cdp.waitForEvent<{ message?: string }>(
+    "Page.javascriptDialogOpening",
+    timeout,
+  );
+  const clicking = click(cdp, testId);
+  await dialog;
+  await cdp.send("Page.handleJavaScriptDialog", { accept: true });
+  await clicking;
+  return waitFor(
+    () => resultText(cdp),
+    (value) => value.includes(expected),
+    `${testId} confirmed result containing ${expected}`,
     timeout,
   );
 }
@@ -246,6 +304,7 @@ async function launchApp(port: number): Promise<Launch> {
     env: {
       ...process.env,
       AIGC_PROOF_NATIVE_PATH: mode === "dev" ? addonPath : "",
+      AIGC_PROOF_QA_SIGNER_SERVICE: qaSignerService,
       ELECTRON_ENABLE_LOGGING: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -272,7 +331,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.5.1")
+  if (version !== "Workbench 0.6.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -357,6 +416,7 @@ async function closeApp(active: Launch): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await cleanupQaSigner().catch(() => undefined);
   await fsp.rm(evidence, { recursive: true, force: true });
   await fsp.mkdir(work, { recursive: true });
   await Promise.all([
@@ -400,11 +460,13 @@ async function main(): Promise<void> {
         packages: [
           creationPackage,
           creationPackage,
+          creationPackage,
           validPackage,
           tamperedPackage,
           malformedPackage,
           tamperedPackage,
           malformedPackage,
+          validPackage,
         ],
         packageOutputs: [creationPackage, validPackage, validPackage],
         reportOutputs: [creationReport, report, report],
@@ -420,6 +482,17 @@ async function main(): Promise<void> {
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
   await captureLayoutEvidence(cdp);
+  await setControl(cdp, "signer-display-label", "AP-031 QA local creator");
+  await clickAndWait(cdp, "create-signer", "本地签名身份已创建");
+  const signerFingerprint = await controlValue(cdp, "signer-fingerprint");
+  if (!/^[0-9a-f]{64}$/u.test(signerFingerprint.trim())) {
+    throw new Error(
+      `Local signer fingerprint is invalid: ${signerFingerprint}`,
+    );
+  }
+  record("os-credential-signer-created", signerFingerprint.trim());
+  await clickAndWait(cdp, "copy-signer-fingerprint", "完整 SHA-256 指纹已复制");
+  record("signer-fingerprint-copied", signerFingerprint.trim());
   record("menu-free-unified-page");
   await inspectWorkflowStructure(cdp);
   await click(cdp, "choose-create-parent");
@@ -565,6 +638,8 @@ async function main(): Promise<void> {
     (value) => value.includes(creationReport),
     "Host-issued creation report output",
   );
+  await setChecked(cdp, "confirm-creation-signature", true);
+  await waitForEnabled(cdp, "complete-creation-proof");
   await clickAndWait(
     cdp,
     "complete-creation-proof",
@@ -620,6 +695,49 @@ async function main(): Promise<void> {
     await cdp.screenshot(),
   );
   record("creation-seal-verify-report", JSON.stringify(completedCreation));
+  const signatureEvidence = await controlText(cdp, "signature-evidence");
+  for (const expected of [
+    "AP-031 QA local creator",
+    signerFingerprint.trim(),
+    "aigc-proof.creator-signature.cose-ed25519.v1",
+    "自我声明",
+  ]) {
+    if (!signatureEvidence.includes(expected)) {
+      throw new Error(`Creator signature evidence omitted ${expected}.`);
+    }
+  }
+  record("creator-signature-evidence-is-truthful", signatureEvidence);
+
+  await setControl(cdp, "signer-display-label", "AP-031 QA rotated creator");
+  await confirmClickAndWait(cdp, "rotate-signer", "本地签名密钥已轮换");
+  const rotatedSignerFingerprint = (
+    await controlValue(cdp, "signer-fingerprint")
+  ).trim();
+  if (
+    !/^[0-9a-f]{64}$/u.test(rotatedSignerFingerprint) ||
+    rotatedSignerFingerprint === signerFingerprint.trim()
+  ) {
+    throw new Error(
+      `Rotated signer fingerprint is invalid: ${rotatedSignerFingerprint}`,
+    );
+  }
+  record("os-credential-signer-rotated", rotatedSignerFingerprint);
+
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(creationPackage),
+    "Host-issued pre-rotation package",
+  );
+  const historicalVerification = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"digital_signature": "valid_untrusted"',
+  );
+  if (!historicalVerification.includes('"status": "valid"')) {
+    throw new Error("Pre-rotation package lost cryptographic validity.");
+  }
+  record("pre-rotation-package-remains-valid-untrusted");
 
   await clickAndWait(
     cdp,
@@ -775,6 +893,8 @@ async function main(): Promise<void> {
     (value) => value.includes(validPackage),
     "Host-issued package output",
   );
+  await setChecked(cdp, "confirm-seal-signature", true);
+  await waitForEnabled(cdp, "seal-package");
   await clickAndWait(cdp, "seal-package", "证明包已封装");
   record("seal-package");
   await click(cdp, "choose-package-output");
@@ -783,6 +903,8 @@ async function main(): Promise<void> {
     (value) => value.includes(validPackage),
     "Host-issued duplicate package output",
   );
+  await setChecked(cdp, "confirm-seal-signature", true);
+  await waitForEnabled(cdp, "seal-package");
   await clickAndWait(cdp, "seal-package", "OUTPUT_ALREADY_EXISTS");
   record("seal-no-clobber");
 
@@ -813,13 +935,13 @@ async function main(): Promise<void> {
   record("inspect-metadata-only");
 
   const zip = new AdmZip(creationPackage);
-  const asset = zip
-    .getEntries()
-    .find((entry) => entry.entryName.startsWith("assets/"));
-  if (!asset) throw new Error("Acceptance package had no asset to tamper.");
-  const bytes = asset.getData();
-  bytes[0] = (bytes[0] ?? 0) ^ 1;
-  zip.updateFile(asset.entryName, bytes);
+  const signature = zip.getEntry("security/signatures/creator.cose");
+  if (!signature)
+    throw new Error("Acceptance package had no creator signature to tamper.");
+  const bytes = signature.getData();
+  const lastIndex = bytes.length - 1;
+  bytes[lastIndex] = (bytes[lastIndex] ?? 0) ^ 1;
+  zip.updateFile(signature.entryName, bytes);
   zip.writeZip(tamperedPackage);
   await click(cdp, "choose-package");
   await waitFor(
@@ -827,8 +949,17 @@ async function main(): Promise<void> {
     (value) => value.includes(tamperedPackage),
     "Host-issued tampered package",
   );
-  await clickAndWait(cdp, "verify-package", '"status": "invalid"');
-  record("tamper-rejection");
+  const tamperedResult = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"status": "invalid"',
+  );
+  if (!tamperedResult.includes('"code": "CREATOR_SIGNATURE_INVALID"')) {
+    throw new Error(
+      "Creator signature tampering did not report CREATOR_SIGNATURE_INVALID.",
+    );
+  }
+  record("creator-signature-tamper-rejection");
   await fsp.writeFile(
     path.join(evidence, "tamper-rejection.png"),
     await cdp.screenshot(),
@@ -878,6 +1009,26 @@ async function main(): Promise<void> {
     }
     record(`${expectedLabel}-package-no-image-match-claim`);
   }
+
+  await confirmClickAndWait(cdp, "disable-signer", "本地签名身份已禁用");
+  if ((await controlText(cdp, "signer-state")).trim() !== "disabled") {
+    throw new Error("Disabled signer state was not rendered truthfully.");
+  }
+  await click(cdp, "choose-package");
+  await waitFor(
+    () => controlValue(cdp, "package-path"),
+    (value) => value.includes(validPackage),
+    "Host-issued package signed by disabled key",
+  );
+  const disabledKeyVerification = await clickAndWait(
+    cdp,
+    "verify-package",
+    '"digital_signature": "disabled"',
+  );
+  if (!disabledKeyVerification.includes('"status": "valid"')) {
+    throw new Error("Disabled signer caused historical signature rejection.");
+  }
+  record("disabled-key-package-remains-cryptographically-valid");
 
   await setControl(cdp, "workspace-folder-name", "第二 工作区");
   await setControl(cdp, "project-name", "AP-027 工作区 B");
@@ -1102,9 +1253,9 @@ async function main(): Promise<void> {
 
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
-    "0.2.0",
+    "0.3.0",
+    "1.5.0",
     "1.4.0",
-    "1.3.0",
     "proof.asset.export",
     "proof.asset.match",
     "creation.comfyui-local",
@@ -1279,7 +1430,7 @@ async function main(): Promise<void> {
   const cliExecutable = path.join(
     repo,
     "target",
-    "windows-gnu",
+    "windows-msvc",
     "release",
     "aigc-proof.exe",
   );
@@ -1353,11 +1504,11 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.5.1",
-    contractVersion: "1.4.0",
-    nativeApiVersion: "1.3.0",
-    engineVersion: "0.2.0",
-    protocolVersion: "0.2.0",
+    workbenchVersion: "0.6.0",
+    contractVersion: "1.5.0",
+    nativeApiVersion: "1.4.0",
+    engineVersion: "0.3.0",
+    protocolVersion: "0.3.0",
     executable: testedExecutable,
     protocol: "file:",
     nativeAddon: testedAddon,
@@ -1381,6 +1532,8 @@ async function main(): Promise<void> {
     nativeDiscovery,
     providerInventory: providerText,
     completedCreation,
+    signerFingerprint: signerFingerprint.trim(),
+    rotatedSignerFingerprint,
     reopenedCreation,
     steps,
     recoveryState,
@@ -1391,6 +1544,7 @@ async function main(): Promise<void> {
     `${JSON.stringify(evidenceObject, null, 2)}\n`,
     "utf8",
   );
+  await cleanupQaSigner();
   console.log(JSON.stringify({ result: "PASS", evidence }, null, 2));
 }
 
@@ -1399,6 +1553,7 @@ main().catch(async (error) => {
     launch.process.kill();
     launch.cdp.close();
   }
+  await cleanupQaSigner().catch(() => undefined);
   await fsp.mkdir(evidence, { recursive: true });
   await fsp.writeFile(
     path.join(evidence, "qa-failure.txt"),

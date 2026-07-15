@@ -428,6 +428,59 @@ textarea:focus-visible {
   gap: 16px;
 }
 
+.confirmation-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.confirmation-row input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.signer-status {
+  display: grid;
+  gap: 8px;
+}
+
+.signer-status div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.signer-status dt,
+.signer-status dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.signer-status dd {
+  display: grid;
+  gap: 6px;
+}
+
+.fingerprint-field {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+
+.warning-line {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
 .recent-card,
 .subpanel,
 .diagnostics-card {
@@ -872,6 +925,44 @@ input[readonly] {
 .verification-card li {
   color: var(--muted);
   font-size: 11px;
+}
+
+.verification-assurance {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.verification-assurance div,
+.signature-evidence {
+  min-width: 0;
+  padding: 9px;
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.verification-assurance dt,
+.verification-assurance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.verification-assurance dt {
+  color: var(--muted);
+}
+
+.signature-evidence {
+  display: grid !important;
+  gap: 5px;
+}
+
+.signature-evidence code,
+.signature-evidence small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .verification-card ul {

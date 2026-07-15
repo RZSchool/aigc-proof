@@ -82,6 +82,14 @@ async function execute(job: UtilityJob): Promise<HostEnvelope<unknown>> {
       return invokeNative(addon.recordWorkspaceEvent(job.payload));
     case "sealPackage":
       return invokeNative(addon.sealProofPackage(job.payload));
+    case "getSignerStatus":
+      return invokeNative(addon.getLocalSignerStatus());
+    case "createSigner":
+      return invokeNative(addon.createLocalSigner(job.payload));
+    case "rotateSigner":
+      return invokeNative(addon.rotateLocalSigner(job.payload));
+    case "disableSigner":
+      return invokeNative(addon.disableLocalSigner());
     case "verifyPackage":
       return invokeNative(addon.verifyProofPackage(job.payload));
     case "inspectPackage":

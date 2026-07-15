@@ -1,4 +1,4 @@
-# Threat Model 0.2
+# Threat Model 0.3
 
 ## Detected inconsistencies
 
@@ -7,6 +7,7 @@
 - Event payload, sequence, link, hash, count, or root changes
 - Noncanonical or duplicate-member JSON
 - Manifest structure or semantic violations
+- Creator-key, signature, protected-header, domain-separation, and signed-Manifest substitution
 
 ## Malicious ZIP controls
 
@@ -18,9 +19,27 @@ and compression ratio.
 
 Unsafe containers stop before content-dependent processing. Safe containers are streamed in place and never extracted.
 
+## Signature and identity boundary
+
+Protocol 0.3 detects modification or substitution of an existing signed Manifest, embedded key,
+or signature. It does not stop an attacker from creating a different key, choosing a deceptive
+self-asserted label, and producing a new internally consistent package. Visual-confusable labels
+are warned but cannot be made authoritative. Local trust compares only with the current local
+credential record and is vulnerable to local-account or credential-store compromise; it is not a
+public PKI, revocation system, or remote identity proof.
+
+Private bytes are stored only through the operating-system credential adapter. Store failure,
+malformed records, missing private bytes, and key/public mismatch fail closed. There is no file,
+SQLite, environment, package, or IPC fallback. Rotation invalidates local trust for old keys but
+does not invalidate their historical cryptographic signatures. Disable removes the private key
+from the stored record and cannot revoke already shared packages.
+
 ## Not protected
 
-No creator signature or external witness exists. An attacker can generate a new internally consistent Manifest, event chain, and asset set. A valid report cannot establish identity, authorship, originality, rights, authorization, earliest creation time, trusted time, or legal validity.
+A valid report cannot establish real identity, authorship, originality, rights, authorization,
+earliest creation time, trusted time, or legal validity. It cannot detect a private key copied by
+an already-compromised operating system, memory inspection by a hostile local administrator, or
+social engineering based on a self-asserted label.
 
 SHA-256 collision resistance is assumed for comparison but does not create authenticity. ZIP
 producer metadata can vary by platform; explicit link/special-file metadata is rejected and
@@ -79,4 +98,6 @@ managed child process.
 
 The workbench does not defend against a hostile local administrator, runtime binary replacement,
 or another process racing user-selected files beyond the core's existing no-clobber and recheck
-controls. The preview is unsigned, so the operating system may identify its publisher as unknown.
+controls. The preview executable is not Authenticode-signed, so the operating system may identify
+its publisher as unknown. That executable-signing state is separate from creator signatures
+inside proof packages.

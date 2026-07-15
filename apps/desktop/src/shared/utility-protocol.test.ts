@@ -1,5 +1,8 @@
 import {
+  NATIVE_API_VERSION,
   NATIVE_CAPABILITIES,
+  NATIVE_ENGINE_VERSION,
+  PROTOCOL_VERSION,
   RUNTIME_LIMITS,
 } from "@aigc-proof/host-contracts";
 import { describe, expect, it } from "vitest";
@@ -37,11 +40,11 @@ describe("versioned Main/Utility messages", () => {
     const ready = {
       version: UTILITY_PROTOCOL_VERSION,
       type: "ready",
-      nativeApiVersion: "1.3.0",
+      nativeApiVersion: NATIVE_API_VERSION,
       discovery: {
-        apiVersion: "1.3.0",
-        engineVersion: "0.2.0",
-        supportedProtocolVersions: ["0.2.0"],
+        apiVersion: NATIVE_API_VERSION,
+        engineVersion: NATIVE_ENGINE_VERSION,
+        supportedProtocolVersions: ["0.2.0", PROTOCOL_VERSION],
         capabilities: [...NATIVE_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,

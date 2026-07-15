@@ -1,8 +1,8 @@
 {
   "name": "aigc-proof-workbench",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
-  "description": "Local-first AIGC-Proof 0.2 Electron creation and proof workbench",
+  "description": "Local-first AIGC-Proof 0.3 creator-signature workbench",
   "main": "dist/main/main.js",
   "packageManager": "pnpm@11.7.0",
   "engines": {

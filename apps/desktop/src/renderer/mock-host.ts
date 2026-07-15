@@ -18,6 +18,7 @@ import {
   type JobEvent,
   type JobResult,
   type JobSnapshot,
+  type LocalSignerStatus,
   type ProofHostApi,
   type ProviderInstallationSummary,
   type ReferenceKind,
@@ -49,7 +50,7 @@ function reference<K extends ReferenceKind>(
 }
 
 const emptyWorkspace = (): Workspace => ({
-  workspace_version: "0.2.0",
+  workspace_version: "0.3.0",
   created_at: "2026-07-13T00:00:00Z",
   project: { name: "Mock project" },
   assets: [],
@@ -81,6 +82,12 @@ export class DeterministicMockProofHost implements ProofHostApi {
   #creationEventSequence = 0;
   #creationSession: CreationSessionSummary | undefined;
   #workspace = emptyWorkspace();
+  #signer: LocalSignerStatus = {
+    state: "active",
+    display_label: "Mock creator",
+    key_fingerprint: "2".repeat(64),
+    warning_codes: [],
+  };
   #state: WorkbenchState = {
     schemaVersion: 1,
     preferences: {},
@@ -420,6 +427,36 @@ export class DeterministicMockProofHost implements ProofHostApi {
       }),
     );
   }
+  getSignerStatus() {
+    return Promise.resolve(ok(this.#signer));
+  }
+  createSigner(request: Parameters<ProofHostApi["createSigner"]>[0]) {
+    this.#signer = {
+      state: "active",
+      display_label: request.displayLabel,
+      key_fingerprint: "2".repeat(64),
+      warning_codes: [...request.displayLabel].some(
+        (character) => (character.codePointAt(0) ?? 0) > 0x7f,
+      )
+        ? ["CREATOR_DISPLAY_LABEL_CONFUSABLE_REVIEW"]
+        : [],
+    };
+    return Promise.resolve(ok(this.#signer));
+  }
+  rotateSigner(request: Parameters<ProofHostApi["rotateSigner"]>[0]) {
+    this.#signer = {
+      state: "active",
+      display_label: request.displayLabel,
+      key_fingerprint: "3".repeat(64),
+      warning_codes: [],
+    };
+    return Promise.resolve(ok(this.#signer));
+  }
+  disableSigner(_request: Parameters<ProofHostApi["disableSigner"]>[0]) {
+    void _request;
+    this.#signer = { ...this.#signer, state: "disabled" };
+    return Promise.resolve(ok(this.#signer));
+  }
   sealPackage(_request: Parameters<ProofHostApi["sealPackage"]>[0]) {
     void _request;
     return Promise.resolve(
@@ -433,16 +470,22 @@ export class DeterministicMockProofHost implements ProofHostApi {
   verifyPackage(_request: Parameters<ProofHostApi["verifyPackage"]>[0]) {
     void _request;
     const report: VerificationReport = {
-      spec_version: "0.2.0",
+      spec_version: "0.3.0",
       proof_id: "urn:uuid:00000000-0000-4000-8000-000000000000",
       verified_at: "2026-07-13T00:00:00Z",
       status: "valid",
       assurance: {
         internal_integrity: "valid",
-        creator_identity: "not_verified",
-        digital_signature: "not_present",
+        creator_identity: "self_asserted",
+        digital_signature: "valid_locally_trusted",
         trusted_time: "not_present",
         originality: "not_evaluated",
+      },
+      creator_signature: {
+        display_label: this.#signer.display_label ?? "Mock creator",
+        key_fingerprint: this.#signer.key_fingerprint ?? "2".repeat(64),
+        profile: "aigc-proof.creator-signature.cose-ed25519.v1",
+        local_trust: "trusted",
       },
       checks: [],
       errors: [],
@@ -453,7 +496,7 @@ export class DeterministicMockProofHost implements ProofHostApi {
   inspectPackage(_request: Parameters<ProofHostApi["inspectPackage"]>[0]) {
     void _request;
     const inspection: Inspection = {
-      spec_version: "0.2.0",
+      spec_version: "0.3.0",
       proof_id: "urn:uuid:00000000-0000-4000-8000-000000000000",
       created_at: "2026-07-13T00:00:00Z",
       project: {},
@@ -465,6 +508,14 @@ export class DeterministicMockProofHost implements ProofHostApi {
       },
       assurance_level: "internal_integrity",
       verification_performed: false,
+      creator_signature: {
+        profile: "aigc-proof.creator-signature.cose-ed25519.v1",
+        signature_id: "4".repeat(64),
+        display_label: this.#signer.display_label ?? "Mock creator",
+        key_fingerprint: this.#signer.key_fingerprint ?? "2".repeat(64),
+        public_key_path: `security/keys/${this.#signer.key_fingerprint ?? "2".repeat(64)}.cbor`,
+        signature_path: "security/signatures/creator.cose",
+      },
     };
     return Promise.resolve(ok(inspection));
   }
@@ -555,6 +606,23 @@ export class DeterministicMockProofHost implements ProofHostApi {
       }
       case "recordEvent": {
         const response = await this.recordEvent(request.input);
+        execution = response.ok
+          ? ok({ operation: request.operation, data: response.data })
+          : response;
+        break;
+      }
+      case "getSignerStatus":
+      case "createSigner":
+      case "rotateSigner":
+      case "disableSigner": {
+        const response =
+          request.operation === "getSignerStatus"
+            ? await this.getSignerStatus()
+            : request.operation === "createSigner"
+              ? await this.createSigner(request.input)
+              : request.operation === "rotateSigner"
+                ? await this.rotateSigner(request.input)
+                : await this.disableSigner(request.input);
         execution = response.ok
           ? ok({ operation: request.operation, data: response.data })
           : response;

@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    HASH_ALGORITHM, SCHEMA_VERSION, WORKSPACE_VERSION, validate_asset_role,
-    validate_canonical_timestamp, validate_event_type, validate_media_type, validate_package_path,
-    validate_portable_basename, validate_proof_id, validate_sha256_hex, validate_uuid,
+    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE, HASH_ALGORITHM,
+    LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION, SCHEMA_VERSION, WORKSPACE_VERSION,
+    validate_asset_role, validate_canonical_timestamp, validate_display_label, validate_event_type,
+    validate_media_type, validate_package_path, validate_portable_basename, validate_proof_id,
+    validate_sha256_hex, validate_uuid,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,6 +95,23 @@ pub struct EventChainSummary {
     pub root_hash: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CreatorSignatureDescriptor {
+    pub profile: String,
+    pub signature_id: String,
+    pub display_label: String,
+    pub key_fingerprint: String,
+    pub public_key_path: String,
+    pub signature_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestSecurity {
+    pub creator_signature: CreatorSignatureDescriptor,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -103,6 +122,8 @@ pub struct Manifest {
     pub project: ProjectInfo,
     pub assets: Vec<Asset>,
     pub event_chain: EventChainSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<ManifestSecurity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -126,11 +147,14 @@ impl Workspace {
 
     pub fn validate(&self) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
-        if self.workspace_version != WORKSPACE_VERSION {
+        if !matches!(
+            self.workspace_version.as_str(),
+            LEGACY_WORKSPACE_VERSION | WORKSPACE_VERSION
+        ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_WORKSPACE_VERSION",
                 "workspace_version",
-                "Workspace version must be 0.2.0.",
+                "Workspace version must be 0.2.0 or 0.3.0.",
             ));
         }
         validate_common(
@@ -147,11 +171,14 @@ impl Workspace {
 impl Manifest {
     pub fn validate(&self) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
-        if self.spec_version != SCHEMA_VERSION {
+        if !matches!(
+            self.spec_version.as_str(),
+            LEGACY_SCHEMA_VERSION | SCHEMA_VERSION
+        ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_SPEC_VERSION",
                 "spec_version",
-                "Specification version must be 0.2.0.",
+                "Specification version must be 0.2.0 or 0.3.0.",
             ));
         }
         if validate_proof_id(&self.proof_id).is_err() {
@@ -161,11 +188,11 @@ impl Manifest {
                 "Proof ID must be a lowercase urn:uuid value.",
             ));
         }
-        if self.tool.name != "aigc-proof" || self.tool.version != SCHEMA_VERSION {
+        if self.tool.name != "aigc-proof" || self.tool.version != self.spec_version {
             issues.push(ValidationIssue::new(
                 "INVALID_TOOL",
                 "tool",
-                "Tool must identify aigc-proof version 0.2.0.",
+                "Tool must identify aigc-proof at the declared specification version.",
             ));
         }
         validate_common(
@@ -194,7 +221,73 @@ impl Manifest {
                 "Root hash must be null for no events and a lowercase SHA-256 otherwise.",
             )),
         }
+        match (self.spec_version.as_str(), self.security.as_ref()) {
+            (LEGACY_SCHEMA_VERSION, None) => {}
+            (LEGACY_SCHEMA_VERSION, Some(_)) => issues.push(ValidationIssue::new(
+                "LEGACY_SECURITY_FORBIDDEN",
+                "security",
+                "Protocol 0.2 manifests must not contain creator signature metadata.",
+            )),
+            (SCHEMA_VERSION, Some(security)) => {
+                validate_creator_signature(&security.creator_signature, &mut issues)
+            }
+            (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+                "CREATOR_SIGNATURE_ABSENT",
+                "security",
+                "Protocol 0.3 manifests require creator signature metadata.",
+            )),
+            _ => {}
+        }
         issues
+    }
+}
+
+fn validate_creator_signature(
+    signature: &CreatorSignatureDescriptor,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if signature.profile != CREATOR_SIGNATURE_PROFILE {
+        issues.push(ValidationIssue::new(
+            "CREATOR_SIGNATURE_PROFILE_UNSUPPORTED",
+            "security.creator_signature.profile",
+            "Creator signature profile is unsupported.",
+        ));
+    }
+    if validate_sha256_hex(&signature.signature_id).is_err() {
+        issues.push(ValidationIssue::new(
+            "CREATOR_SIGNATURE_ID_INVALID",
+            "security.creator_signature.signature_id",
+            "Signature ID must be 32 random bytes encoded as lowercase hexadecimal.",
+        ));
+    }
+    if let Err(message) = validate_display_label(&signature.display_label) {
+        issues.push(ValidationIssue::new(
+            "CREATOR_DISPLAY_LABEL_INVALID",
+            "security.creator_signature.display_label",
+            message,
+        ));
+    }
+    if validate_sha256_hex(&signature.key_fingerprint).is_err() {
+        issues.push(ValidationIssue::new(
+            "CREATOR_KEY_FINGERPRINT_INVALID",
+            "security.creator_signature.key_fingerprint",
+            "Key fingerprint must be lowercase SHA-256 hexadecimal.",
+        ));
+    }
+    let expected_key_path = format!("{CREATOR_KEY_PREFIX}{}.cbor", signature.key_fingerprint);
+    if signature.public_key_path != expected_key_path {
+        issues.push(ValidationIssue::new(
+            "CREATOR_KEY_PATH_INVALID",
+            "security.creator_signature.public_key_path",
+            "Public key path must be derived from the key fingerprint.",
+        ));
+    }
+    if signature.signature_path != CREATOR_SIGNATURE_PATH {
+        issues.push(ValidationIssue::new(
+            "CREATOR_SIGNATURE_PATH_INVALID",
+            "security.creator_signature.signature_path",
+            "Creator signature must use the protocol-defined package path.",
+        ));
     }
 }
 
@@ -398,12 +491,20 @@ pub enum InternalIntegrity {
 #[serde(rename_all = "snake_case")]
 pub enum IdentityAssurance {
     NotVerified,
+    SelfAsserted,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureAssurance {
     NotPresent,
+    Absent,
+    Unsupported,
+    Malformed,
+    Invalid,
+    ValidUntrusted,
+    ValidLocallyTrusted,
+    Disabled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -426,6 +527,23 @@ pub struct Assurance {
     pub digital_signature: SignatureAssurance,
     pub trusted_time: TimeAssurance,
     pub originality: OriginalityAssurance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalTrust {
+    Untrusted,
+    Trusted,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CreatorSignatureEvidence {
+    pub display_label: String,
+    pub key_fingerprint: String,
+    pub profile: String,
+    pub local_trust: LocalTrust,
 }
 
 impl Assurance {
@@ -474,6 +592,8 @@ pub struct VerificationReport {
     pub verified_at: String,
     pub status: VerificationStatus,
     pub assurance: Assurance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator_signature: Option<CreatorSignatureEvidence>,
     pub checks: Vec<CheckResult>,
     pub errors: Vec<VerificationError>,
     pub warnings: Vec<VerificationWarning>,
@@ -490,6 +610,8 @@ pub struct Inspection {
     pub event_chain: EventChainSummary,
     pub assurance_level: String,
     pub verification_performed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator_signature: Option<CreatorSignatureDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -545,6 +667,7 @@ mod tests {
                 event_count: 0,
                 root_hash: None,
             },
+            security: None,
         };
         assert!(
             manifest
@@ -577,6 +700,7 @@ mod tests {
                 event_count: 0,
                 root_hash: None,
             },
+            security: None,
         };
         assert!(
             manifest

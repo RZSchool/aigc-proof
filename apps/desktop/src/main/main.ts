@@ -12,6 +12,14 @@ const qaPort = parseQaPort(process.argv);
 if (qaPort !== undefined) {
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
   app.commandLine.appendSwitch("remote-debugging-port", String(qaPort));
+  const signerService = process.env.AIGC_PROOF_QA_SIGNER_SERVICE;
+  if (
+    !/^org\.aigcproof\.qa\.[A-Za-z0-9.-]{1,100}$/u.test(signerService ?? "")
+  ) {
+    throw new Error("QA signer service namespace is missing or invalid.");
+  }
+  process.env.AIGC_PROOF_TEST_SIGNER_ENABLED = "1";
+  process.env.AIGC_PROOF_TEST_SIGNER_SERVICE = signerService;
 }
 
 const developmentUrl = process.env.AIGC_PROOF_DEV_SERVER_URL;
@@ -26,7 +34,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1040,
     minHeight: 720,
     show: false,
-    title: "AIGC-Proof Workbench 0.5.1",
+    title: "AIGC-Proof Workbench 0.6.0",
     backgroundColor: "#f4f1ea",
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),

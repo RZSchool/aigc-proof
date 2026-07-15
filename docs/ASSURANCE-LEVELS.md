@@ -1,33 +1,21 @@
 # Assurance Levels
 
-## 0.2 Internal Integrity
+## Protocol 0.2: Internal Integrity
 
-Can evaluate:
+Validates package structure, asset bytes, and event-chain continuity. Creator identity is `not_verified`, digital signature is `not_present`, trusted time is `not_present`, and originality is `not_evaluated`.
 
-- Package structure against the 0.2 protocol
-- Asset bytes against Manifest sizes and SHA-256
-- Event continuity, hashes, count, and root
-- Internal inconsistencies and unsafe ZIP structure
+## Protocol 0.3: signed local identity
 
-Cannot evaluate:
+Adds a strict Ed25519 `COSE_Sign1` over the exact canonical Manifest digest. The identity claim is `self_asserted`.
 
-- Creator identity
-- Earliest creation time or trusted timestamp
-- Digital signature
-- Originality
-- Source-material authorization
-- Whole-package reconstruction
-- Rights ownership or legal validity
-- Official verification
+Digital-signature states are distinct:
 
-A valid report must preserve these assurance fields:
+- `valid_locally_trusted`: valid signature and embedded fingerprint matches the current active local key.
+- `valid_untrusted`: valid signature without that local match.
+- `disabled`: valid signature matches the locally disabled key record.
+- `absent`, `unsupported`, `malformed`, or `invalid`: the signed 0.3 requirement did not pass.
+- `not_present`: legacy 0.2 only.
 
-~~~json
-{
-  "internal_integrity": "valid",
-  "creator_identity": "not_verified",
-  "digital_signature": "not_present",
-  "trusted_time": "not_present",
-  "originality": "not_evaluated"
-}
-~~~
+Internal integrity, cryptographic signature validity, and local trust are reported independently. A `valid` 0.3 report requires internal integrity and signature validation to pass. Local trust is not a public PKI.
+
+Neither version evaluates real identity, earliest creation time, trusted timestamp, originality, source authorization, copyright, ownership, legal validity, or official verification.

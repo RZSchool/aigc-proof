@@ -1,12 +1,10 @@
-# .aigcproof Package Format 0.2
+# .aigcproof Package Format 0.3
 
-## ZIP and ZIP64
+## ZIP and entry order
 
-An .aigcproof file is a standard ZIP archive. Readers and writers support ZIP64, but small packages are not forced to emit ZIP64 records. The writer requests ZIP64 entry fields when an entry requires them; the ZIP library handles container-level ZIP64 structures when limits require them.
+An `.aigcproof` file is a standard ZIP archive with ZIP64 support. It does not sign the whole ZIP byte stream; signature and integrity checks cover canonical protocol content and declared entry bytes.
 
-The protocol does not sign the whole ZIP byte stream, and a whole-file ZIP SHA-256 is not the sole internal-integrity mechanism.
-
-## Stable entry order
+Unsigned legacy 0.2 order:
 
 ~~~text
 manifest.json
@@ -14,30 +12,34 @@ assets sorted lexicographically by package_path
 events.json
 ~~~
 
-Every Manifest asset must have exactly one matching regular-file entry. Undeclared entries, missing entries, duplicate names, and case-conflicting names are invalid.
+Signed 0.3 order:
 
-Package paths use UTF-8 and forward slashes. Asset entries live below assets/<role>/ and are
-sorted by UTF-8 byte order. Absolute, UNC, drive-prefixed, backslash, NUL, empty, dot, parent,
-and directory paths are forbidden. For portable behavior, components also reject control and
-Windows-forbidden characters, reserved device names, and trailing dots or spaces.
+~~~text
+manifest.json
+assets sorted lexicographically by package_path
+events.json
+security/keys/<key-fingerprint>.cbor
+security/signatures/creator.cose
+~~~
 
-## Default VerificationLimits
+Each declared asset and security entry must exist exactly once. Missing, undeclared, duplicate, case-conflicting, or reordered entries are invalid. Package paths use UTF-8 and forward slashes and reject absolute, UNC, drive, backslash, NUL, dot, parent, directory, control, Windows-forbidden, reserved-device, or trailing-dot/space forms.
+
+## Security-entry limits
+
+The default maximum public `COSE_Key` size is 256 bytes. The default maximum `COSE_Sign1` size is 1,024 bytes. Both remain subject to all general entry and total-size limits.
+
+## Default verification limits
 
 | Field | Default |
 |---|---:|
-| max_package_bytes | 2 GiB |
-| max_entries | 1,024 |
-| max_manifest_bytes | 1 MiB |
-| max_event_bytes | 16 MiB |
-| max_total_uncompressed_bytes | 2 GiB |
-| max_single_entry_bytes | 512 MiB |
-| max_compression_ratio | 100:1 |
+| `max_package_bytes` | 2 GiB |
+| `max_entries` | 1,024 |
+| `max_manifest_bytes` | 1 MiB |
+| `max_event_bytes` | 16 MiB |
+| `max_creator_key_bytes` | 256 B |
+| `max_creator_signature_bytes` | 1 KiB |
+| `max_total_uncompressed_bytes` | 2 GiB |
+| `max_single_entry_bytes` | 512 MiB |
+| `max_compression_ratio` | 100:1 |
 
-The EOCD or ZIP64 EOCD declared count is checked before the ZIP library's filename map so
-duplicate-name collapsing cannot bypass duplicate or entry-count checks. Declared metadata is
-checked before decompression. Actual bytes and digests are checked while streaming through hard
-bounds. Only Stored and Deflated regular-file entries are accepted. Encrypted entries, explicit
-symbolic links, directories, Unix special-file types, unsafe names, and unsupported compression
-are rejected.
-
-ZIP platform attributes are not equally expressive across producers. The verifier rejects entries identified as symbolic links and never extracts any entry, so a package path is never used as a filesystem write target. This constraint and library compatibility require real cross-platform testing.
+The verifier checks EOCD/ZIP64 declared counts before trusting the ZIP library map, checks declared metadata before decompression, then streams actual bytes through hard bounds. Only Stored and Deflated regular files are accepted. Encrypted entries, links, directories, special files, unsafe names, and unsupported compression are rejected. Entries are never extracted.

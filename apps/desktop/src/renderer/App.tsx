@@ -10,6 +10,7 @@ import type {
   ImageReference,
   Inspection,
   JobSnapshot,
+  LocalSignerStatus,
   PackageOutputReference,
   PackageReference,
   ProofHostApi,
@@ -83,6 +84,12 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   );
   const [state, setState] = useState<WorkbenchState>();
   const [diagnostics, setDiagnostics] = useState<HostDiagnostics>();
+  const [signerStatus, setSignerStatus] = useState<LocalSignerStatus>();
+  const [signerLabel, setSignerLabel] = useState("");
+  const signerFingerprintRef = useRef<HTMLInputElement>(null);
+  const [confirmSealSignature, setConfirmSealSignature] = useState(false);
+  const [confirmCreationSignature, setConfirmCreationSignature] =
+    useState(false);
   const [jobs, setJobs] = useState<JobSnapshot[]>([]);
   const [workspacePath, setWorkspacePath] = useState("");
   const [createParent, setCreateParent] = useState("");
@@ -170,6 +177,12 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     void proofHost.getDiagnostics().then((response) => {
       if (active && response.ok) setDiagnostics(response.data);
       else if (active) showFailure(response);
+    });
+    void proofHost.getSignerStatus().then((response) => {
+      if (active && response.ok) {
+        setSignerStatus(response.data);
+        setSignerLabel(response.data.display_label ?? "");
+      } else if (active) showFailure(response);
     });
     void proofHost.getJobs().then((response) => {
       if (active && response.ok) setJobs(response.data);
@@ -557,13 +570,75 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       const response = await proofHost.sealPackage({
         workspace: workspace.reference,
         output: sealOutputReference,
+        confirmSignature: true,
       });
       if (!response.ok) return showFailure(response);
       setPackagePath(response.data.displayPath);
       setPackageReference(response.data.package);
       setSealOutputReference(undefined);
+      setConfirmSealSignature(false);
       showSuccess("证明包已封装（禁止覆盖）", response.data);
     });
+  }
+
+  async function createSigner(): Promise<void> {
+    await run("正在创建本地签名身份", async () => {
+      const response = await proofHost.createSigner({
+        displayLabel: signerLabel.trim(),
+      });
+      if (!response.ok) return showFailure(response);
+      setSignerStatus(response.data);
+      setSignerLabel(response.data.display_label ?? "");
+      showSuccess("本地签名身份已创建", response.data);
+    });
+  }
+
+  async function rotateSigner(): Promise<void> {
+    if (
+      !window.confirm(
+        "轮换将永久替换当前本地私钥。旧证明仍可验证，但不会再被标记为本机信任。确定继续吗？",
+      )
+    )
+      return;
+    await run("正在轮换本地签名身份", async () => {
+      const response = await proofHost.rotateSigner({
+        displayLabel: signerLabel.trim(),
+        confirm: true,
+      });
+      if (!response.ok) return showFailure(response);
+      setSignerStatus(response.data);
+      setSignerLabel(response.data.display_label ?? "");
+      showSuccess("本地签名密钥已轮换", response.data);
+    });
+  }
+
+  async function disableSigner(): Promise<void> {
+    if (
+      !window.confirm(
+        "禁用将从操作系统凭据库删除本地私钥，之后不能恢复或继续签名。确定继续吗？",
+      )
+    )
+      return;
+    await run("正在禁用本地签名身份", async () => {
+      const response = await proofHost.disableSigner({ confirm: true });
+      if (!response.ok) return showFailure(response);
+      setSignerStatus(response.data);
+      showSuccess("本地签名身份已禁用", response.data);
+    });
+  }
+
+  function copySignerFingerprint(): void {
+    const input = signerFingerprintRef.current;
+    if (!input || !signerStatus?.key_fingerprint) return;
+    input.focus();
+    input.select();
+    if (document.execCommand("copy")) {
+      setResultKind("success");
+      setResult("本地签名密钥的完整 SHA-256 指纹已复制。");
+    } else {
+      setResultKind("error");
+      setResult("无法自动复制；完整指纹已选中，可手动复制。");
+    }
   }
 
   async function verifyPackage(): Promise<void> {
@@ -699,11 +774,13 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         session: creationSession.reference,
         packageOutput: creationPackageOutput,
         reportOutput: creationReportOutput,
+        confirmSignature: true,
       });
       if (!response.ok) return showFailure(response);
       setCreationSession(response.data);
       setCreationPackageOutput(undefined);
       setCreationReportOutput(undefined);
+      setConfirmCreationSignature(false);
       if (response.data.package && response.data.packageDisplayPath) {
         setPackageReference(response.data.package);
         setPackagePath(response.data.packageDisplayPath);
@@ -723,7 +800,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.5.1</span>
+            <span data-testid="workbench-version">Workbench 0.6.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -740,11 +817,12 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       </header>
 
       <section className="assurance-banner" data-testid="assurance-banner">
-        <strong>能力边界：仅验证证明包内部完整性</strong>
+        <strong>能力边界：内部完整性与本地创建者数字签名</strong>
         <span>
-          创建者身份未验证 · 数字签名不存在 · 可信时间不存在 · 原创性未评估
+          显示名称为自我声明 · Ed25519 签名可验证 · 本机信任仅表示密钥匹配 ·
+          可信时间不存在 · 原创性未评估
         </span>
-        <small>不是版权登记、公证、权属证明、原创认证或官方验证。</small>
+        <small>不是实名、版权登记、公证、权属证明、原创认证或官方验证。</small>
       </section>
 
       <section className={`status-strip ${resultKind}`} aria-live="polite">
@@ -766,7 +844,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       <main className="workflow-canvas" data-testid="unified-workflow">
         <section className="panel intro-panel" data-region="overview">
           <div>
-            <p className="eyebrow">PROTOCOL 0.2.0 · ONE PAGE</p>
+            <p className="eyebrow">PROTOCOL 0.3.0 · ONE PAGE</p>
             <h2>生成图片、保存原图、核对证明，一页完成</h2>
             <p>
               后续步骤始终可见；不满足前置条件时会给出提示。长任务由隔离 Utility
@@ -1183,10 +1261,28 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                     </button>
                   </div>
                 </Field>
+                <label className="confirmation-row">
+                  <input
+                    data-testid="confirm-seal-signature"
+                    type="checkbox"
+                    checked={confirmSealSignature}
+                    onChange={(event) =>
+                      setConfirmSealSignature(event.target.checked)
+                    }
+                  />
+                  <span>
+                    使用当前本地密钥签名；显示名称仅为自我声明，不证明真实姓名、权属、原创性或授权。
+                  </span>
+                </label>
                 <button
                   className="secondary"
                   data-testid="seal-package"
-                  disabled={!workspace || !sealOutputReference}
+                  disabled={
+                    !workspace ||
+                    !sealOutputReference ||
+                    signerStatus?.state !== "active" ||
+                    !confirmSealSignature
+                  }
                   onClick={() => void sealPackage()}
                 >
                   手工封装并自检
@@ -1581,13 +1677,28 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 </button>
               </div>
             </Field>
+            <label className="confirmation-row">
+              <input
+                data-testid="confirm-creation-signature"
+                type="checkbox"
+                checked={confirmCreationSignature}
+                onChange={(event) =>
+                  setConfirmCreationSignature(event.target.checked)
+                }
+              />
+              <span>
+                确认用当前本地密钥签署此创作证明；该身份是自我声明，不构成实名、原创性、版权或授权认证。
+              </span>
+            </label>
             <button
               className="primary"
               data-testid="complete-creation-proof"
               disabled={
                 creationSession?.state !== "proof_ready" ||
                 !creationPackageOutput ||
-                !creationReportOutput
+                !creationReportOutput ||
+                signerStatus?.state !== "active" ||
+                !confirmCreationSignature
               }
               onClick={() => void completeCreationProof()}
             >
@@ -1649,6 +1760,20 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 资产 {inspection.assets.length} · 事件{" "}
                 {inspection.event_chain.event_count}
               </span>
+              {inspection.creator_signature && (
+                <>
+                  <span>
+                    声明的创建者：{inspection.creator_signature.display_label}
+                  </span>
+                  <span>
+                    声明的密钥指纹：
+                    {inspection.creator_signature.key_fingerprint}
+                  </span>
+                  <small>
+                    以上字段尚未验证，不能作为身份或签名有效性结论。
+                  </small>
+                </>
+              )}
             </div>
           )}
           <Field label="验证报告保存位置">
@@ -1774,6 +1899,97 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               <p className="privacy-note">
                 删除或损坏工作台数据库不会改变任何工作区、证明包或验证报告的有效性。
               </p>
+            </div>
+            <div className="subpanel signer-card" data-testid="signer-card">
+              <h3>本地签名身份</h3>
+              <p className="privacy-note">
+                私钥只保存在操作系统凭据库中，不会写入工作区或证明包。显示名称是自我声明，不代表实名、所有权、原创性或授权。
+              </p>
+              <Field label="显示名称">
+                <input
+                  data-testid="signer-display-label"
+                  value={signerLabel}
+                  disabled={
+                    signerStatus?.state === "disabled" ||
+                    signerStatus?.state === "unavailable"
+                  }
+                  maxLength={200}
+                  onChange={(event) => setSignerLabel(event.target.value)}
+                />
+              </Field>
+              <dl className="signer-status">
+                <div>
+                  <dt>状态</dt>
+                  <dd data-testid="signer-state">
+                    {signerStatus?.state ?? "loading"}
+                  </dd>
+                </div>
+                {signerStatus?.key_fingerprint && (
+                  <div>
+                    <dt>SHA-256 指纹</dt>
+                    <dd>
+                      <input
+                        ref={signerFingerprintRef}
+                        className="fingerprint-field"
+                        data-testid="signer-fingerprint"
+                        readOnly
+                        value={signerStatus.key_fingerprint}
+                      />
+                      <button
+                        className="quiet-button"
+                        data-testid="copy-signer-fingerprint"
+                        onClick={copySignerFingerprint}
+                      >
+                        复制完整指纹
+                      </button>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              {signerStatus?.warning_codes.map((code) => (
+                <p className="warning-line" key={code}>
+                  {code}
+                </p>
+              ))}
+              <div className="actions">
+                {signerStatus?.state === "missing" && (
+                  <button
+                    className="primary"
+                    data-testid="create-signer"
+                    disabled={!signerLabel.trim()}
+                    onClick={() => void createSigner()}
+                  >
+                    创建本地身份
+                  </button>
+                )}
+                {signerStatus?.state === "active" && (
+                  <>
+                    <button
+                      className="secondary"
+                      data-testid="rotate-signer"
+                      disabled={!signerLabel.trim()}
+                      onClick={() => void rotateSigner()}
+                    >
+                      轮换密钥
+                    </button>
+                    <button
+                      className="quiet-button"
+                      data-testid="disable-signer"
+                      onClick={() => void disableSigner()}
+                    >
+                      永久禁用并删除私钥
+                    </button>
+                  </>
+                )}
+              </div>
+              {signerStatus?.state === "disabled" && (
+                <p className="warning-line">本地私钥已删除，签名功能已禁用。</p>
+              )}
+              {signerStatus?.state === "unavailable" && (
+                <p className="warning-line">
+                  操作系统凭据库当前不可用；为避免私钥降级存储，签名功能保持关闭。
+                </p>
+              )}
             </div>
             {diagnostics && <DiagnosticsCard diagnostics={diagnostics} />}
           </div>
@@ -1916,13 +2132,42 @@ function VerificationCard({ report }: { report: VerificationReport }) {
       <div>
         <strong>
           {report.status === "valid"
-            ? "包内完整性有效"
+            ? "证明包验证有效"
             : report.status === "invalid"
-              ? "包内完整性无效"
+              ? "证明包验证无效"
               : "验证操作错误"}
         </strong>
         <span>{report.proof_id ?? "无可用证明 ID"}</span>
       </div>
+      <dl className="verification-assurance" data-testid="signature-assurance">
+        <div>
+          <dt>内部完整性</dt>
+          <dd>{report.assurance.internal_integrity}</dd>
+        </div>
+        <div>
+          <dt>创建者身份</dt>
+          <dd>{report.assurance.creator_identity}</dd>
+        </div>
+        <div>
+          <dt>数字签名</dt>
+          <dd>{report.assurance.digital_signature}</dd>
+        </div>
+        <div>
+          <dt>可信时间</dt>
+          <dd>{report.assurance.trusted_time}</dd>
+        </div>
+      </dl>
+      {report.creator_signature && (
+        <div className="signature-evidence" data-testid="signature-evidence">
+          <strong>{report.creator_signature.display_label}</strong>
+          <code>{report.creator_signature.key_fingerprint}</code>
+          <span>{report.creator_signature.profile}</span>
+          <span>本地信任：{report.creator_signature.local_trust}</span>
+          <small>
+            显示名称是签名者自我声明；有效签名不证明实名、原创性、版权、权属或授权。
+          </small>
+        </div>
+      )}
       <ul>
         {report.checks.map((check) => (
           <li key={`${check.code}-${check.path ?? ""}`}>
@@ -1935,6 +2180,11 @@ function VerificationCard({ report }: { report: VerificationReport }) {
       {report.errors.map((error) => (
         <p className="error-line" key={`${error.code}-${error.path ?? ""}`}>
           [{error.code}] {error.message}
+        </p>
+      ))}
+      {report.warnings.map((warning) => (
+        <p className="warning-line" key={warning.code}>
+          [{warning.code}] {warning.message}
         </p>
       ))}
     </div>

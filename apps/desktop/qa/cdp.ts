@@ -5,15 +5,35 @@ export class CdpClient {
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
+  private readonly eventWaiters = new Map<
+    string,
+    Set<{
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }>
+  >();
 
   private constructor(socket: WebSocket) {
     this.socket = socket;
     socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as {
         id?: number;
+        method?: string;
+        params?: unknown;
         result?: unknown;
         error?: { message: string };
       };
+      if (message.method) {
+        const waiters = this.eventWaiters.get(message.method);
+        if (waiters) {
+          this.eventWaiters.delete(message.method);
+          for (const waiter of waiters) {
+            clearTimeout(waiter.timeout);
+            waiter.resolve(message.params);
+          }
+        }
+      }
       if (message.id === undefined) return;
       const pending = this.pending.get(message.id);
       if (!pending) return;
@@ -25,6 +45,13 @@ export class CdpClient {
       for (const pending of this.pending.values())
         pending.reject(new Error("CDP socket closed."));
       this.pending.clear();
+      for (const waiters of this.eventWaiters.values()) {
+        for (const waiter of waiters) {
+          clearTimeout(waiter.timeout);
+          waiter.reject(new Error("CDP socket closed."));
+        }
+      }
+      this.eventWaiters.clear();
     });
   }
 
@@ -82,6 +109,24 @@ export class CdpClient {
     );
     this.socket.send(JSON.stringify({ id, method, params }));
     return response;
+  }
+
+  async waitForEvent<T>(method: string, timeoutMs = 30_000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const waiter = {
+        resolve: (value: unknown) => resolve(value as T),
+        reject,
+        timeout: setTimeout(() => {
+          const waiters = this.eventWaiters.get(method);
+          waiters?.delete(waiter);
+          if (waiters?.size === 0) this.eventWaiters.delete(method);
+          reject(new Error(`Timed out waiting for CDP event ${method}.`));
+        }, timeoutMs),
+      };
+      const waiters = this.eventWaiters.get(method) ?? new Set();
+      waiters.add(waiter);
+      this.eventWaiters.set(method, waiters);
+    });
   }
 
   async evaluate<T>(expression: string): Promise<T> {

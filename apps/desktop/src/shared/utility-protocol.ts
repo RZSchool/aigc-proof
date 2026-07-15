@@ -20,6 +20,10 @@ export const utilityOperations = [
   "exportWorkspaceOutput",
   "matchImageToPackage",
   "recordEvent",
+  "getSignerStatus",
+  "createSigner",
+  "rotateSigner",
+  "disableSigner",
   "sealPackage",
   "verifyPackage",
   "inspectPackage",
@@ -62,7 +66,14 @@ const eventPayloadSchema = z
   })
   .strict();
 const sealPayloadSchema = z
-  .object({ workspace: localPathSchema, output: localPathSchema })
+  .object({
+    workspace: localPathSchema,
+    output: localPathSchema,
+    confirmSignature: z.literal(true),
+  })
+  .strict();
+const signerLabelPayloadSchema = z
+  .object({ displayLabel: z.string().min(1).max(200) })
   .strict();
 const recentCandidateSchema = z
   .object({ kind: z.enum(["workspace", "package"]), path: localPathSchema })
@@ -107,6 +118,30 @@ export const utilityJobSchema = z.discriminatedUnion("operation", [
     .strict(),
   z
     .object({ operation: z.literal("sealPackage"), payload: sealPayloadSchema })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("getSignerStatus"),
+      payload: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("createSigner"),
+      payload: signerLabelPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("rotateSigner"),
+      payload: signerLabelPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("disableSigner"),
+      payload: z.object({}).strict(),
+    })
     .strict(),
   z
     .object({

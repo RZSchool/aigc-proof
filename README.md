@@ -1,93 +1,65 @@
 # AIGC-Proof
 
-Open protocol and Rust reference implementation for recording an AIGC creation workflow, sealing it into an unsigned proof package, and verifying package-internal integrity offline.
+Open protocol and Rust reference implementation for recording an AIGC creation workflow, signing a portable proof package with a local creator key, and verifying it offline.
 
 ```text
-Version: 0.2.0 WIP
-Status: Ready for review
-Assurance level: Internal Integrity
+Protocol/engine: 0.3.0
+Workbench: 0.6.0
+Status: AP-031 candidate implementation
+Assurance: Internal Integrity + self-asserted local creator signature
 ```
 
-Version 0.2 does not contain a creator digital signature or trusted timestamp. A valid result means:
+A valid 0.3 result means the package is internally consistent and its exact canonical Manifest was signed by the embedded Ed25519 key. The display name is self-asserted. Local trust means only that the embedded fingerprint matches this installation's current operating-system-protected key.
 
-```text
-Package internal integrity: valid
-Creator identity: not verified
-Digital signature: not present
-Trusted timestamp: not present
-Originality: not evaluated
-```
+It is not real-name verification, copyright registration, rights determination, originality certification, proof of ownership, trusted time, or official verification. Protocol 0.2 remains supported as an explicitly unsigned Internal Integrity format.
 
-It is not copyright registration, rights determination, originality certification, proof of ownership, or official verification. An attacker can construct an entirely new, internally consistent unsigned package.
-
-## Offline workflow
+## Offline CLI workflow
 
 ```bash
+aigc-proof key create --display-label "Local creator"
 aigc-proof init demo-workspace --project-name "Project Name"
 aigc-proof add demo-workspace input.txt --role input
 aigc-proof add demo-workspace output.txt --role output
-aigc-proof record demo-workspace \
-  --event-type generation \
-  --payload-file generation-event.json
-aigc-proof seal demo-workspace --output example.aigcproof
+aigc-proof record demo-workspace --event-type generation --payload-file event.json
+aigc-proof seal demo-workspace --output example.aigcproof --confirm-signature
 aigc-proof verify example.aigcproof
-aigc-proof verify example.aigcproof --json verification-result.json
-aigc-proof inspect example.aigcproof
 aigc-proof inspect example.aigcproof --json
 ```
 
-Roles are input, output, reference, license, and other. add copies bounded regular,
-non-symlink files into the workspace and hashes them as streams. seal and persisted
-verification reports use same-directory temporary files and never overwrite an existing
-output. Relative output paths are supported. inspect reads metadata and explicitly does
-not claim verification.
+Key rotation and disable require explicit confirmation flags. The private key remains in the operating-system credential store; public export emits only deterministic `COSE_Key` bytes. The CLI is offline, uses bounded streaming I/O, never overwrites outputs, and does not upload.
 
-The CLI is fully offline and performs no upload. Pass prompts and parameters through payload JSON files instead of command-line text to reduce shell-history exposure.
+For legacy compatibility testing only, `seal --legacy-unsigned-v02` creates an unsigned 0.2 package.
 
 ## Desktop workbench
 
-The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
-renderer uses `ProofHostApi` 1.4.0 through a Standalone adapter and typed allowlisted preload/IPC.
-Electron Main owns authority, a bounded job scheduler, and disposable SQLite state; a supervised
-Utility Process is the exclusive native-addon owner and fails closed on an incompatible native
-API 1.3.0 handshake. Workbench 0.5.1 keeps exact generated-output export and direct image-to-package
-output matching while making creation history workspace-scoped and explicitly restored. Manual
-asset/event/seal operations are grouped in one collapsed advanced section; the normal integrated
-creation path seals, verifies, and saves its report once. The reusable Node creation core and narrow, loopback-only
-ComfyUI v0.27.0 adapter: users authorize an existing local installation and checkpoint, freeze a
-privacy-aware prompt/parameter snapshot, run the fixed core-node template, and receive the
-validated output automatically in the proof workspace. The result is visible, can be exported
-without overwrite, and can be checked byte-for-byte against a fully verified package `output`.
-This does not verify creator identity, originality, ownership, signature, or trusted time.
-ComfyUI, Python, custom nodes, and model
-weights are not bundled or downloaded. The full workflow remains on one scrollable page, the
-native engine/protocol remains 0.2.0, and portable proof files remain authoritative. See
-[Desktop Workbench](docs/DESKTOP-WORKBENCH.md).
+Workbench 0.6.0 is an offline React/TypeScript Electron application using renderer-safe `ProofHostApi` 1.5.0, native API 1.4.0, and engine/protocol 0.3.0. Electron Main owns path authority, validated IPC, operating-system credential operations, and bounded jobs; a supervised Utility Process exclusively owns the napi-rs addon. The renderer has no Node.js, filesystem, SQLite, credential-store, or native-module access.
+
+The one-page workflow supports a local self-asserted signer identity, explicit per-package signing confirmation, local ComfyUI v0.27.0 creation, signed sealing, offline verification, and exact image-to-package output matching. ComfyUI, Python, models, and custom nodes are not bundled or downloaded.
+
+See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md) and [Signature Profile](docs/SIGNATURE-PROFILE.md).
 
 ## Public/private boundary
 
-The public repository owns the protocol, Schemas, workspace model, SHA-256, RFC 8785 JCS, event chain, ZIP package, defensive reader, CLI, and offline verification. It has no dependency on aigc-proof-official.
+This public repository owns protocol Schemas, workspace/package formats, SHA-256, RFC 8785 JCS, event chains, COSE/Ed25519 creator signatures, the defensive verifier, CLI, napi-rs bridge, and offline Workbench. It has no dependency on `aigc-proof-official`.
 
-Official identity, signing authority, registered keys, revocation, trusted time, risk controls, billing, and production operations are outside 0.2 and remain unimplemented.
+Official accounts, organizational key registration, revocation services, RFC 3161 trusted time, C2PA, production KMS/HSM, risk controls, billing, and publication remain separate reviewed phases.
 
 ## Build and test
 
-Rust 1.85.0, rustfmt, and Clippy are pinned by rust-toolchain.toml.
+Rust 1.85.0, rustfmt, and Clippy are pinned for protocol 0.3/AP-031.
 
 ```bash
 cargo fmt --all --check
-cargo check --workspace
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo doc --workspace --no-deps
-scripts/smoke-test.sh
-cargo metadata --format-version 1
-cargo tree
+cargo check --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-targets --locked
+cargo doc --workspace --no-deps --locked
+python scripts/verify-creator-signature-vector.py
 ```
 
-A compile-only check is not an executable test. If the real CLI path cannot run, report TEST FAILED.
+A compile-only check is not executable evidence. Windows and Linux execution are required for this phase, and Windows credential-store lifecycle testing is explicit.
 
-See [CLI](docs/CLI.md), [Desktop Workbench](docs/DESKTOP-WORKBENCH.md), [specification](docs/AIGC-PROOF-SPEC.md), [package format](docs/PACKAGE-FORMAT.md), [assurance levels](docs/ASSURANCE-LEVELS.md), [threat model](docs/THREAT-MODEL.md), and [compatibility](docs/COMPATIBILITY.md).
+See [CLI](docs/CLI.md), [specification](docs/AIGC-PROOF-SPEC.md), [package format](docs/PACKAGE-FORMAT.md), [assurance levels](docs/ASSURANCE-LEVELS.md), [threat model](docs/THREAT-MODEL.md), and [compatibility](docs/COMPATIBILITY.md).
 
 ## License
 
