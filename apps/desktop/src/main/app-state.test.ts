@@ -116,4 +116,35 @@ describe("Main-owned disposable SQLite state", () => {
     expect(store.recoverInterruptedCreationSessions()).toBe(0);
     store.close();
   });
+
+  it("lists creation sessions only for the Main-owned canonical workspace record", () => {
+    const database = path.join(root, "scoped.sqlite3");
+    const store = new WorkbenchStateStore(database);
+    const workspaceA = path.join(root, "workspace-a");
+    const workspaceB = path.join(root, "workspace-b");
+    for (const [id, workspacePath] of [
+      ["session_workspace_a", workspaceA],
+      ["session_workspace_b", workspaceB],
+    ] as const) {
+      store.createSession({
+        id,
+        title: id,
+        state: "draft",
+        workspacePath,
+        providerPath: path.join(root, "ComfyUI"),
+        providerVersion: "0.27.0",
+        createdAt: "2026-07-15T00:00:00Z",
+        updatedAt: "2026-07-15T00:00:00Z",
+      });
+    }
+
+    expect(
+      store.sessionsForWorkspace(workspaceA).map((item) => item.id),
+    ).toEqual(["session_workspace_a"]);
+    expect(
+      store.sessionsForWorkspace(workspaceB).map((item) => item.id),
+    ).toEqual(["session_workspace_b"]);
+    expect(store.sessionsForWorkspace(path.join(root, "unknown"))).toEqual([]);
+    store.close();
+  });
 });

@@ -3,6 +3,7 @@ Stage: Phase 1 - v0.2 Verifiable Package MVP WIP
 Status: Ready for review
 
 Implemented in source:
+
 1. Local proof workspace init, asset add, event record, seal, verify, and inspect flows.
 2. Streaming SHA-256 asset hashing.
 3. RFC 8785 JCS canonical JSON.
@@ -18,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.2.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 1.4.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -30,8 +31,12 @@ Implemented in source:
     workflow, command, remote endpoint, provider path, or Renderer authority.
 18. SQLite schema v2 provider/session persistence and one-page creation-to-proof controls that
     seal, immediately verify, save a report, and reopen the completed portable proof after restart.
+19. Workspace-scoped creation-session listing, explicit historical restore, deterministic
+    cross-workspace/new-session UI reset, and collapsed manual proof tools outside the primary
+    three-step journey.
 
 Verification status:
+
 - Rust toolchain: Rust 1.85.0, rustfmt, and Clippy installed and confirmed
 - `cargo fmt --all --check`: passed
 - `cargo fetch --locked`: passed; all Cargo.lock packages are available
@@ -213,7 +218,55 @@ cross-verification reports, and reviewed screenshots are under
 `app/AIGC-Proof-Workbench/acceptance-evidence-final/`. macOS was not executed and is not claimed
 as passed.
 
+Workspace-safe creation journey (AP-027, 2026-07-15): passed through Workbench 0.5.1 at
+workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Host contract 1.4.0 makes creation
+session listing workspace-scoped while native API 1.3.0 and engine/protocol 0.2.0 remain
+unchanged. Main validates the current opaque workspace authority, resolves the canonical path,
+filters SQLite there, expires prior cross-workspace session authority, and rejects forged,
+wrong-kind, wrong-origin, substituted, expired, and cross-workspace creation references. Startup,
+workspace entry, and new-session creation clear transient output/package/report/image state;
+history is restored only by explicit selection. Manual asset import, custom events, and manual
+sealing remain in one collapsed unnumbered advanced disclosure, while the integrated creation path
+has one primary seal/verify/report action and package-only verification remains independent.
+
+Windows Node v24.14.0/pnpm 11.7.0 passed the frozen install, Prettier, all nine TypeScript build/
+check configurations, ESLint, 6 Host-contract tests, 16 creation-core tests, 66 Desktop tests, and
+the production build. A temporary checksum-verified official Linux Node v22.18.0 runtime and
+Corepack pnpm 11.7.0 ran the same frozen source candidate gates under Ubuntu 24.04 WSL2: 6 Host,
+16 creation-core, and 67 Linux-applicable Desktop tests passed, then the temporary runtime,
+dependency store, and candidate were removed. The official Node archive SHA-256 was
+`c1bfeecf1d7404fa74728f9db72e697decbd8119ccc6f5a294d795756dfcfca7`.
+
+Native Windows GNU Rust 1.85.0/MinGW-w64 GCC 15.2.0 passed formatting, locked release check,
+warnings-denied all-target/all-feature Clippy, all 41 Windows-applicable tests plus doc-tests,
+documentation, real CRLF PowerShell CLI smoke, metadata, and dependency tree. Linux
+`x86_64-unknown-linux-gnu` Rust/Cargo 1.85.0 passed the equivalent locked/offline gates, all 44
+Linux tests plus doc-tests, and the real Bash CLI smoke. No security test was skipped or weakened.
+
+Development and exact packaged Electron/CDP QA each passed 49 automated observations, including
+both target layouts, default-collapsed advanced tools plus one positive manual workflow, two
+workspaces with isolated history and explicit restoration, new-session clearing, real ComfyUI
+v0.27.0 generation through the existing `DreamShaper_8_pruned.safetensors` checkpoint, automatic
+proof completion, visible output, exact no-clobber export, `verified_output_match`, changed-image
+`not_in_package`, input-only `matched_non_output`, tampered/malformed `package_invalid`, package-
+only verification, Utility recovery, SQLite restart/rebuild/corruption recovery, independent CLI
+verification, and clean exits. The real generated output SHA-256 is
+`86c69dbb5ef86f2c22d819f8e781ee8b9e7780cf888ba2512766f40d1a753ba4`; the creation-package
+SHA-256 is `ab3ab8aa5c41c39f4eed83728f06ec6fd9bee57d6b5d3242f667885c15764b4b`.
+
+Package-boundary QA found 428 packaged files, zero source maps/sources/PDBs, Utility-only addon
+loading, and coherent 0.5.1/1.4.0/1.3.0/0.2.0 versions. A separate normal launch created a visible
+window with QA/CDP ports disabled and exited cleanly with no residual process. The frozen Windows
+x64 EXE is 205,586,944 bytes with SHA-256
+`0026c46189a146101d5f0e4c670de9724292b2cf686bb0bf9ee7882ced1d2c21`; ASAR SHA-256 is
+`555b0452a6d674c6e3b49d976a8dbf3931272c633311ad77dce601ca2a388c89`; native-addon SHA-256 is
+`1965863929360083d9593ff060e5aa13eebc5dd084f5a94a6734d4dbc06f9461`; built Host-contract
+SHA-256 is `8f0971ee8f42c25db0133c43d1f314293ff354896f4c8cb8efef06282efdbf29`.
+Final structured evidence and reviewed screenshots are under
+`app/AIGC-Proof-Workbench/acceptance-evidence-final/`. macOS was not executed and is not claimed.
+
 Not implemented:
+
 - Creator identity verification
 - Digital signature or COSE_Sign1
 - Trusted timestamp, RFC 3161, or C2PA

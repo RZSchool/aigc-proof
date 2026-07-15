@@ -30,22 +30,24 @@ Rust-1.86-only line.
 
 Unsigned 0.2 packages must never be reinterpreted as signed, identity-verified, officially verified, or trusted-time evidence by later versions.
 
-Workbench 0.5.0 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
+Workbench 0.5.1 is versioned independently from protocol 0.2.0. Its napi-rs bridge calls the same
 public Rust core as the CLI, and its SQLite database is application metadata only. Workspaces,
 packages, and JSON reports remain portable across clients without SQLite. Windows x64 is the
 required packaged-workbench platform; Linux remains a required core/CLI regression platform and
 macOS evidence is informational unless actually executed.
 
-Workbench 0.5.0 preserves the separate create and open path semantics introduced in 0.1.1.
+Workbench 0.5.1 preserves the separate create and open path semantics introduced in 0.1.1.
 Creation accepts an existing parent and a new portable folder component; Electron Main resolves
 the final target and preserves the core's strict no-overwrite rule. Opening continues to require
 an existing valid workspace.
 
-Workbench 0.5.0 retains the supervised Utility Process, bounded asynchronous proof jobs, phase
+Workbench 0.5.1 retains the supervised Utility Process, bounded asynchronous proof jobs, phase
 progress, truthful cancellation states, one-page UI, SQLite v2 creation sessions, and reusable
-ComfyUI v0.27.0 creation core from 0.4. It adds Host/native API 1.3, exact no-clobber export of a
-revalidated workspace `output`, and byte-for-byte image matching only after full package
-verification. These are application/runtime and evidence-orchestration changes
+ComfyUI v0.27.0 creation core from 0.4, plus exact no-clobber export and byte-for-byte image
+matching from 0.5.0. Host contract 1.4 scopes creation-session listing to a Main-resolved workspace,
+removes automatic historical restoration, and keeps manual event/seal/import controls in one
+collapsed advanced disclosure. Native API remains 1.3.0. These are application/runtime and
+evidence-orchestration changes
 only; they do not change workspace files, `.aigcproof` packages, reports, protocol 0.2.0, or
 assurance.
 
@@ -54,17 +56,17 @@ must report v0.27.0; required loopback routes, WebSocket, six core node classes,
 checkpoint must exist. ComfyUI, Python, custom nodes, and models remain separately installed and
 licensed. Their presence or observation does not change proof assurance.
 
-## Workbench 0.5.0 compatibility matrix
+## Workbench 0.5.1 compatibility matrix
 
-| Layer | Version | Compatibility behavior |
-| --- | --- | --- |
-| Workbench application | 0.5.0 | Product/UI/runtime version; does not change proof assurance |
-| `ProofHostApi` contract | 1.3.0 | 1.3 adds purpose-specific image/output references, exact export and four-way verified-package image matching; unknown major fails closed |
-| Native API | 1.3.0 | Main validates the Utility discovery handshake before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities/limits fail closed |
-| Creation core | 1.0.0 | Host/UI/database-independent lifecycle, snapshot, fixed workflow, provider adapter and evidence mapping |
-| ComfyUI profile | 0.27.0 | External local installation; exact version plus reviewed capabilities required; never bundled |
-| Native engine | 0.2.0 | Exact engine expected by this Workbench |
-| Proof protocol | 0.2.0 | Exact supported portable workspace/package/report semantics |
+| Layer                   | Version | Compatibility behavior                                                                                                                                          |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workbench application   | 0.5.1   | Product/UI/runtime version; does not change proof assurance                                                                                                     |
+| `ProofHostApi` contract | 1.4.0   | 1.4 adds workspace-scoped creation-session listing; 1.3 image/export semantics remain; unknown major fails closed                                               |
+| Native API              | 1.3.0   | Main validates the Utility discovery handshake before registering proof IPC; missing, malformed, unknown-major, or inconsistent capabilities/limits fail closed |
+| Creation core           | 1.0.0   | Host/UI/database-independent lifecycle, snapshot, fixed workflow, provider adapter and evidence mapping                                                         |
+| ComfyUI profile         | 0.27.0  | External local installation; exact version plus reviewed capabilities required; never bundled                                                                   |
+| Native engine           | 0.2.0   | Exact engine expected by this Workbench                                                                                                                         |
+| Proof protocol          | 0.2.0   | Exact supported portable workspace/package/report semantics                                                                                                     |
 
 Native API 1.3.0 advertises only reviewed workspace, asset, event, package, verification,
 inspection, image correspondence, verified output export and execution capabilities. It truthfully reports napi-rs asynchronous tasks, Utility

@@ -33,6 +33,7 @@ const evidence = path.resolve(
 const userData = path.join(evidence, "user data");
 const work = path.join(evidence, "工作 流程");
 const proofWorkspace = path.join(work, "项目 工作区");
+const secondProofWorkspace = path.join(work, "第二 工作区");
 const existingTarget = path.join(work, "已存在 工作区");
 const existingMarker = path.join(existingTarget, "用户 文件.txt");
 const input = path.join(work, "输入 文件.txt");
@@ -123,6 +124,61 @@ async function click(cdp: CdpClient, testId: string): Promise<void> {
     if (!(element instanceof HTMLButtonElement)) throw new Error('Button not found: ${testId}');
     element.click();
   })()`);
+}
+
+async function clickButtonContaining(
+  cdp: CdpClient,
+  containerTestId: string,
+  text: string,
+): Promise<void> {
+  await cdp.evaluate(`(() => {
+    const container = document.querySelector('[data-testid=${js(containerTestId)}]');
+    if (!container) throw new Error('Container not found: ${containerTestId}');
+    const button = [...container.querySelectorAll('button')].find((candidate) => candidate.textContent?.includes(${js(text)}));
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Button containing text not found: ${text}');
+    button.click();
+  })()`);
+}
+
+async function inspectWorkflowStructure(cdp: CdpClient): Promise<void> {
+  const structure = await cdp.evaluate<{
+    advancedClosed: boolean;
+    advancedLast: boolean;
+    stepBadges: string[];
+    completeActionText: string;
+    completeActionPrimary: boolean;
+    manualSealSecondary: boolean;
+  }>(`(() => {
+    const advanced = document.querySelector('[data-region="manual-proof-tools"]');
+    const regions = [...document.querySelectorAll('#root main > [data-region]')];
+    const complete = document.querySelector('[data-testid="complete-creation-proof"]');
+    const manualSeal = document.querySelector('[data-testid="seal-package"]');
+    return {
+      advancedClosed: advanced instanceof HTMLDetailsElement && !advanced.open,
+      advancedLast: advanced instanceof HTMLElement && Number.parseInt(getComputedStyle(advanced).order, 10) > Math.max(...regions.filter((region) => region !== advanced).map((region) => Number.parseInt(getComputedStyle(region).order, 10) || 0)),
+      stepBadges: [...document.querySelectorAll('.panel-title > span')].map((item) => item.textContent ?? ''),
+      completeActionText: complete?.textContent ?? '',
+      completeActionPrimary: complete?.classList.contains('primary') ?? false,
+      manualSealSecondary: manualSeal?.classList.contains('secondary') ?? false,
+    };
+  })()`);
+  if (
+    !structure.advancedClosed ||
+    !structure.advancedLast ||
+    JSON.stringify(structure.stepBadges) !==
+      JSON.stringify(["01", "02", "03"]) ||
+    !structure.completeActionText.includes("封装 → 验证 → 保存报告") ||
+    !structure.completeActionPrimary ||
+    !structure.manualSealSecondary
+  ) {
+    throw new Error(
+      `Workflow structure is invalid: ${JSON.stringify(structure)}`,
+    );
+  }
+  record(
+    "creation-first-and-manual-tools-collapsed",
+    JSON.stringify(structure),
+  );
 }
 
 async function resultText(cdp: CdpClient): Promise<string> {
@@ -216,7 +272,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.5.0")
+  if (version !== "Workbench 0.5.1")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -329,7 +385,7 @@ async function main(): Promise<void> {
     `${JSON.stringify(
       {
         workspaceParents: [work],
-        existingWorkspaces: [proofWorkspace],
+        existingWorkspaces: [proofWorkspace, proofWorkspace],
         assets: [
           manualInputImage,
           input,
@@ -365,6 +421,7 @@ async function main(): Promise<void> {
   const { cdp } = launch;
   await captureLayoutEvidence(cdp);
   record("menu-free-unified-page");
+  await inspectWorkflowStructure(cdp);
   await click(cdp, "choose-create-parent");
   await waitFor(
     () => controlValue(cdp, "create-parent"),
@@ -399,7 +456,7 @@ async function main(): Promise<void> {
     (value) => value.includes(proofWorkspace),
     "new workspace target preview",
   );
-  await setControl(cdp, "project-name", "AP-025 图片对应验证自动验收");
+  await setControl(cdp, "project-name", "AP-027 工作区状态自动验收");
   await clickAndWait(cdp, "init-workspace", "工作区已创建");
   record("initialize-workspace");
 
@@ -419,6 +476,14 @@ async function main(): Promise<void> {
     path.join(evidence, "workspace-created-and-opened.png"),
     await cdp.screenshot(),
   );
+
+  await cdp.evaluate(`(() => {
+    const advanced = document.querySelector('[data-region="manual-proof-tools"]');
+    if (!(advanced instanceof HTMLDetailsElement)) throw new Error('Advanced proof tools are not a native details disclosure.');
+    advanced.querySelector('summary')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    if (!advanced.open) throw new Error('Advanced proof tools did not open from its native summary.');
+  })()`);
+  record("manual-proof-tools-explicitly-opened");
 
   for (const [source, role] of [
     [manualInputImage, "input"],
@@ -460,7 +525,7 @@ async function main(): Promise<void> {
   }
   record("comfyui-v0.27.0-capability-license-inspection", providerText);
 
-  await setControl(cdp, "creation-title", "AP-025 真实本地创作");
+  await setControl(cdp, "creation-title", "AP-027 真实本地创作");
   await clickAndWait(cdp, "create-creation-session", "创作会话已创建");
   await setControl(
     cdp,
@@ -483,7 +548,7 @@ async function main(): Promise<void> {
     10 * 60 * 1000,
   );
   const creationOutputText = await controlText(cdp, "creation-output");
-  if (!creationOutputText.includes("自动加入 workspace")) {
+  if (!creationOutputText.includes("自动加入证明工作区")) {
     throw new Error("Generated output was not automatically ingested.");
   }
   record("real-comfyui-output-auto-ingested", creationOutputText);
@@ -517,7 +582,10 @@ async function main(): Promise<void> {
     preview: boolean;
     proofId?: string;
   }>(`(async () => {
-    const sessions = await window.aigcProof.getCreationSessions();
+    const state = await window.aigcProof.getState();
+    const workspace = state.ok ? state.data.recentWorkspaces.find((item) => item.displayPath === ${js(proofWorkspace)}) : undefined;
+    if (!workspace) throw new Error('Current workspace reference missing.');
+    const sessions = await window.aigcProof.getCreationSessions({ workspace: workspace.reference });
     if (!sessions.ok || !sessions.data[0]) throw new Error('Creation session missing.');
     return {
       state: sessions.data[0].state,
@@ -592,6 +660,69 @@ async function main(): Promise<void> {
     await cdp.screenshot(),
   );
   record("exported-image-verified-output-match", matchedOutputCard);
+
+  await setControl(cdp, "creation-title", "AP-027 新建空白会话");
+  await clickAndWait(cdp, "create-creation-session", "创作会话已创建");
+  const freshSessionState = await cdp.evaluate<{
+    state: string;
+    outputPresent: boolean;
+    packagePath: string;
+    imagePath: string;
+    reportPresent: boolean;
+    imageResultPresent: boolean;
+  }>(`(() => ({
+    state: document.querySelector('[data-testid="creation-state"]')?.textContent ?? '',
+    outputPresent: Boolean(document.querySelector('[data-testid="creation-output"]')),
+    packagePath: document.querySelector('[data-testid="package-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="package-path"]').value : '',
+    imagePath: document.querySelector('[data-testid="image-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="image-path"]').value : '',
+    reportPresent: Boolean(document.querySelector('[data-testid="verification-card"]')),
+    imageResultPresent: Boolean(document.querySelector('[data-testid="image-match-result"]')),
+  }))()`);
+  if (
+    !freshSessionState.state.includes("draft") ||
+    freshSessionState.outputPresent ||
+    freshSessionState.packagePath ||
+    freshSessionState.imagePath ||
+    freshSessionState.reportPresent ||
+    freshSessionState.imageResultPresent
+  ) {
+    throw new Error(
+      `New creation session retained stale state: ${JSON.stringify(freshSessionState)}`,
+    );
+  }
+  record(
+    "new-session-clears-previous-proof-state",
+    JSON.stringify(freshSessionState),
+  );
+
+  await clickButtonContaining(cdp, "creation-sessions", "AP-027 真实本地创作");
+  await waitFor(
+    () => controlText(cdp, "creation-output"),
+    (value) => value.includes("自动加入证明工作区"),
+    "explicit historical creation restore",
+  );
+  const restoredSessionState = await cdp.evaluate<{
+    packagePath: string;
+    imagePath: string;
+    reportPresent: boolean;
+  }>(`(() => ({
+    packagePath: document.querySelector('[data-testid="package-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="package-path"]').value : '',
+    imagePath: document.querySelector('[data-testid="image-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="image-path"]').value : '',
+    reportPresent: Boolean(document.querySelector('[data-testid="verification-card"]')),
+  }))()`);
+  if (
+    !restoredSessionState.packagePath.includes(creationPackage) ||
+    restoredSessionState.imagePath ||
+    !restoredSessionState.reportPresent
+  ) {
+    throw new Error(
+      `Explicit historical restore did not isolate image state: ${JSON.stringify(restoredSessionState)}`,
+    );
+  }
+  record(
+    "explicit-history-restores-proof-without-image-prefill",
+    JSON.stringify(restoredSessionState),
+  );
 
   await fsp.copyFile(exportedImage, mutatedImage);
   await fsp.appendFile(mutatedImage, Buffer.from([0]));
@@ -748,6 +879,110 @@ async function main(): Promise<void> {
     record(`${expectedLabel}-package-no-image-match-claim`);
   }
 
+  await setControl(cdp, "workspace-folder-name", "第二 工作区");
+  await setControl(cdp, "project-name", "AP-027 工作区 B");
+  await waitFor(
+    () => controlText(cdp, "workspace-target-preview"),
+    (value) => value.includes(secondProofWorkspace),
+    "second workspace target preview",
+  );
+  await clickAndWait(cdp, "init-workspace", "工作区已创建，创作状态已重置");
+  const secondWorkspaceState = await cdp.evaluate<{
+    sessionList: string;
+    creationReviewPresent: boolean;
+    packagePath: string;
+    imagePath: string;
+    reportPresent: boolean;
+  }>(`(() => ({
+    sessionList: document.querySelector('[data-testid="creation-sessions"]')?.textContent ?? '',
+    creationReviewPresent: Boolean(document.querySelector('[data-testid="creation-review"]')),
+    packagePath: document.querySelector('[data-testid="package-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="package-path"]').value : '',
+    imagePath: document.querySelector('[data-testid="image-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="image-path"]').value : '',
+    reportPresent: Boolean(document.querySelector('[data-testid="verification-card"]')),
+  }))()`);
+  if (
+    !secondWorkspaceState.sessionList.includes("当前工作区暂无历史创作会话") ||
+    secondWorkspaceState.sessionList.includes("AP-027 真实本地创作") ||
+    secondWorkspaceState.creationReviewPresent ||
+    secondWorkspaceState.packagePath ||
+    secondWorkspaceState.imagePath ||
+    secondWorkspaceState.reportPresent
+  ) {
+    throw new Error(
+      `Workspace B inherited workspace A state: ${JSON.stringify(secondWorkspaceState)}`,
+    );
+  }
+  record(
+    "workspace-b-starts-with-empty-creation-scope",
+    JSON.stringify(secondWorkspaceState),
+  );
+
+  await setControl(cdp, "creation-title", "AP-027 B 空白会话");
+  await clickAndWait(cdp, "create-creation-session", "创作会话已创建");
+  const secondWorkspaceSessions = await controlText(cdp, "creation-sessions");
+  if (
+    !secondWorkspaceSessions.includes("AP-027 B 空白会话") ||
+    secondWorkspaceSessions.includes("AP-027 真实本地创作")
+  ) {
+    throw new Error(
+      `Workspace B session list leaked another workspace: ${secondWorkspaceSessions}`,
+    );
+  }
+  record("workspace-b-session-list-is-scoped");
+
+  await click(cdp, "choose-open-workspace");
+  await waitFor(
+    () => controlValue(cdp, "open-workspace-path"),
+    (value) => value.includes(proofWorkspace),
+    "Host-issued workspace A for scope return",
+  );
+  await clickAndWait(cdp, "open-workspace", "工作区已打开，创作状态已重置");
+  await waitFor(
+    () => controlText(cdp, "creation-sessions"),
+    (value) => value.includes("AP-027 真实本地创作"),
+    "workspace A scoped session list",
+  );
+  const returnedWorkspaceState = await cdp.evaluate<{
+    sessions: string;
+    previewPresent: boolean;
+    packagePath: string;
+    imagePath: string;
+    reportPresent: boolean;
+  }>(`(() => ({
+    sessions: document.querySelector('[data-testid="creation-sessions"]')?.textContent ?? '',
+    previewPresent: Boolean(document.querySelector('[data-testid="creation-review"]')),
+    packagePath: document.querySelector('[data-testid="package-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="package-path"]').value : '',
+    imagePath: document.querySelector('[data-testid="image-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="image-path"]').value : '',
+    reportPresent: Boolean(document.querySelector('[data-testid="verification-card"]')),
+  }))()`);
+  if (
+    returnedWorkspaceState.sessions.includes("AP-027 B 空白会话") ||
+    returnedWorkspaceState.previewPresent ||
+    returnedWorkspaceState.packagePath ||
+    returnedWorkspaceState.imagePath ||
+    returnedWorkspaceState.reportPresent
+  ) {
+    throw new Error(
+      `Returning to workspace A restored stale state automatically: ${JSON.stringify(returnedWorkspaceState)}`,
+    );
+  }
+  record(
+    "workspace-a-return-requires-explicit-history-restore",
+    JSON.stringify(returnedWorkspaceState),
+  );
+  await fsp.writeFile(
+    path.join(evidence, "workspace-scope-reset.png"),
+    await cdp.screenshot(),
+  );
+
+  await clickButtonContaining(cdp, "creation-sessions", "AP-027 真实本地创作");
+  await waitFor(
+    () => controlText(cdp, "creation-output"),
+    (value) => value.includes("自动加入证明工作区"),
+    "workspace A explicit history restore after scope switch",
+  );
+  record("workspace-a-history-explicitly-restored-after-switch");
+
   const beforeCrash = await cdp.evaluate<{
     generation: number;
     processId?: number;
@@ -868,6 +1103,7 @@ async function main(): Promise<void> {
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
     "0.2.0",
+    "1.4.0",
     "1.3.0",
     "proof.asset.export",
     "proof.asset.match",
@@ -927,13 +1163,66 @@ async function main(): Promise<void> {
     "persisted recent package",
   );
   record("sqlite-restart-persistence");
+  const startupCreationPresent = await launch.cdp.evaluate<boolean>(
+    `Boolean(document.querySelector('[data-testid="creation-review"]'))`,
+  );
+  if (startupCreationPresent) {
+    throw new Error(
+      "Restart restored a creation session before opening a workspace.",
+    );
+  }
+  await clickButtonContaining(launch.cdp, "recent-workspaces", proofWorkspace);
+  await waitFor(
+    () => controlText(launch!.cdp, "creation-sessions"),
+    (value) => value.includes("AP-027 真实本地创作"),
+    "restart workspace session list",
+  );
+  const restartWorkspaceState = await launch.cdp.evaluate<{
+    previewPresent: boolean;
+    packagePath: string;
+    imagePath: string;
+    reportPresent: boolean;
+  }>(`(() => ({
+    previewPresent: Boolean(document.querySelector('[data-testid="creation-review"]')),
+    packagePath: document.querySelector('[data-testid="package-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="package-path"]').value : '',
+    imagePath: document.querySelector('[data-testid="image-path"]') instanceof HTMLInputElement ? document.querySelector('[data-testid="image-path"]').value : '',
+    reportPresent: Boolean(document.querySelector('[data-testid="verification-card"]')),
+  }))()`);
+  if (
+    restartWorkspaceState.previewPresent ||
+    restartWorkspaceState.packagePath ||
+    restartWorkspaceState.imagePath ||
+    restartWorkspaceState.reportPresent
+  ) {
+    throw new Error(
+      `Opening a recent workspace restored stale creation state: ${JSON.stringify(restartWorkspaceState)}`,
+    );
+  }
+  record(
+    "restart-workspace-open-has-no-automatic-session-restore",
+    JSON.stringify(restartWorkspaceState),
+  );
+  await clickButtonContaining(
+    launch.cdp,
+    "creation-sessions",
+    "AP-027 真实本地创作",
+  );
+  await waitFor(
+    () => controlText(launch!.cdp, "creation-output"),
+    (value) => value.includes("自动加入证明工作区"),
+    "restart explicit historical creation restore",
+  );
+  record("restart-history-restored-only-after-explicit-selection");
   const reopenedCreation = await launch.cdp.evaluate<{
     state: string;
     status?: string;
     packageStatus?: string;
   }>(`(async () => {
-    const sessions = await window.aigcProof.getCreationSessions();
-    const session = sessions.ok ? sessions.data.find((item) => item.title === 'AP-025 真实本地创作') : undefined;
+    const state = await window.aigcProof.getState();
+    const workspace = state.ok ? state.data.recentWorkspaces.find((item) => item.displayPath === ${js(proofWorkspace)}) : undefined;
+    if (!workspace) throw new Error('Restart workspace reference missing.');
+    const sessions = await window.aigcProof.getCreationSessions({ workspace: workspace.reference });
+    const session = sessions.ok ? sessions.data.find((item) => item.title === 'AP-027 真实本地创作') : undefined;
     if (!session?.package) throw new Error('Persisted creation package reference missing.');
     const verified = await window.aigcProof.verifyPackage({ package: session.package });
     if (!verified.ok) throw new Error(verified.error.code);
@@ -1064,8 +1353,8 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.5.0",
-    contractVersion: "1.3.0",
+    workbenchVersion: "0.5.1",
+    contractVersion: "1.4.0",
     nativeApiVersion: "1.3.0",
     engineVersion: "0.2.0",
     protocolVersion: "0.2.0",
@@ -1074,6 +1363,7 @@ async function main(): Promise<void> {
     nativeAddon: testedAddon,
     database,
     workspace: proofWorkspace,
+    secondWorkspace: secondProofWorkspace,
     package: validPackage,
     creationPackage,
     tamperedPackage,

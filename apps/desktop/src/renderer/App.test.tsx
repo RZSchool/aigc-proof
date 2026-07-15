@@ -6,6 +6,9 @@ import {
   HOST_CAPABILITIES,
   RUNTIME_LIMITS,
   UNAVAILABLE_FEATURES,
+  type CreationSessionSummary,
+  type ImageReference,
+  type PackageReference,
   type ProofHostApi,
   type WorkspaceParentReference,
   type WorkspaceReference,
@@ -44,6 +47,92 @@ const workspaceSummary = {
   },
 };
 
+const workspaceReferenceB: WorkspaceReference = {
+  id: `ref_${"c".repeat(32)}`,
+  kind: "workspace",
+  displayLabel: "项目 B",
+  displayPath: "C:\\workspace\\项目 B",
+};
+
+const workspaceSummaryB = {
+  ...workspaceSummary,
+  reference: workspaceReferenceB,
+  displayPath: workspaceReferenceB.displayPath!,
+  workspace: {
+    ...workspaceSummary.workspace,
+    project: { name: "Test B" },
+  },
+};
+
+const validReport = {
+  spec_version: "0.2.0" as const,
+  proof_id: "urn:uuid:test-proof",
+  verified_at: "2026-07-15T00:00:00Z",
+  status: "valid" as const,
+  assurance: {
+    internal_integrity: "valid" as const,
+    creator_identity: "not_verified" as const,
+    digital_signature: "not_present" as const,
+    trusted_time: "not_present" as const,
+    originality: "not_evaluated" as const,
+  },
+  checks: [],
+  errors: [],
+  warnings: [],
+};
+
+function completedSession(
+  workspace: WorkspaceReference,
+  marker: string,
+  title: string,
+): CreationSessionSummary {
+  const packageReference: PackageReference = {
+    id: `ref_${marker.repeat(32)}`,
+    kind: "package",
+    displayLabel: `${title}.aigcproof`,
+    displayPath: `C:\\proofs\\${title}.aigcproof`,
+  };
+  return {
+    reference: {
+      id: `ref_${marker.toUpperCase().repeat(32)}`,
+      kind: "creation-session",
+      displayLabel: title,
+    },
+    title,
+    state: "complete",
+    workspace,
+    workspaceDisplayPath: workspace.displayPath!,
+    providerInstallation: {
+      id: `ref_${"p".repeat(32)}`,
+      kind: "provider-installation",
+      displayLabel: "ComfyUI",
+      displayPath: "C:\\ComfyUI",
+    },
+    providerVersion: "0.27.0",
+    createdAt: `2026-07-15T00:00:0${marker === "d" ? "1" : "2"}Z`,
+    updatedAt: `2026-07-15T00:00:1${marker === "d" ? "1" : "2"}Z`,
+    output: {
+      asset: {
+        asset_id: `asset-${marker}`,
+        role: "output",
+        package_path: `assets/${marker}.png`,
+        original_name: `${title}.png`,
+        media_type: "image/png",
+        size_bytes: 16,
+        sha256: marker.repeat(64),
+      },
+      mediaType: "image/png",
+      sizeBytes: 16,
+      sha256: marker.repeat(64),
+      previewDataUrl: "data:image/png;base64,aGVsbG8=",
+    },
+    package: packageReference,
+    packageDisplayPath: packageReference.displayPath,
+    reportDisplayPath: `C:\\proofs\\${title}.json`,
+    verification: validReport,
+  };
+}
+
 beforeEach(() => {
   window.aigcProof = {
     getDiagnostics: vi.fn().mockResolvedValue({
@@ -55,8 +144,8 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.5.0",
-        contractVersion: "1.3.0",
+        workbenchVersion: "0.5.1",
+        contractVersion: "1.4.0",
         nativeApiVersion: "1.3.0",
         engineVersion: "0.2.0",
         protocolVersion: "0.2.0",
@@ -76,6 +165,13 @@ beforeEach(() => {
     getState: vi.fn().mockResolvedValue({ ok: true, data: state }),
     getCreationSessions: vi.fn().mockResolvedValue({ ok: true, data: [] }),
     subscribeCreationEvents: vi.fn().mockReturnValue(() => undefined),
+    chooseProviderInstallation: vi.fn(),
+    inspectProviderInstallation: vi.fn(),
+    createCreationSession: vi.fn(),
+    freezeCreationSession: vi.fn(),
+    runCreationSession: vi.fn(),
+    cancelCreationSession: vi.fn(),
+    completeCreationProof: vi.fn(),
     setPreference: vi.fn().mockResolvedValue({ ok: true, data: state }),
     chooseWorkspaceParent: vi.fn(),
     chooseExistingWorkspace: vi.fn(),
@@ -115,18 +211,20 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "创建者身份未验证",
     );
-    expect(screen.getByText("Workbench 0.5.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.5.1")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
     expect(document.querySelector("nav")).not.toBeInTheDocument();
+    expect(window.aigcProof.getCreationSessions).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("creation-output")).not.toBeInTheDocument();
   });
 
   it("shows exact compatible versions and explicitly unavailable features", async () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
     expect(card).toHaveTextContent("0.2.0");
-    expect(card).toHaveTextContent("1.3.0");
+    expect(card).toHaveTextContent("1.4.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -230,6 +328,234 @@ describe("workbench shell", () => {
     expect(window.aigcProof.previewWorkspaceTarget).not.toHaveBeenCalled();
     expect(window.aigcProof.initializeWorkspace).not.toHaveBeenCalled();
     expect(window.aigcProof.loadWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("scopes history to the opened workspace and restores only by explicit selection", async () => {
+    const user = userEvent.setup();
+    const sessionA = completedSession(workspaceReference, "d", "历史 A");
+    const sessionB = completedSession(workspaceReferenceB, "e", "历史 B");
+    vi.mocked(window.aigcProof.chooseExistingWorkspace)
+      .mockResolvedValueOnce(workspaceReference)
+      .mockResolvedValueOnce(workspaceReferenceB);
+    vi.mocked(window.aigcProof.loadWorkspace).mockImplementation((request) =>
+      Promise.resolve({
+        ok: true,
+        data:
+          request.workspace.id === workspaceReference.id
+            ? workspaceSummary
+            : workspaceSummaryB,
+      }),
+    );
+    vi.mocked(window.aigcProof.getCreationSessions).mockImplementation(
+      (request) =>
+        Promise.resolve({
+          ok: true,
+          data:
+            request.workspace.id === workspaceReference.id
+              ? [sessionA]
+              : [sessionB],
+        }),
+    );
+    render(<App />);
+
+    await user.click(screen.getByTestId("choose-open-workspace"));
+    await user.click(screen.getByTestId("open-workspace"));
+    expect(await screen.findByText("历史 A")).toBeInTheDocument();
+    expect(screen.queryByTestId("creation-output")).not.toBeInTheDocument();
+    await user.click(screen.getByText("历史 A").closest("button")!);
+    expect(await screen.findByTestId("creation-output")).toHaveTextContent(
+      "历史 A.png",
+    );
+
+    await user.click(screen.getByTestId("choose-open-workspace"));
+    await user.click(screen.getByTestId("open-workspace"));
+    expect(await screen.findByText("历史 B")).toBeInTheDocument();
+    expect(screen.queryByText("历史 A")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("creation-output")).not.toBeInTheDocument();
+    expect(screen.getByTestId("package-path")).toHaveValue("");
+    expect(screen.getByTestId("image-path")).toHaveValue("");
+    await user.click(screen.getByText("历史 B").closest("button")!);
+    expect(await screen.findByTestId("creation-output")).toHaveTextContent(
+      "历史 B.png",
+    );
+  });
+
+  it("clears a restored output before presenting a newly created draft", async () => {
+    const user = userEvent.setup();
+    const historical = completedSession(workspaceReference, "d", "旧会话");
+    vi.mocked(window.aigcProof.chooseExistingWorkspace).mockResolvedValue(
+      workspaceReference,
+    );
+    vi.mocked(window.aigcProof.loadWorkspace).mockResolvedValue({
+      ok: true,
+      data: workspaceSummary,
+    });
+    vi.mocked(window.aigcProof.getCreationSessions).mockResolvedValue({
+      ok: true,
+      data: [historical],
+    });
+    const provider = {
+      reference: {
+        id: `ref_${"p".repeat(32)}`,
+        kind: "provider-installation" as const,
+        displayLabel: "ComfyUI",
+        displayPath: "C:\\ComfyUI",
+      },
+      displayPath: "C:\\ComfyUI",
+      provider: "comfyui-local" as const,
+      detectedVersion: "0.27.0",
+      endpoint: "http://127.0.0.1:8188" as const,
+      compatible: true as const,
+      checkpoints: ["model.safetensors"],
+      customNodeCount: 0,
+      license: {
+        name: "GNU General Public License v3.0" as const,
+        spdx: "GPL-3.0-only" as const,
+        sha256: "a".repeat(64),
+      },
+    };
+    vi.mocked(window.aigcProof.chooseProviderInstallation).mockResolvedValue(
+      provider.reference,
+    );
+    vi.mocked(window.aigcProof.inspectProviderInstallation).mockResolvedValue({
+      ok: true,
+      data: provider,
+    });
+    vi.mocked(window.aigcProof.createCreationSession).mockResolvedValue({
+      ok: true,
+      data: {
+        ...historical,
+        reference: {
+          id: `ref_${"n".repeat(32)}`,
+          kind: "creation-session",
+          displayLabel: "新会话",
+        },
+        title: "新会话",
+        state: "draft",
+        output: undefined,
+        package: undefined,
+        packageDisplayPath: undefined,
+        reportDisplayPath: undefined,
+        verification: undefined,
+      },
+    });
+    render(<App />);
+
+    await user.click(screen.getByTestId("choose-open-workspace"));
+    await user.click(screen.getByTestId("open-workspace"));
+    await user.click((await screen.findByText("旧会话")).closest("button")!);
+    expect(await screen.findByTestId("creation-output")).toBeInTheDocument();
+    await user.click(screen.getByTestId("choose-provider"));
+    await user.click(screen.getByTestId("inspect-provider"));
+    await screen.findByTestId("provider-card");
+    await user.clear(screen.getByTestId("creation-title"));
+    await user.type(screen.getByTestId("creation-title"), "新会话");
+    await user.click(screen.getByTestId("create-creation-session"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("creation-state")).toHaveTextContent("draft"),
+    );
+    expect(screen.queryByTestId("creation-output")).not.toBeInTheDocument();
+    expect(screen.getByTestId("package-path")).toHaveValue("");
+    expect(screen.queryByTestId("verification-card")).not.toBeInTheDocument();
+  });
+
+  it("keeps export prefill current-session-only and preserves it when a save picker is canceled", async () => {
+    const user = userEvent.setup();
+    const first = completedSession(workspaceReference, "d", "会话一");
+    const second = completedSession(workspaceReference, "e", "会话二");
+    vi.mocked(window.aigcProof.chooseExistingWorkspace).mockResolvedValue(
+      workspaceReference,
+    );
+    vi.mocked(window.aigcProof.loadWorkspace).mockResolvedValue({
+      ok: true,
+      data: workspaceSummary,
+    });
+    vi.mocked(window.aigcProof.getCreationSessions).mockResolvedValue({
+      ok: true,
+      data: [first, second],
+    });
+    const imageOutput = {
+      id: `ref_${"o".repeat(32)}`,
+      kind: "image-output" as const,
+      displayLabel: "saved.png",
+      displayPath: "C:\\saved.png",
+    };
+    const image: ImageReference = {
+      id: `ref_${"i".repeat(32)}`,
+      kind: "image",
+      displayLabel: "saved.png",
+      displayPath: "C:\\saved.png",
+    };
+    vi.mocked(window.aigcProof.chooseCreationOutput)
+      .mockResolvedValueOnce(imageOutput)
+      .mockResolvedValueOnce(null);
+    vi.mocked(window.aigcProof.exportCreationOutput).mockResolvedValue({
+      ok: true,
+      data: {
+        image,
+        displayPath: image.displayPath!,
+        mediaType: "image/png",
+        sizeBytes: 16,
+        sha256: "d".repeat(64),
+      },
+    });
+    vi.mocked(window.aigcProof.choosePackage).mockResolvedValue(null);
+    render(<App />);
+
+    await user.click(screen.getByTestId("choose-open-workspace"));
+    await user.click(screen.getByTestId("open-workspace"));
+    await user.click((await screen.findByText("会话一")).closest("button")!);
+    await user.click(screen.getByTestId("export-creation-output"));
+    expect(await screen.findByTestId("image-prefill-note")).toBeInTheDocument();
+    expect(screen.getByTestId("image-path")).toHaveValue("C:\\saved.png");
+    const successfulResult = screen.getByTestId("result-text").textContent;
+
+    await user.click(screen.getByTestId("export-creation-output"));
+    expect(screen.getByTestId("image-path")).toHaveValue("C:\\saved.png");
+    expect(screen.getByTestId("result-text").textContent).toBe(
+      successfulResult,
+    );
+    const packageBeforeCancel = (
+      screen.getByTestId("package-path") as HTMLInputElement
+    ).value;
+    await user.click(screen.getByTestId("choose-image-package"));
+    expect(screen.getByTestId("package-path")).toHaveValue(
+      packageBeforeCancel ?? "",
+    );
+
+    await user.click(screen.getByText("会话二").closest("button")!);
+    expect(screen.queryByTestId("image-prefill-note")).not.toBeInTheDocument();
+    expect(screen.getByTestId("image-path")).toHaveValue("");
+  });
+
+  it("keeps manual proof tools collapsed and unnumbered with one integrated completion action", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const summary = screen.getByText("高级：手工证明工具").closest("summary")!;
+    const details = summary.closest("details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(
+      [...document.querySelectorAll(".panel-title > span")].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["01", "02", "03"]);
+    expect(summary.tagName).toBe("SUMMARY");
+    await user.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect(details).toHaveTextContent("记录自定义创作事件");
+    expect(details).toHaveTextContent("手工封装证明包");
+
+    const creationPanel = document.querySelector('[data-region="creation"]')!;
+    const integratedCompletion = [
+      ...creationPanel.querySelectorAll("button.primary"),
+    ].filter((button) => /封装|验证|报告/u.test(button.textContent ?? ""));
+    expect(integratedCompletion).toHaveLength(1);
+    expect(integratedCompletion[0]).toHaveAttribute(
+      "data-testid",
+      "complete-creation-proof",
+    );
+    expect(screen.getByTestId("seal-package")).toHaveClass("secondary");
   });
 
   it("keeps real-product creation-to-proof controls on the same page and auto-ingests mock output", async () => {

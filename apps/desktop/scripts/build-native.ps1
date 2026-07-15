@@ -23,6 +23,11 @@ if (-not (Test-Path -LiteralPath $gcc -PathType Leaf) -or
     -not (Test-Path -LiteralPath $archiveTool -PathType Leaf)) {
     throw "The MinGW-w64 GCC compiler and archive tool are required."
 }
+$env:PATH = $gccBin + ";" + (Join-Path $toolchain "bin") + ";" + $env:PATH
+$env:RUSTC = $rustc
+$env:CARGO_TARGET_DIR = $targetDirectory
+$env:CC_x86_64_pc_windows_gnu = $gcc
+$env:AR_x86_64_pc_windows_gnu = $archiveTool
 
 function Invoke-CapturedProcess {
     param([string]$FilePath, [string]$Arguments, [string]$WorkingDirectory)
@@ -34,11 +39,6 @@ function Invoke-CapturedProcess {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $start.EnvironmentVariables["PATH"] = $gccBin + ";" + (Join-Path $toolchain "bin") + ";" + $env:PATH
-    $start.EnvironmentVariables["RUSTC"] = $rustc
-    $start.EnvironmentVariables["CARGO_TARGET_DIR"] = $targetDirectory
-    $start.EnvironmentVariables["CC_x86_64_pc_windows_gnu"] = $gcc
-    $start.EnvironmentVariables["AR_x86_64_pc_windows_gnu"] = $archiveTool
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
     if (-not $process.Start()) { throw "Failed to start $FilePath." }

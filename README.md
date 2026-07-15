@@ -47,11 +47,13 @@ The CLI is fully offline and performs no upload. Pass prompts and parameters thr
 ## Desktop workbench
 
 The primary desktop frontend is the offline React + TypeScript Electron workbench. Its sandboxed
-renderer uses `ProofHostApi` 1.3.0 through a Standalone adapter and typed allowlisted preload/IPC.
+renderer uses `ProofHostApi` 1.4.0 through a Standalone adapter and typed allowlisted preload/IPC.
 Electron Main owns authority, a bounded job scheduler, and disposable SQLite state; a supervised
 Utility Process is the exclusive native-addon owner and fails closed on an incompatible native
-API 1.3.0 handshake. Workbench 0.5.0 adds exact generated-output export and direct image-to-package
-output matching to the reusable Node creation core and narrow, loopback-only
+API 1.3.0 handshake. Workbench 0.5.1 keeps exact generated-output export and direct image-to-package
+output matching while making creation history workspace-scoped and explicitly restored. Manual
+asset/event/seal operations are grouped in one collapsed advanced section; the normal integrated
+creation path seals, verifies, and saves its report once. The reusable Node creation core and narrow, loopback-only
 ComfyUI v0.27.0 adapter: users authorize an existing local installation and checkpoint, freeze a
 privacy-aware prompt/parameter snapshot, run the fixed core-node template, and receive the
 validated output automatically in the proof workspace. The result is visible, can be exported

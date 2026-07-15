@@ -9,6 +9,7 @@ import {
   NATIVE_ENGINE_VERSION,
   PROTOCOL_VERSION,
   RUNTIME_LIMITS,
+  getCreationSessionsRequestSchema,
   hostReferenceSchema,
   hostDiagnosticsSchema,
   initializeWorkspaceRequestSchema,
@@ -37,7 +38,7 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(HOST_CONTRACT_VERSION).toBe("1.3.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.4.0");
     expect(NATIVE_API_VERSION).toBe("1.3.0");
     expect(NATIVE_ENGINE_VERSION).toBe("0.2.0");
     expect(PROTOCOL_VERSION).toBe("0.2.0");
@@ -87,6 +88,14 @@ describe("@aigc-proof/host-contracts", () => {
     expect(() =>
       hostReferenceSchema.parse({ ...parent, kind: "admin" }),
     ).toThrow();
+    const workspace = { ...parent, kind: "workspace" as const };
+    expect(getCreationSessionsRequestSchema.parse({ workspace })).toEqual({
+      workspace,
+    });
+    expect(() => getCreationSessionsRequestSchema.parse({})).toThrow();
+    expect(() =>
+      getCreationSessionsRequestSchema.parse({ workspace, path: "C:\\forged" }),
+    ).toThrow();
   });
 
   it("rejects malformed, missing, duplicate, and unsorted 1.3 capabilities", () => {
@@ -132,8 +141,8 @@ describe("@aigc-proof/host-contracts", () => {
         displayLabel: "diagnostics",
       },
       hostKind: "standalone",
-      workbenchVersion: "0.5.0",
-      contractVersion: "1.3.0",
+      workbenchVersion: "0.5.1",
+      contractVersion: "1.4.0",
       nativeApiVersion: "1.3.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",
@@ -252,8 +261,8 @@ describe("@aigc-proof/host-contracts", () => {
     const diagnostics = {
       reference: references.diagnostic,
       hostKind: "standalone",
-      workbenchVersion: "0.5.0",
-      contractVersion: "1.3.0",
+      workbenchVersion: "0.5.1",
+      contractVersion: "1.4.0",
       nativeApiVersion: "1.3.0",
       engineVersion: "0.2.0",
       protocolVersion: "0.2.0",

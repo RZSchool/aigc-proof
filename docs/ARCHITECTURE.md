@@ -2,7 +2,7 @@
 
 ## Protocol engine
 
-~~~text
+```text
 init -> add -> record -> seal -> verify -> inspect
                    |
                    v
@@ -15,7 +15,7 @@ init -> add -> record -> seal -> verify -> inspect
                    v
                proof-schema
           types / strict JSON / Schema / semantics
-~~~
+```
 
 The workspace is mutable local staging data. Asset copy and both seal hashing passes are
 streamed through hard byte bounds, and workspace asset directories and files are rechecked
@@ -34,11 +34,11 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop Workbench 0.5.0
+## Desktop Workbench 0.5.1
 
-~~~text
+```text
 React + TypeScript renderer (untrusted presentation)
-        | ProofHostApi 1.3.0
+        | ProofHostApi 1.4.0
         v
 Standalone Host adapter
         | typed window.aigcProof API
@@ -64,7 +64,7 @@ proof-core + proof-schema
         |
         v
 portable workspace files / .aigcproof packages / JSON reports
-~~~
+```
 
 The renderer has no Node.js, filesystem, SQLite, native-module, Utility primitive, or generic IPC
 access. Main validates every DTO, owns native dialogs and user-selected paths, and resolves
@@ -102,6 +102,13 @@ bytes, enforces lifecycle transitions, and maps successful observations into sta
 Main alone resolves Host references, selects installations, allocates staging, writes validated
 bytes, invokes proof jobs, and persists local state.
 
+Host contract 1.4.0 makes creation-session listing workspace-scoped. Renderer submits only the
+current opaque workspace reference; Main validates its kind, owner, permission, expiry and active
+scope, resolves the canonical workspace, and filters SQLite there. Workspace/session scope changes
+clear transient proof and verifier presentation before any history is shown, and history is
+restored only by an explicit user choice. Native API 1.3.0 is unchanged because no Rust operation
+or portable proof format changed.
+
 The provider adapter accepts only a credential-free loopback HTTP/WebSocket origin, refuses
 redirects, validates the frozen v0.27.0 capability profile, and never accepts renderer workflow
 JSON, arbitrary commands, endpoints, or output paths. ComfyUI, Python/GPU runtimes, custom nodes,
@@ -118,7 +125,7 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 ## Versioned standalone host and prospective integration
 
-`@aigc-proof/host-contracts` 1.3.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+`@aigc-proof/host-contracts` 1.4.0 is the reusable renderer-safe source of DTOs, strict Schemas,
 versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
 Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
 consumer/component tests but is not registered by the packaged product.
@@ -143,13 +150,13 @@ Rust WASM require separate reviewed versions. They are not implemented or implie
 The separate planned Rights Protection product track builds on portable public evidence without
 changing protocol 0.2.0:
 
-~~~text
+```text
 portable original/publication observations
         + exact digests
         + versioned visual/audio fingerprints
         v
 explainable candidate matches -> preserved evidence -> human review -> case export
-~~~
+```
 
 Public layers will own later reviewed evidence formats, reference verification and matching
 algorithms, and reproducible test vectors/corpora. Optional private services may own authorized

@@ -17,10 +17,15 @@ directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.5.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 0.5.1 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
+
+Creation history is listed only after Renderer supplies the current opaque workspace reference;
+Main validates and resolves it, then filters disposable SQLite records by its canonical workspace.
+Startup, workspace changes, and new sessions clear transient thumbnails, proof/report presentation,
+and image-verifier selections without deleting any persisted session or portable evidence.
 
 Image-to-package matching streams the selected local image inside Rust after package verification;
 the renderer receives only bounded display metadata, a digest/result, and an optional Main-made

@@ -11,12 +11,18 @@ if ([string]::IsNullOrWhiteSpace($Destination)) {
     $Destination = Join-Path $workspace "app\AIGC-Proof-Workbench"
 }
 $nodeBin = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
-$toolBin = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\bin"
-$pnpm = Join-Path $toolBin "pnpm.cmd"
-if (-not (Test-Path -LiteralPath $pnpm -PathType Leaf)) {
-    throw "Bundled pnpm was not found: $pnpm"
+$toolRoot = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\bin"
+$overrideBin = Join-Path $toolRoot "override"
+$fallbackBin = Join-Path $toolRoot "fallback"
+$pnpm = @(
+    (Join-Path $toolRoot "pnpm.cmd"),
+    (Join-Path $fallbackBin "pnpm.cmd")
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($pnpm)) {
+    throw "Bundled pnpm was not found under $toolRoot."
 }
-$env:PATH = $nodeBin + ";" + $toolBin + ";" + $env:PATH
+$env:PATH = (Join-Path $desktop "node_modules\.bin") + ";" + $nodeBin + ";" + $overrideBin + ";" + $fallbackBin + ";" + $env:PATH
+$env:CI = "true"
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 
 function Invoke-Pnpm {
@@ -29,7 +35,6 @@ function Invoke-Pnpm {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $start.EnvironmentVariables["Path"] = (Join-Path $desktop "node_modules\.bin") + ";" + $nodeBin + ";" + $toolBin + ";" + $env:Path
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
     if (-not $process.Start()) { throw "Failed to start pnpm $Arguments." }
@@ -147,8 +152,8 @@ $rustcVersion = Get-VersionText (Join-Path $env:USERPROFILE ".rustup\toolchains\
 $gccPath = (Get-Command "x86_64-w64-mingw32-gcc.exe" -ErrorAction Stop).Source
 $gccVersion = Get-VersionText $gccPath "--version"
 $metadata = [ordered]@{
-    workbench_version = "0.5.0"
-    host_contract_version = "1.3.0"
+    workbench_version = "0.5.1"
+    host_contract_version = "1.4.0"
     native_api_version = "1.3.0"
     native_engine_version = "0.2.0"
     protocol_version = "0.2.0"

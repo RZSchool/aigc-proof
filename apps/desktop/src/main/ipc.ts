@@ -29,6 +29,7 @@ import {
   exportCreationOutputRequestSchema,
   exportedCreationOutputSchema,
   freezeCreationSessionRequestSchema,
+  getCreationSessionsRequestSchema,
   hostDiagnosticsSchema,
   hostErrorSchema,
   imageMatchRequestSchema,
@@ -76,12 +77,21 @@ import {
 } from "./app-state";
 import { AuthorityRegistry } from "./authority";
 import { ComfyUiSupervisor } from "./comfyui-supervisor";
+import { CreationSessionScopeRegistry } from "./creation-scope";
 import { JobScheduler } from "./job-scheduler";
 import type { QaSelectionKind, QaSelectionProvider } from "./qa-selections";
 import { UtilitySupervisor } from "./utility-supervisor";
 import { resolveWorkspaceTarget } from "./workspace-path";
 
 const localPathSchema = z.string().min(1).max(32_767);
+const WORKSPACE_PERMISSIONS = [
+  "loadWorkspace",
+  "addAsset",
+  "recordEvent",
+  "sealPackage",
+  "exportWorkspaceOutput",
+  "getCreationSessions",
+] as const;
 const nativeWorkspaceSummarySchema = z
   .object({ path: localPathSchema, workspace: workspaceSchema })
   .strict();
@@ -315,14 +325,7 @@ export async function registerIpc(
   );
   await fs.mkdir(creationStagingRoot, { recursive: true });
   const providerSupervisor = new ComfyUiSupervisor(app.getPath("userData"));
-  const creationAuthorities = new Map<
-    string,
-    {
-      owner: number;
-      sessionId: string;
-      reference: CreationSessionReference;
-    }
-  >();
+  const creationScopes = new CreationSessionScopeRegistry();
   const executionPrompts = new Map<
     string,
     { prompt: string; negativePrompt: string }
@@ -339,24 +342,18 @@ export async function registerIpc(
     owner: number,
     raw: CreationSessionReference,
   ): StoredCreationSession {
-    const authority = creationAuthorities.get(raw.id);
-    if (
-      !authority ||
-      authority.owner !== owner ||
-      authority.reference.kind !== raw.kind ||
-      authority.reference.displayLabel !== raw.displayLabel ||
-      authority.reference.displayPath !== raw.displayPath
-    ) {
-      throw new HostContractError(
-        "HOST_REFERENCE_UNKNOWN",
-        "Creation session reference is unknown, expired, or belongs to another renderer.",
-      );
-    }
+    const authority = creationScopes.resolve(owner, raw);
     const session = stateStore.session(authority.sessionId);
     if (!session) {
       throw new HostContractError(
         "CREATION_SESSION_NOT_FOUND",
         "Creation session no longer exists.",
+      );
+    }
+    if (session.workspacePath !== authority.workspacePath) {
+      throw new HostContractError(
+        "CREATION_RELATIONSHIP_INVALID",
+        "Creation session no longer belongs to its authorized workspace scope.",
       );
     }
     return session;
@@ -366,35 +363,17 @@ export async function registerIpc(
     owner: number,
     stored: StoredCreationSession,
   ): Promise<CreationSessionSummary> {
-    const existingAuthority = [...creationAuthorities.values()].find(
-      (authority) =>
-        authority.owner === owner && authority.sessionId === stored.id,
+    const reference = creationScopes.issue(
+      owner,
+      stored.id,
+      stored.workspacePath,
+      stored.title,
     );
-    const reference =
-      existingAuthority?.reference ??
-      (Object.freeze({
-        id: `ref_${randomUUID().replaceAll("-", "")}`,
-        kind: "creation-session",
-        displayLabel: stored.title,
-      }) as CreationSessionReference);
-    if (!existingAuthority) {
-      creationAuthorities.set(reference.id, {
-        owner,
-        sessionId: stored.id,
-        reference,
-      });
-    }
     const workspace = await registry.issue(
       "workspace",
       stored.workspacePath,
       owner,
-      [
-        "loadWorkspace",
-        "addAsset",
-        "recordEvent",
-        "sealPackage",
-        "exportWorkspaceOutput",
-      ],
+      WORKSPACE_PERMISSIONS,
     );
     const providerInstallation = await registry.issue(
       "provider-installation",
@@ -498,13 +477,7 @@ export async function registerIpc(
                 item.path,
                 owner,
                 kind === "workspace"
-                  ? [
-                      "loadWorkspace",
-                      "addAsset",
-                      "recordEvent",
-                      "sealPackage",
-                      "exportWorkspaceOutput",
-                    ]
+                  ? WORKSPACE_PERMISSIONS
                   : ["verifyPackage", "inspectPackage", "matchImageToPackage"],
               ),
               displayPath: item.path,
@@ -532,13 +505,12 @@ export async function registerIpc(
     const native = nativeWorkspaceSummarySchema.parse(raw);
     stateStore.remember("workspace", native.path);
     return {
-      reference: await registry.issue("workspace", native.path, owner, [
-        "loadWorkspace",
-        "addAsset",
-        "recordEvent",
-        "sealPackage",
-        "exportWorkspaceOutput",
-      ]),
+      reference: await registry.issue(
+        "workspace",
+        native.path,
+        owner,
+        WORKSPACE_PERMISSIONS,
+      ),
       displayPath: native.path,
       workspace: native.workspace,
     };
@@ -967,12 +939,15 @@ export async function registerIpc(
       const request = validated(createCreationSessionRequestSchema, raw);
       if (isFailure(request)) return request;
       try {
-        const workspacePath = await registry.resolve(
-          request.workspace,
-          "workspace",
-          event.sender.id,
-          "addAsset",
+        const workspacePath = await fs.realpath(
+          await registry.resolve(
+            request.workspace,
+            "workspace",
+            event.sender.id,
+            "addAsset",
+          ),
         );
+        creationScopes.assertActive(event.sender.id, workspacePath);
         const providerPath = await registry.resolve(
           request.installation,
           "provider-installation",
@@ -1010,13 +985,24 @@ export async function registerIpc(
     },
   );
 
-  ipcMain.handle(channels.getCreationSessions, async (event) => {
+  ipcMain.handle(channels.getCreationSessions, async (event, raw: unknown) => {
+    const request = validated(getCreationSessionsRequestSchema, raw);
+    if (isFailure(request)) return request;
     try {
+      const workspacePath = await fs.realpath(
+        await registry.resolve(
+          request.workspace,
+          "workspace",
+          event.sender.id,
+          "getCreationSessions",
+        ),
+      );
+      creationScopes.activate(event.sender.id, workspacePath);
       return {
         ok: true,
         data: await Promise.all(
           stateStore
-            .sessions()
+            .sessionsForWorkspace(workspacePath)
             .map((session) => publicCreationSession(event.sender.id, session)),
         ),
       };
@@ -1225,13 +1211,7 @@ export async function registerIpc(
         "workspace",
         session.workspacePath,
         event.sender.id,
-        [
-          "loadWorkspace",
-          "addAsset",
-          "recordEvent",
-          "sealPackage",
-          "exportWorkspaceOutput",
-        ],
+        WORKSPACE_PERMISSIONS,
       );
       const ingested = await legacy(event.sender.id, {
         operation: "addAsset",
@@ -1387,13 +1367,7 @@ export async function registerIpc(
           "workspace",
           session.workspacePath,
           event.sender.id,
-          [
-            "loadWorkspace",
-            "addAsset",
-            "recordEvent",
-            "sealPackage",
-            "exportWorkspaceOutput",
-          ],
+          WORKSPACE_PERMISSIONS,
         );
         const sealed = await legacy(event.sender.id, {
           operation: "sealPackage",
@@ -1464,13 +1438,12 @@ export async function registerIpc(
       },
     );
     return selected
-      ? registry.issue("workspace", selected, event.sender.id, [
-          "loadWorkspace",
-          "addAsset",
-          "recordEvent",
-          "sealPackage",
-          "exportWorkspaceOutput",
-        ])
+      ? registry.issue(
+          "workspace",
+          selected,
+          event.sender.id,
+          WORKSPACE_PERMISSIONS,
+        )
       : null;
   });
   ipcMain.handle(channels.chooseAsset, async (event) => {

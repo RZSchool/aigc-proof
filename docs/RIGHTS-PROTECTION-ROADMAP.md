@@ -1,14 +1,14 @@
 # Rights Protection Product Track
 
-Status: planned; no `RP-*` capability is implemented by protocol 0.2.0 or Workbench 0.5.0.
+Status: planned; no `RP-*` capability is implemented by protocol 0.2.0 or Workbench 0.5.1.
 
 ## Product promise and limits
 
 Rights Protection is a product track built on AIGC-Proof evidence primitives. Its intended flow is:
 
-~~~text
+```text
 register -> publish -> detect -> preserve -> review -> export
-~~~
+```
 
 The product may help a user record their materials, detect technical similarities, preserve
 observations, and prepare a reviewable evidence export. It cannot prevent all copying, make a file
@@ -140,19 +140,19 @@ Exit gate:
 
 These are design objects for later Schema review, not production Schema definitions:
 
-| Object | Purpose | Key relationships and minimum context |
-|---|---|---|
-| Original rights record | Preserve original/project/final materials and claimant-supplied rights context | References exact asset digests, media metadata, creation events, licenses, protocol package ID, and later optional signature/time evidence |
-| Publication observation | Preserve an authorized observation of a publication | References an original rights record when known; records platform/account/publication identifiers, URL, observed metadata, acquisition provenance, snapshot digest, and time-source class |
-| Segmented fingerprint set | Reproducibly derive comparison features for one preserved media asset | References the asset digest; records visual/audio algorithms, versions, segment boundaries, parameters, and feature-set digest |
-| Suspect observation | Preserve the provenance and bytes or authorized reference used for comparison | Records acquisition authority, source context, observed metadata, exact digest, media metadata, and optional publication observation |
-| Segment-match report | Explain a comparison between original and suspected media | References both fingerprint sets and source digests; records thresholds, aligned time ranges, confidence, detected transformations, unmatched regions, and algorithm versions |
-| Watermark-detection result | Report a reviewed forensic-watermark test | References inspected asset digest; records detector/key context, payload or identifier when safely disclosed, confidence, regions, and limitations |
-| Case export | Bundle selected evidence for human or external review | References immutable versions of the objects above, verification results, reviewer notes/decisions, export manifest, and assurance/legal disclaimers |
+| Object                     | Purpose                                                                        | Key relationships and minimum context                                                                                                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Original rights record     | Preserve original/project/final materials and claimant-supplied rights context | References exact asset digests, media metadata, creation events, licenses, protocol package ID, and later optional signature/time evidence                                                |
+| Publication observation    | Preserve an authorized observation of a publication                            | References an original rights record when known; records platform/account/publication identifiers, URL, observed metadata, acquisition provenance, snapshot digest, and time-source class |
+| Segmented fingerprint set  | Reproducibly derive comparison features for one preserved media asset          | References the asset digest; records visual/audio algorithms, versions, segment boundaries, parameters, and feature-set digest                                                            |
+| Suspect observation        | Preserve the provenance and bytes or authorized reference used for comparison  | Records acquisition authority, source context, observed metadata, exact digest, media metadata, and optional publication observation                                                      |
+| Segment-match report       | Explain a comparison between original and suspected media                      | References both fingerprint sets and source digests; records thresholds, aligned time ranges, confidence, detected transformations, unmatched regions, and algorithm versions             |
+| Watermark-detection result | Report a reviewed forensic-watermark test                                      | References inspected asset digest; records detector/key context, payload or identifier when safely disclosed, confidence, regions, and limitations                                        |
+| Case export                | Bundle selected evidence for human or external review                          | References immutable versions of the objects above, verification results, reviewer notes/decisions, export manifest, and assurance/legal disclaimers                                      |
 
 Relationship overview:
 
-~~~text
+```text
 original rights record -> original asset -> segmented fingerprint set
           |                                      |
           +-> publication observation            +-> segment-match report
@@ -162,7 +162,7 @@ suspect observation -> suspect asset -> segmented fingerprint set
           +-> optional publication observation / watermark-detection result
 
 selected records + verification results + human review -> case export
-~~~
+```
 
 Every object needs stable identifiers, format and algorithm versions, canonical serialization or
 equivalent reproducibility rules, exact digests for referenced preserved bytes, provenance, and

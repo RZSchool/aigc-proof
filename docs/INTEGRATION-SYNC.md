@@ -12,12 +12,12 @@ The reference was re-read on 2026-07-13 from external Git revision
 `7794b613bd5da063e95cabe7d9f14ca6544309e5`. Because that external working tree contained
 uncommitted documentation changes, these SHA-256 values identify the exact content reviewed:
 
-| External document | SHA-256 |
-| --- | --- |
+| External document          | SHA-256                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
 | `ARCHITECTURE_BASELINE.md` | `35641c542d9b34fd9019479f9eba96007d6abbed008a3b11d225f6d0c31fc67e` |
-| `PROJECT_SYNC.md` | `cf3d0726dbad8f25941120a02892dab76f2b193d98f5913be00c19a28de1afdc` |
-| `SOLUTION_SYNC.md` | `7b53895502337c665dda5dfcc44932a351e55c495a2ee539eacc593e614d1f6b` |
-| `INTEGRATION_SYNC.md` | `e9f08e8a45dc223201367c75a5b84330b4f68d1a4b97bdc940434e1f4f5d84e3` |
+| `PROJECT_SYNC.md`          | `cf3d0726dbad8f25941120a02892dab76f2b193d98f5913be00c19a28de1afdc` |
+| `SOLUTION_SYNC.md`         | `7b53895502337c665dda5dfcc44932a351e55c495a2ee539eacc593e614d1f6b` |
+| `INTEGRATION_SYNC.md`      | `e9f08e8a45dc223201367c75a5b84330b4f68d1a4b97bdc940434e1f4f5d84e3` |
 
 The snapshot records design input only. It does not import AWPE features, APIs, native addons,
 workers, UI, version numbers, or implementation status into AIGC-Proof.
@@ -40,7 +40,7 @@ paths, dialogs, lifecycle, SQLite, authority, and bounded scheduling. A supervis
 is the exclusive `proof_napi.node` owner. The addon is a narrow asynchronous Node-API adapter over
 the Rust engine; Electron does not shell out to the CLI.
 
-Workbench 0.5.0 uses `@aigc-proof/host-contracts` 1.3.0 as the single renderer-safe source of
+Workbench 0.5.1 uses `@aigc-proof/host-contracts` 1.4.0 as the single renderer-safe source of
 `ProofHostApi`, DTOs, strict Schemas, versions, capabilities, and stable errors. The Standalone
 adapter and a deterministic consumer-test Mock implement that contract. Native API 1.3.0 reports
 engine/protocol 0.2.0 plus deterministic capabilities, execution facts, and limits; Main validates
@@ -60,7 +60,7 @@ dependency between AIGC-Proof and AWPE.
 
 ## Valid standalone-only behavior
 
-`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.3.0.
+`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.4.0.
 Main-owned native dialogs and user-selected local paths are legitimate in the standalone product,
 but the renderer receives only kind-specific opaque references plus non-authoritative display
 information. An AIGCStudio asset identifier or session token belongs to its future adapter and is
@@ -75,9 +75,9 @@ not require an additional worker protocol.
 A future integration could use this boundary, subject to a separate architecture and security
 review:
 
-~~~text
+```text
 AIGCStudio proof UI
-        | ProofHostApi 1.3.0 through a prospective AIGCStudio adapter
+        | ProofHostApi 1.4.0 through a prospective AIGCStudio adapter
         v
 context-isolated preload / allowlisted IPC
         v
@@ -89,7 +89,7 @@ supervised Utility / proof_napi.node
 proof-core / proof-schema
         v
 portable workspace / package / report files
-~~~
+```
 
 AIGCStudio may own and independently design its proof UI; it would not be required to reuse the
 Workbench React pages. If such a product shape is later authorized, both UIs must use the same
@@ -103,15 +103,15 @@ ownership, Utility profile, and dual-product packaging have not been implemented
 
 ## Current-versus-prospective boundary
 
-| Concern | Standalone Workbench today | Prospective AIGCStudio host |
-| --- | --- | --- |
-| Renderer API | `ProofHostApi` 1.3.0 through typed `window.aigcProof` and Standalone adapter | AIGCStudio adapter/Bridge implementing the same semantics, not implemented |
-| Input authority | Main issues expiring typed references for selected paths and recent records; display paths are not authority | AIGCStudio asset/workspace/package references or session tokens, not implemented |
-| Native interface | API 1.3.0, engine 0.2.0, protocol list, capabilities, execution facts, limits, and fail-closed compatibility | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated |
-| Creation layer | Shared creation-core 1.0.0; Standalone Main owns ComfyUI authorization, staging and SQLite | Same core with Studio-owned provider/assets/tasks/state; not implemented |
-| Native execution | Supervised Workbench Utility exclusively loads the addon; bounded jobs, progress, no-replay crash recovery, and truthful cancellation are accepted | AIGCStudio-owned Utility profile and crash-containment acceptance, not implemented |
-| Application state | Disposable Workbench SQLite preferences, recents, indexes, and UI state | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |
-| Packaging evidence | Packaged standalone Workbench accepted | One contract/addon assembled into two products with separate UIs, not demonstrated |
+| Concern            | Standalone Workbench today                                                                                                                         | Prospective AIGCStudio host                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Renderer API       | `ProofHostApi` 1.4.0 through typed `window.aigcProof` and Standalone adapter                                                                       | AIGCStudio adapter/Bridge implementing the same semantics, not implemented                                         |
+| Input authority    | Main issues expiring typed references for selected paths and recent records; display paths are not authority                                       | AIGCStudio asset/workspace/package references or session tokens, not implemented                                   |
+| Native interface   | API 1.3.0, engine 0.2.0, protocol list, capabilities, execution facts, limits, and fail-closed compatibility                                       | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated                                |
+| Creation layer     | Shared creation-core 1.0.0; Standalone Main owns ComfyUI authorization, staging and SQLite                                                         | Same core with Studio-owned provider/assets/tasks/state; not implemented                                           |
+| Native execution   | Supervised Workbench Utility exclusively loads the addon; bounded jobs, progress, no-replay crash recovery, and truthful cancellation are accepted | AIGCStudio-owned Utility profile and crash-containment acceptance, not implemented                                 |
+| Application state  | Disposable Workbench SQLite preferences, recents, indexes, and UI state                                                                            | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |
+| Packaging evidence | Packaged standalone Workbench accepted                                                                                                             | One contract/addon assembled into two products with separate UIs, not demonstrated                                 |
 
 The implemented contract and discovery must not be used as evidence that the prospective
 AIGCStudio adapter or its Host systems exist. Likewise, the standalone SQLite database grants no

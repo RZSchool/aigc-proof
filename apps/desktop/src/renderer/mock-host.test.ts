@@ -10,7 +10,7 @@ describe("deterministic ProofHostApi mock", () => {
       hostReferenceSchema.parse(await host.chooseWorkspaceParent()).kind,
     ).toBe("workspace-parent");
     const diagnostics = await host.getDiagnostics();
-    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe("1.3.0");
+    expect(diagnostics.ok && diagnostics.data.contractVersion).toBe("1.4.0");
     expect(
       diagnostics.ok && diagnostics.data.execution.utilityProcessIsolation,
     ).toBe(true);

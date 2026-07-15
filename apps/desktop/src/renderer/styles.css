@@ -374,6 +374,13 @@ textarea:focus-visible {
   border-top: 1px solid var(--border);
 }
 
+.advanced-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
 .panel {
   min-width: 0;
   padding: 24px;
@@ -464,6 +471,10 @@ textarea:focus-visible {
   align-items: flex-start;
   gap: 14px;
   margin-bottom: 20px;
+}
+
+.panel-title.no-step {
+  gap: 0;
 }
 
 .panel-title > span {
@@ -1038,6 +1049,7 @@ input[readonly] {
   .creation-output-card,
   .split-grid,
   .settings-grid,
+  .advanced-tools-grid,
   .workflow-pair,
   .recent-grid {
     grid-template-columns: 1fr;

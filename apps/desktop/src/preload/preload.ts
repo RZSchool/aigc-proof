@@ -11,7 +11,8 @@ const api: ProofHostApi = {
     ipcRenderer.invoke(channels.inspectProviderInstallation, request),
   createCreationSession: (request) =>
     ipcRenderer.invoke(channels.createCreationSession, request),
-  getCreationSessions: () => ipcRenderer.invoke(channels.getCreationSessions),
+  getCreationSessions: (request) =>
+    ipcRenderer.invoke(channels.getCreationSessions, request),
   freezeCreationSession: (request) =>
     ipcRenderer.invoke(channels.freezeCreationSession, request),
   runCreationSession: (request) =>

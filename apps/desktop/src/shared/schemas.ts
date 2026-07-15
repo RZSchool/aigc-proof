@@ -2,6 +2,7 @@ export {
   addAssetRequestSchema as addAssetRequest,
   hostEnvelopeSchema as bridgeEnvelopeSchema,
   hostReferenceSchema,
+  getCreationSessionsRequestSchema,
   initializeWorkspaceRequestSchema as initializeWorkspaceRequest,
   packageRequestSchema,
   recordEventRequestSchema as recordEventRequest,

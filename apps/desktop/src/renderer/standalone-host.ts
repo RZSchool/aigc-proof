@@ -21,8 +21,10 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   ) {
     return this.bridge.createCreationSession(request);
   }
-  getCreationSessions() {
-    return this.bridge.getCreationSessions();
+  getCreationSessions(
+    request: Parameters<ProofHostApi["getCreationSessions"]>[0],
+  ) {
+    return this.bridge.getCreationSessions(request);
   }
   freezeCreationSession(
     request: Parameters<ProofHostApi["freezeCreationSession"]>[0],

@@ -179,7 +179,7 @@ export class WorkbenchStateStore {
     return raw ? this.#storedSession(raw) : undefined;
   }
 
-  sessions(): StoredCreationSession[] {
+  sessionsForWorkspace(workspacePath: string): StoredCreationSession[] {
     return this.#database
       .prepare(
         "SELECT id, title, state, workspace_path AS workspacePath, " +
@@ -188,9 +188,10 @@ export class WorkbenchStateStore {
           "provider_job_id AS providerJobId, progress_json AS progressJson, " +
           "output_json AS outputJson, package_path AS packagePath, report_path AS reportPath, " +
           "verification_json AS verificationJson, error_json AS errorJson " +
-          "FROM creation_sessions ORDER BY updated_at DESC, rowid DESC LIMIT 100",
+          "FROM creation_sessions WHERE workspace_path = ? " +
+          "ORDER BY updated_at DESC, rowid DESC LIMIT 100",
       )
-      .all()
+      .all(workspacePath)
       .map((row) => this.#storedSession(row));
   }
 

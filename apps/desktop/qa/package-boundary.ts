@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.5.0") {
+  if (packagedManifest.version !== "0.5.1") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.3.0",
+    contractVersion: "1.4.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
     protocolVersion: "0.2.0",

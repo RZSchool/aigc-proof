@@ -157,9 +157,16 @@ export class DeterministicMockProofHost implements ProofHostApi {
     this.emitCreation(this.#creationSession);
     return Promise.resolve(ok(this.#creationSession));
   }
-  getCreationSessions() {
+  getCreationSessions(
+    request: Parameters<ProofHostApi["getCreationSessions"]>[0],
+  ) {
     return Promise.resolve(
-      ok(this.#creationSession ? [this.#creationSession] : []),
+      ok(
+        request.workspace.id === this.workspaceReference.id &&
+          this.#creationSession
+          ? [this.#creationSession]
+          : [],
+      ),
     );
   }
   freezeCreationSession(

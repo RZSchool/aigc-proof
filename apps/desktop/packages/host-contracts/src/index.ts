@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.5.0" as const;
-export const HOST_CONTRACT_VERSION = "1.3.0" as const;
+export const WORKBENCH_VERSION = "0.5.1" as const;
+export const HOST_CONTRACT_VERSION = "1.4.0" as const;
 export const NATIVE_API_VERSION = "1.3.0" as const;
 export const NATIVE_ENGINE_VERSION = "0.2.0" as const;
 export const PROTOCOL_VERSION = "0.2.0" as const;
@@ -23,6 +23,7 @@ export const HOST_CAPABILITIES = [
   "creation.comfyui-local",
   "creation.evidence-mapping",
   "creation.session-lifecycle",
+  "creation.sessions.workspace-scoped",
   "creation.snapshot-sha256",
   "execution.bounded-jobs",
   "execution.phase-progress",
@@ -603,7 +604,7 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
   ) {
     throw new HostContractError(
       "NATIVE_CAPABILITY_INCONSISTENT",
-      "Native discovery limits contradict the required Host 1.2 runtime profile.",
+      "Native discovery limits contradict the required Host 1.4 runtime profile.",
     );
   }
   const version = parseSemVer(discovery.apiVersion)!;
@@ -625,8 +626,8 @@ export function validateNativeDiscovery(value: unknown): NativeDiscovery {
 export interface HostDiagnostics {
   reference: DiagnosticReference;
   hostKind: "standalone" | "mock" | "compatible-host";
-  workbenchVersion: "0.5.0";
-  contractVersion: "1.3.0";
+  workbenchVersion: "0.5.1";
+  contractVersion: "1.4.0";
   nativeApiVersion: string;
   engineVersion: string;
   protocolVersion: "0.2.0";
@@ -793,6 +794,7 @@ export const createCreationSessionRequestSchema = z
     title: z.string().trim().min(1).max(200),
   })
   .strict();
+export const getCreationSessionsRequestSchema = workspaceRequestSchema;
 export const creationSessionRequestSchema = z
   .object({ session: creationSessionReferenceSchema })
   .strict();
@@ -976,7 +978,9 @@ export interface ProofHostApi {
     installation: ProviderInstallationReference;
     title: string;
   }): Promise<HostEnvelope<CreationSessionSummary>>;
-  getCreationSessions(): Promise<HostEnvelope<CreationSessionSummary[]>>;
+  getCreationSessions(request: {
+    workspace: WorkspaceReference;
+  }): Promise<HostEnvelope<CreationSessionSummary[]>>;
   freezeCreationSession(request: {
     session: CreationSessionReference;
     checkpointObservation: string;

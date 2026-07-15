@@ -1,11 +1,11 @@
-# Desktop Workbench 0.5.0
+# Desktop Workbench 0.5.1
 
 ## Architecture
 
 The primary desktop frontend is an offline React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 1.3.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 1.4.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -35,14 +35,24 @@ ownership, process isolation, and packaging have not been implemented. See
 ## One-page workflow
 
 The application menu, workflow sidebar, hidden routes, tabs, and page switching are absent. One
-scrollable canvas keeps these regions visible in order: assurance/recent items; first-class image
-verification; create/open; local creation and automatic proof; event recording; package sealing;
-verify/inspect/report; jobs/progress/cancel/history; and preferences/rebuild/diagnostics. Later
-steps remain visible with their prerequisites instead of disappearing behind navigation.
+scrollable canvas keeps three primary outcomes visually dominant: verify a held image; create or
+open a workspace; and generate locally plus complete its proof once. Package-only verification,
+metadata inspection, and report saving remain an independent tool rather than a required
+continuation of creation. Jobs and preferences remain visible on the same page.
 
-Manual import of all five asset roles remains on the same page in a collapsed advanced section.
-It explicitly distinguishes an `input` label from a generated `output`; integrated creation adds
-its successful output automatically.
+Manual import of all five asset roles, arbitrary structured event recording, and manual workspace
+sealing remain available together in the collapsed `高级：手工证明工具` disclosure at the end of
+the canvas. They have no primary step numbers and are described as expert/imported workflows.
+Integrated creation adds its successful output automatically and its one final primary action
+seals, fully verifies, and saves the report without handing the user to another seal action.
+
+Creation history is requested with the current opaque `WorkspaceReference`; Main resolves that
+authority and queries only the canonical workspace's SQLite records. Startup and workspace entry
+do not auto-select history. Switching workspaces or creating a session clears selected output,
+package, report, inspection, and image-match state before showing a blank/new scope. Only an
+explicit `恢复历史会话` choice restores that session's proof context. Saving an output copy may
+prefill the independent image verifier for the current session, with replace/clear controls; a
+scope or session change discards that convenience state.
 
 Workspace creation selects an existing parent and one validated portable new-folder component;
 Main previews the resolved target and never initializes an existing location. Opening remains a
@@ -106,7 +116,8 @@ launch does not expose DevTools or a remote-debugging port. A dedicated command-
 required to enable loopback CDP for the Electron/CDP developer harness.
 
 The harness drives the actual renderer and typed preload through image selection/matching,
-create/open, all five asset roles,
+two-workspace scoped history/reset checks, explicit restore, new-session clearing, create/open,
+all five asset roles and the explicitly opened advanced disclosure,
 real ComfyUI creation, automatic output ingestion, snapshot/evidence review, creation seal/verify/
 report, visible thumbnail, exact no-clobber image export, independent output match, modified and
 non-output classification, invalid-package refusal, restart/export/match, native CLI verification,
@@ -119,7 +130,7 @@ launch, disabled CDP, and clean exit.
 
 ## Scope
 
-Workbench 0.5.0 uses protocol 0.2.0 and evaluates package-internal integrity plus exact byte
+Workbench 0.5.1 uses protocol 0.2.0 and evaluates package-internal integrity plus exact byte
 correspondence to a verified package asset. It does not
 provide creator identity, digital signatures, trusted timestamps, C2PA, originality evaluation,
 copyright or ownership determinations, official services, accounts, upload, or WASM.

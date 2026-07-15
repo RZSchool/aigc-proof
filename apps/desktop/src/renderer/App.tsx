@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AssetRole,
@@ -97,6 +97,8 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     useState<WorkspaceReference>();
   const [projectName, setProjectName] = useState("");
   const [workspace, setWorkspace] = useState<WorkspaceSummary>();
+  const [workspaceScopeReady, setWorkspaceScopeReady] = useState(false);
+  const workspaceScopeGeneration = useRef(0);
   const [assetPath, setAssetPath] = useState("");
   const [assetReference, setAssetReference] =
     useState<HostReference<"asset">>();
@@ -104,6 +106,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   const [imagePath, setImagePath] = useState("");
   const [imageReference, setImageReference] = useState<ImageReference>();
   const [imageMatch, setImageMatch] = useState<ImageMatchResult>();
+  const [imagePrefillSessionId, setImagePrefillSessionId] = useState<string>();
   const [eventType, setEventType] = useState("generation");
   const [payloadJson, setPayloadJson] = useState(
     '{\n  "model": "local-model"\n}',
@@ -171,19 +174,6 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     void proofHost.getJobs().then((response) => {
       if (active && response.ok) setJobs(response.data);
     });
-    void proofHost.getCreationSessions().then((response) => {
-      if (!active || !response.ok) return;
-      setCreationSessions(response.data);
-      setCreationSession(response.data[0]);
-      const completed = response.data.find(
-        (session) => session.state === "complete",
-      );
-      if (completed?.package && completed.packageDisplayPath) {
-        setPackageReference(completed.package);
-        setPackagePath(completed.packageDisplayPath);
-      }
-      if (completed?.verification) setReport(completed.verification);
-    });
     const unsubscribe = proofHost.subscribeJobEvents((event) => {
       if (!active) return;
       setJobs((current) => {
@@ -203,11 +193,11 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       setCreationSessions((current) => [
         event.session,
         ...current.filter(
-          (session) => session.createdAt !== event.session.createdAt,
+          (session) => session.reference.id !== event.session.reference.id,
         ),
       ]);
       setCreationSession((current) =>
-        !current || current.createdAt === event.session.createdAt
+        current?.reference.id === event.session.reference.id
           ? event.session
           : current,
       );
@@ -301,6 +291,140 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     }
   }
 
+  function clearImageVerification(): void {
+    setImagePath("");
+    setImageReference(undefined);
+    setImageMatch(undefined);
+    setImagePrefillSessionId(undefined);
+  }
+
+  function clearPackageContext(): void {
+    setPackagePath("");
+    setPackageReference(undefined);
+    setReportPath("");
+    setReportOutputReference(undefined);
+    setReport(undefined);
+    setInspection(undefined);
+  }
+
+  function clearCreationDependentState(): void {
+    setCreationSession(undefined);
+    setCreationPackagePath("");
+    setCreationPackageOutput(undefined);
+    setCreationReportPath("");
+    setCreationReportOutput(undefined);
+    clearImageVerification();
+    clearPackageContext();
+  }
+
+  function resetCreationForm(): void {
+    setCreationTitle("本地创作会话");
+    setCreationPrompt("");
+    setCreationNegativePrompt("");
+    setCreationCheckpoint(provider?.checkpoints[0] ?? "");
+    setCreationSeed("42");
+    setCreationWidth("512");
+    setCreationHeight("512");
+    setCreationSteps("20");
+    setCreationCfg("7");
+    setCreationSampler("euler");
+    setCreationScheduler("normal");
+    setCreationDisclosure("included");
+  }
+
+  function applyCreationForm(session: CreationSessionSummary): void {
+    setCreationTitle(session.title);
+    const snapshot = session.snapshot;
+    if (!snapshot) {
+      setCreationPrompt("");
+      setCreationNegativePrompt("");
+      return;
+    }
+    setCreationCheckpoint(snapshot.checkpoint_observation);
+    setCreationPrompt(snapshot.prompt ?? "");
+    setCreationNegativePrompt(snapshot.negative_prompt ?? "");
+    setCreationDisclosure(snapshot.prompt_disclosure);
+    setCreationSeed(String(snapshot.seed));
+    setCreationWidth(String(snapshot.parameters.width));
+    setCreationHeight(String(snapshot.parameters.height));
+    setCreationSteps(String(snapshot.parameters.steps));
+    setCreationCfg(String(snapshot.parameters.cfg));
+    setCreationSampler(snapshot.parameters.sampler);
+    setCreationScheduler(snapshot.parameters.scheduler);
+  }
+
+  function resetWorkspaceTransientState(): void {
+    setWorkspaceScopeReady(false);
+    setCreationSessions([]);
+    clearCreationDependentState();
+    resetCreationForm();
+    setAssetPath("");
+    setAssetReference(undefined);
+    setSealOutput("");
+    setSealOutputReference(undefined);
+    setResultKind("idle");
+    setResult("正在建立新的工作区界面作用域…");
+  }
+
+  async function enterWorkspaceScope(
+    summary: WorkspaceSummary,
+  ): Promise<boolean> {
+    const generation = ++workspaceScopeGeneration.current;
+    resetWorkspaceTransientState();
+    setWorkspace(summary);
+    setWorkspacePath(summary.displayPath);
+    setOpenWorkspacePath(summary.displayPath);
+    setOpenWorkspaceReference(summary.reference);
+    const response = await proofHost.getCreationSessions({
+      workspace: summary.reference,
+    });
+    if (generation !== workspaceScopeGeneration.current) return false;
+    if (!response.ok) {
+      showFailure(response);
+      return false;
+    }
+    setCreationSessions(response.data);
+    setWorkspaceScopeReady(true);
+    return true;
+  }
+
+  function restoreCreationSession(session: CreationSessionSummary): void {
+    clearCreationDependentState();
+    applyCreationForm(session);
+    setCreationSession(session);
+    setCreationPackagePath(session.packageDisplayPath ?? "");
+    setCreationReportPath(session.reportDisplayPath ?? "");
+    if (session.package && session.packageDisplayPath) {
+      setPackageReference(session.package);
+      setPackagePath(session.packageDisplayPath);
+    }
+    if (session.verification) setReport(session.verification);
+    showSuccess("已恢复当前工作区的历史会话", {
+      title: session.title,
+      state: session.state,
+      updatedAt: session.updatedAt,
+    });
+  }
+
+  async function chooseImageForVerification(): Promise<void> {
+    const selected = await proofHost.chooseImage();
+    if (!selected) return;
+    setImageReference(selected);
+    setImagePath(selected.displayPath ?? selected.displayLabel);
+    setImageMatch(undefined);
+    setImagePrefillSessionId(undefined);
+  }
+
+  async function choosePackageForVerification(): Promise<void> {
+    const selected = await proofHost.choosePackage();
+    if (!selected) return;
+    setPackageReference(selected);
+    setPackagePath(selected.displayPath ?? selected.displayLabel);
+    setImageMatch(undefined);
+    setReport(undefined);
+    setInspection(undefined);
+  }
+
   async function initializeWorkspace(): Promise<void> {
     await run("正在初始化工作区", async () => {
       if (!createParentReference) throw new Error("请先选择父文件夹。");
@@ -310,11 +434,9 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         ...(projectName.trim() ? { projectName: projectName.trim() } : {}),
       });
       if (!response.ok) return showFailure(response);
-      setWorkspace(response.data);
-      setWorkspacePath(response.data.displayPath);
-      setOpenWorkspacePath(response.data.displayPath);
-      setOpenWorkspaceReference(response.data.reference);
-      showSuccess("工作区已创建", response.data);
+      if (await enterWorkspaceScope(response.data)) {
+        showSuccess("工作区已创建，创作状态已重置", response.data);
+      }
     });
   }
 
@@ -325,11 +447,9 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       if (!reference) throw new Error("请先选择已有工作区。");
       const response = await proofHost.loadWorkspace({ workspace: reference });
       if (!response.ok) return showFailure(response);
-      setWorkspace(response.data);
-      setWorkspacePath(response.data.displayPath);
-      setOpenWorkspacePath(response.data.displayPath);
-      setOpenWorkspaceReference(response.data.reference);
-      showSuccess("工作区已打开", response.data);
+      if (await enterWorkspaceScope(response.data)) {
+        showSuccess("工作区已打开，创作状态已重置", response.data);
+      }
     });
   }
 
@@ -365,6 +485,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       setReport(response.data.verification);
       setInspection(undefined);
       setImageReference(undefined);
+      setImagePrefillSessionId(undefined);
       const title =
         response.data.status === "verified_output_match"
           ? "图片与有效证明包中的生成输出完全一致"
@@ -378,21 +499,26 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   }
 
   async function exportCreationOutput(): Promise<void> {
+    if (!creationSession?.output) {
+      setResultKind("error");
+      setResult("当前创作会话没有可导出的成功输出。");
+      return;
+    }
+    const session = creationSession;
+    const output = await proofHost.chooseCreationOutput({
+      session: session.reference,
+    });
+    if (!output) return;
     await run("正在保存生成图片副本", async () => {
-      if (!creationSession?.output)
-        throw new Error("当前创作会话没有可导出的成功输出。");
-      const output = await proofHost.chooseCreationOutput({
-        session: creationSession.reference,
-      });
-      if (!output) throw new Error("未选择图片保存位置。");
       const response = await proofHost.exportCreationOutput({
-        session: creationSession.reference,
+        session: session.reference,
         output,
       });
       if (!response.ok) return showFailure(response);
       setImageReference(response.data.image);
       setImagePath(response.data.displayPath);
       setImageMatch(undefined);
+      setImagePrefillSessionId(session.reference.id);
       showSuccess("生成图片副本已保存，可直接与证明包核验", response.data);
     });
   }
@@ -499,14 +625,16 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
   async function createSession(): Promise<void> {
     await run("正在创建创作会话", async () => {
-      if (!workspace || !provider)
+      if (!workspace || !workspaceScopeReady || !provider)
         throw new Error("请先打开工作区并完成 ComfyUI 核验。");
+      clearCreationDependentState();
       const response = await proofHost.createCreationSession({
         workspace: workspace.reference,
         installation: provider.reference,
         title: creationTitle.trim(),
       });
       if (!response.ok) return showFailure(response);
+      applyCreationForm(response.data);
       setCreationSession(response.data);
       showSuccess("创作会话已创建", response.data);
     });
@@ -595,7 +723,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.5.0</span>
+            <span data-testid="workbench-version">Workbench 0.5.1</span>
           </div>
         </div>
         <div className="header-actions">
@@ -690,16 +818,25 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 <button
                   className="secondary"
                   data-testid="choose-image"
-                  onClick={() => {
-                    setImageMatch(undefined);
-                    void choose(setImageReference, setImagePath, () =>
-                      proofHost.chooseImage(),
-                    );
-                  }}
+                  onClick={() => void chooseImageForVerification()}
                 >
-                  选择图片
+                  {imagePrefillSessionId ? "替换图片" : "选择图片"}
                 </button>
+                {imagePrefillSessionId && (
+                  <button
+                    className="quiet-button"
+                    data-testid="clear-image-prefill"
+                    onClick={clearImageVerification}
+                  >
+                    清除预填
+                  </button>
+                )}
               </div>
+              {imagePrefillSessionId && (
+                <small className="field-help" data-testid="image-prefill-note">
+                  已由当前完成会话的“保存生成图片副本”预填；切换工作区或会话会自动清除。
+                </small>
+              )}
             </Field>
             <Field label="对应的 .aigcproof 证明包">
               <div className="field-row">
@@ -712,12 +849,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 <button
                   className="secondary"
                   data-testid="choose-image-package"
-                  onClick={() => {
-                    setImageMatch(undefined);
-                    void choose(setPackageReference, setPackagePath, () =>
-                      proofHost.choosePackage(),
-                    );
-                  }}
+                  onClick={() => void choosePackageForVerification()}
                 >
                   选择证明包
                 </button>
@@ -908,12 +1040,15 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <details
           className="panel advanced-panel"
-          data-region="assets"
+          data-region="manual-proof-tools"
           style={{ order: 99 }}
         >
           <summary>
-            <strong>高级：手动导入证明素材</strong>
-            <span>集成创作会自动加入成功输出，通常无需使用这里。</span>
+            <strong>高级：手工证明工具</strong>
+            <span>
+              用于导入/外部资产、自定义事件和手工工作区；集成 ComfyUI
+              创作通常无需使用。
+            </span>
           </summary>
           <div className="advanced-panel-body">
             <p className="assurance-inline">
@@ -963,7 +1098,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 </select>
               </Field>
               <button
-                className="primary compact-action"
+                className="secondary compact-action"
                 data-testid="add-asset"
                 disabled={!workspace || !assetReference}
                 onClick={() => void addAsset()}
@@ -989,6 +1124,74 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="advanced-tools-grid">
+              <section className="subpanel" data-region="event">
+                <h3>记录自定义创作事件</h3>
+                <p className="prerequisite">
+                  用于外部或手工流程，把 JSON
+                  对象写入规范化事件哈希链；不是集成创作后的必做步骤。
+                </p>
+                <Field label="事件类型">
+                  <input
+                    data-testid="event-type"
+                    value={eventType}
+                    onChange={(event) => setEventType(event.target.value)}
+                  />
+                </Field>
+                <Field label="JSON 载荷">
+                  <textarea
+                    data-testid="event-payload"
+                    value={payloadJson}
+                    onChange={(event) => setPayloadJson(event.target.value)}
+                    rows={8}
+                  />
+                </Field>
+                <button
+                  className="secondary"
+                  data-testid="record-event"
+                  disabled={!workspace}
+                  onClick={() => void recordEvent()}
+                >
+                  记录自定义事件
+                </button>
+              </section>
+
+              <section className="subpanel" data-region="seal">
+                <h3>手工封装证明包</h3>
+                <p className="prerequisite">
+                  用于已手工导入资产和事件的工作区；集成创作的主操作已经自动封装、验证并保存报告一次。
+                </p>
+                <Field label="输出 .aigcproof">
+                  <div className="field-row">
+                    <input
+                      data-testid="seal-output"
+                      readOnly
+                      placeholder="选择新的输出文件"
+                      value={sealOutput}
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="choose-package-output"
+                      onClick={() =>
+                        void choose(setSealOutputReference, setSealOutput, () =>
+                          proofHost.choosePackageOutput(),
+                        )
+                      }
+                    >
+                      选择位置
+                    </button>
+                  </div>
+                </Field>
+                <button
+                  className="secondary"
+                  data-testid="seal-package"
+                  disabled={!workspace || !sealOutputReference}
+                  onClick={() => void sealPackage()}
+                >
+                  手工封装并自检
+                </button>
+              </section>
             </div>
           </div>
         </details>
@@ -1046,7 +1249,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
                 </div>
               )}
 
-              <h3>2. 创建或恢复会话</h3>
+              <h3>2. 新建创作</h3>
               <Field label="会话标题">
                 <input
                   data-testid="creation-title"
@@ -1058,29 +1261,30 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               <button
                 className="primary"
                 data-testid="create-creation-session"
-                disabled={!workspace || !provider || !creationTitle.trim()}
+                disabled={
+                  !workspaceScopeReady || !provider || !creationTitle.trim()
+                }
                 onClick={() => void createSession()}
               >
                 在当前工作区创建会话
               </button>
+              <h4>恢复历史会话</h4>
+              <p className="prerequisite">
+                历史会话只显示当前工作区内容，默认不自动恢复缩略图或证明结果。
+              </p>
               <div className="session-list" data-testid="creation-sessions">
-                {creationSessions.length === 0 && <p>暂无本地创作会话。</p>}
+                {creationSessions.length === 0 && (
+                  <p>当前工作区暂无历史创作会话。</p>
+                )}
                 {creationSessions.slice(0, 12).map((session) => (
                   <button
                     className={
-                      creationSession?.createdAt === session.createdAt
+                      creationSession?.reference.id === session.reference.id
                         ? "selected"
                         : ""
                     }
-                    key={session.createdAt}
-                    onClick={() => {
-                      setCreationSession(session);
-                      if (session.package && session.packageDisplayPath) {
-                        setPackageReference(session.package);
-                        setPackagePath(session.packageDisplayPath);
-                      }
-                      if (session.verification) setReport(session.verification);
-                    }}
+                    key={session.reference.id}
+                    onClick={() => restoreCreationSession(session)}
                   >
                     <strong>{session.title}</strong>
                     <span>
@@ -1396,91 +1600,10 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           </div>
         </section>
 
-        <div className="workflow-pair">
-          <section className="panel" data-region="event">
-            <PanelTitle
-              step="04"
-              title="记录创作事件"
-              hint="JSON 对象进入规范化事件哈希链"
-            />
-            <p className="prerequisite">
-              {workspace
-                ? "工作区已就绪。"
-                : "前置条件：请先创建或打开工作区。"}
-            </p>
-            <Field label="事件类型">
-              <input
-                data-testid="event-type"
-                value={eventType}
-                onChange={(event) => setEventType(event.target.value)}
-              />
-            </Field>
-            <Field label="JSON 载荷">
-              <textarea
-                data-testid="event-payload"
-                value={payloadJson}
-                onChange={(event) => setPayloadJson(event.target.value)}
-                rows={8}
-              />
-            </Field>
-            <button
-              className="primary"
-              data-testid="record-event"
-              disabled={!workspace}
-              onClick={() => void recordEvent()}
-            >
-              记录事件
-            </button>
-          </section>
-
-          <section className="panel" data-region="seal">
-            <PanelTitle
-              step="05"
-              title="封装证明包"
-              hint="重新校验工作区、同目录临时写入、自检并禁止覆盖"
-            />
-            <p className="prerequisite">
-              {workspace
-                ? `来源：${workspace.displayPath}`
-                : "前置条件：请先创建或打开工作区。"}
-            </p>
-            <Field label="输出 .aigcproof">
-              <div className="field-row">
-                <input
-                  data-testid="seal-output"
-                  readOnly
-                  placeholder="选择新的输出文件"
-                  value={sealOutput}
-                />
-                <button
-                  className="secondary"
-                  data-testid="choose-package-output"
-                  onClick={() =>
-                    void choose(setSealOutputReference, setSealOutput, () =>
-                      proofHost.choosePackageOutput(),
-                    )
-                  }
-                >
-                  选择位置
-                </button>
-              </div>
-            </Field>
-            <button
-              className="primary"
-              data-testid="seal-package"
-              disabled={!workspace || !sealOutputReference}
-              onClick={() => void sealPackage()}
-            >
-              封装并自检
-            </button>
-          </section>
-        </div>
-
         <section className="panel" data-region="verify">
           <PanelTitle
-            step="06"
-            title="验证、元数据检查与报告"
-            hint="完整性验证和仅检查元数据互不替代"
+            title="验证已有证明包"
+            hint="独立验证、元数据检查和报告保存工具；不是集成创作后的下一步骤"
           />
           <Field label="证明包">
             <div className="field-row">
@@ -1493,11 +1616,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               <button
                 className="secondary"
                 data-testid="choose-package"
-                onClick={() =>
-                  void choose(setPackageReference, setPackagePath, () =>
-                    proofHost.choosePackage(),
-                  )
-                }
+                onClick={() => void choosePackageForVerification()}
               >
                 选择文件
               </button>
@@ -1565,7 +1684,6 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <section className="panel" data-region="jobs" data-testid="jobs-panel">
           <PanelTitle
-            step="07"
             title="任务、进度与取消"
             hint="排队任务可立即取消；运行中的 Rust 原子阶段只记录取消请求并安全结束"
           />
@@ -1614,7 +1732,6 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
 
         <section className="panel" data-region="settings">
           <PanelTitle
-            step="08"
             title="本地设置与运行诊断"
             hint="SQLite 可删除重建，不是证明格式或证据"
           />
@@ -1671,13 +1788,13 @@ function PanelTitle({
   title,
   hint,
 }: {
-  step: string;
+  step?: string;
   title: string;
   hint: string;
 }) {
   return (
-    <div className="panel-title">
-      <span>{step}</span>
+    <div className={`panel-title ${step ? "" : "no-step"}`}>
+      {step && <span>{step}</span>}
       <div>
         <h2>{title}</h2>
         <p>{hint}</p>
