@@ -1,12 +1,15 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.7.0" as const;
-export const HOST_CONTRACT_VERSION = "1.6.0" as const;
-export const NATIVE_API_VERSION = "1.5.0" as const;
-export const NATIVE_ENGINE_VERSION = "0.4.0" as const;
-export const PROTOCOL_VERSION = "0.4.0" as const;
+export const WORKBENCH_VERSION = "0.8.0" as const;
+export const HOST_CONTRACT_VERSION = "1.7.0" as const;
+export const NATIVE_API_VERSION = "1.6.0" as const;
+export const NATIVE_ENGINE_VERSION = "0.5.0" as const;
+export const PROTOCOL_VERSION = "0.5.0" as const;
 
 export const NATIVE_CAPABILITIES = [
+  "c2pa.image.inspect",
+  "c2pa.observation.create",
+  "c2pa.trust-profile.validate",
   "execution.phase-progress",
   "proof.asset.add",
   "proof.asset.export",
@@ -27,6 +30,11 @@ export const NATIVE_CAPABILITIES = [
 ] as const;
 
 export const HOST_CAPABILITIES = [
+  "c2pa.image.inspect",
+  "c2pa.observation.create",
+  "c2pa.sidecar.import-local",
+  "c2pa.trust-profile.import",
+  "c2pa.trust-profile.validate",
   "creation.comfyui-local",
   "creation.evidence-mapping",
   "creation.session-lifecycle",
@@ -73,7 +81,6 @@ export const UNAVAILABLE_FEATURES = [
   "provider.cloud",
   "provider.remote-endpoint",
   "operation.safe-cancellation",
-  "assurance.c2pa",
   "rights-protection",
   "official-services",
   "network.upload",
@@ -172,6 +179,8 @@ export const referenceKinds = [
   "creation-session",
   "tsa-profile",
   "timestamp-package-output",
+  "c2pa-sidecar",
+  "c2pa-trust-profile",
 ] as const;
 export type ReferenceKind = (typeof referenceKinds)[number];
 
@@ -229,6 +238,12 @@ export const tsaProfileReferenceSchema = hostReferenceSchema
 export const timestampPackageOutputReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("timestamp-package-output") })
   .strict();
+export const c2paSidecarReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("c2pa-sidecar") })
+  .strict();
+export const c2paTrustProfileReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("c2pa-trust-profile") })
+  .strict();
 
 export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
   Omit<z.infer<typeof hostReferenceSchema>, "kind"> & { kind: K }
@@ -250,6 +265,8 @@ export type CreationSessionReference = HostReference<"creation-session">;
 export type TsaProfileReference = HostReference<"tsa-profile">;
 export type TimestampPackageOutputReference =
   HostReference<"timestamp-package-output">;
+export type C2paSidecarReference = HostReference<"c2pa-sidecar">;
+export type C2paTrustProfileReference = HostReference<"c2pa-trust-profile">;
 
 export type AssetRole = "input" | "output" | "reference" | "license" | "other";
 export type VerificationStatus = "valid" | "invalid" | "error";
@@ -266,7 +283,7 @@ export interface Asset {
 }
 
 export interface Workspace {
-  workspace_version: "0.2.0" | "0.3.0" | "0.4.0";
+  workspace_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
   created_at: string;
   project: { name?: string | undefined };
   assets: Asset[];
@@ -301,6 +318,33 @@ export interface TsaProfileSummary {
   revocation_evidence_count: number;
   effective_at: string;
   expires_at: string;
+}
+
+export interface C2paTrustProfileSummary {
+  profile: "aigc-proof.c2pa-trust-profile.v1";
+  profileSha256: string;
+  signerSnapshotSha256: string;
+  timestampSnapshotSha256: string;
+  signerSource: string;
+  timestampSource: string;
+}
+
+export interface C2paInspection {
+  profile: "aigc-proof.c2pa-observation.v1";
+  asset_sha256: string;
+  manifest_store_sha256: string;
+  source_mode: "embedded" | "sidecar";
+  claim_version: 1 | 2;
+  active_manifest: string;
+  signer_trust_snapshot_sha256: string;
+  timestamp_trust_snapshot_sha256: string;
+  validation_state: "invalid" | "valid_untrusted" | "trusted";
+  signer_trust: "not_evaluated" | "untrusted" | "trusted";
+  timestamp_trust: "not_evaluated" | "untrusted" | "trusted";
+  success_codes: string[];
+  informational_codes: string[];
+  failure_codes: string[];
+  elapsed_ms: number;
 }
 
 export type LocalSignerState =
@@ -340,7 +384,7 @@ export interface EventRecord {
 }
 
 export interface VerificationReport {
-  spec_version: "0.2.0" | "0.3.0" | "0.4.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
   proof_id: string | null;
   verified_at: string;
   status: VerificationStatus;
@@ -395,6 +439,16 @@ export interface VerificationReport {
         revocation: "not_provided" | "valid_crl" | "revoked" | "indeterminate";
       }
     | undefined;
+  c2pa?:
+    | {
+        state:
+          | "absent"
+          | "observed_invalid"
+          | "observed_valid_untrusted"
+          | "observed_trusted";
+        observations: Array<Record<string, unknown>>;
+      }
+    | undefined;
   checks: Array<{
     code: string;
     status: CheckStatus;
@@ -406,7 +460,7 @@ export interface VerificationReport {
 }
 
 export interface Inspection {
-  spec_version: "0.2.0" | "0.3.0" | "0.4.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
   proof_id: string;
   created_at: string;
   project: { name?: string | undefined };
@@ -834,6 +888,22 @@ export const sealPackageRequestSchema = z
 export const tsaProfileRequestSchema = z
   .object({ profile: tsaProfileReferenceSchema })
   .strict();
+export const c2paTrustProfileRequestSchema = z
+  .object({ profile: c2paTrustProfileReferenceSchema })
+  .strict();
+export const inspectC2paRequestSchema = z
+  .object({
+    image: imageReferenceSchema,
+    sidecar: c2paSidecarReferenceSchema.optional(),
+  })
+  .strict();
+export const createC2paObservationRequestSchema = z
+  .object({
+    workspace: workspaceReferenceSchema,
+    assetId: z.string().min(1).max(160),
+    sidecar: c2paSidecarReferenceSchema.optional(),
+  })
+  .strict();
 export const requestTrustedTimestampSchema = z
   .object({
     package: packageReferenceSchema,
@@ -915,7 +985,7 @@ export const creatorSignatureEvidenceSchema = z
   .strict();
 export const verificationReportSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
     proof_id: z.string().nullable(),
     verified_at: z.string(),
     status: z.enum(["valid", "invalid", "error"]),
@@ -970,6 +1040,18 @@ export const verificationReportSchema = z
           "revoked",
           "indeterminate",
         ]),
+      })
+      .strict()
+      .optional(),
+    c2pa: z
+      .object({
+        state: z.enum([
+          "absent",
+          "observed_invalid",
+          "observed_valid_untrusted",
+          "observed_trusted",
+        ]),
+        observations: z.array(z.record(z.unknown())).max(1024),
       })
       .strict()
       .optional(),
@@ -1252,11 +1334,29 @@ export interface ProofHostApi {
   choosePackageOutput(): Promise<PackageOutputReference | null>;
   chooseTsaProfile(): Promise<TsaProfileReference | null>;
   chooseTimestampPackageOutput(): Promise<TimestampPackageOutputReference | null>;
+  chooseC2paTrustProfile(): Promise<C2paTrustProfileReference | null>;
+  chooseC2paImage(): Promise<ImageReference | null>;
+  chooseC2paSidecar(): Promise<C2paSidecarReference | null>;
   chooseReportOutput(): Promise<ReportOutputReference | null>;
   importTsaProfile(request: {
     profile: TsaProfileReference;
   }): Promise<HostEnvelope<TsaProfileSummary>>;
   getTsaProfileStatus(): Promise<HostEnvelope<TsaProfileSummary | null>>;
+  importC2paTrustProfile(request: {
+    profile: C2paTrustProfileReference;
+  }): Promise<HostEnvelope<C2paTrustProfileSummary>>;
+  getC2paTrustProfileStatus(): Promise<
+    HostEnvelope<C2paTrustProfileSummary | null>
+  >;
+  inspectC2paImage(request: {
+    image: ImageReference;
+    sidecar?: C2paSidecarReference;
+  }): Promise<HostEnvelope<C2paInspection>>;
+  createC2paObservation(request: {
+    workspace: WorkspaceReference;
+    assetId: string;
+    sidecar?: C2paSidecarReference;
+  }): Promise<HostEnvelope<{ event: EventRecord; workspace: Workspace }>>;
   requestTrustedTimestamp(request: {
     package: PackageReference;
     output: TimestampPackageOutputReference;
@@ -1415,9 +1515,38 @@ export const tsaProfileSummarySchema = z
     expires_at: z.string().min(1),
   })
   .strict();
+export const c2paTrustProfileSummarySchema = z
+  .object({
+    profile: z.literal("aigc-proof.c2pa-trust-profile.v1"),
+    profileSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    signerSnapshotSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    timestampSnapshotSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    signerSource: z.string().min(1).max(512),
+    timestampSource: z.string().min(1).max(512),
+  })
+  .strict();
+export const c2paInspectionSchema = z
+  .object({
+    profile: z.literal("aigc-proof.c2pa-observation.v1"),
+    asset_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    manifest_store_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    source_mode: z.enum(["embedded", "sidecar"]),
+    claim_version: z.union([z.literal(1), z.literal(2)]),
+    active_manifest: z.string().min(1).max(512),
+    signer_trust_snapshot_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    timestamp_trust_snapshot_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    validation_state: z.enum(["invalid", "valid_untrusted", "trusted"]),
+    signer_trust: z.enum(["not_evaluated", "untrusted", "trusted"]),
+    timestamp_trust: z.enum(["not_evaluated", "untrusted", "trusted"]),
+    success_codes: z.array(z.string().min(1).max(160)).max(1024),
+    informational_codes: z.array(z.string().min(1).max(160)).max(1024),
+    failure_codes: z.array(z.string().min(1).max(160)).max(1024),
+    elapsed_ms: z.number().int().nonnegative().max(30_000),
+  })
+  .strict();
 export const workspaceSchema = z
   .object({
-    workspace_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
+    workspace_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
     assets: z.array(assetSchema),
@@ -1454,7 +1583,7 @@ export const eventRecordSchema = z
   .strict();
 export const inspectionSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
     proof_id: z.string().min(1),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
@@ -1874,10 +2003,21 @@ export const proofHostResponseSchemas = {
   chooseTsaProfile: tsaProfileReferenceSchema.nullable(),
   chooseTimestampPackageOutput:
     timestampPackageOutputReferenceSchema.nullable(),
+  chooseC2paTrustProfile: c2paTrustProfileReferenceSchema.nullable(),
+  chooseC2paImage: imageReferenceSchema.nullable(),
+  chooseC2paSidecar: c2paSidecarReferenceSchema.nullable(),
   chooseReportOutput: reportOutputReferenceSchema.nullable(),
   importTsaProfile: hostEnvelopeSchemaFor(tsaProfileSummarySchema),
   getTsaProfileStatus: hostEnvelopeSchemaFor(
     tsaProfileSummarySchema.nullable(),
+  ),
+  importC2paTrustProfile: hostEnvelopeSchemaFor(c2paTrustProfileSummarySchema),
+  getC2paTrustProfileStatus: hostEnvelopeSchemaFor(
+    c2paTrustProfileSummarySchema.nullable(),
+  ),
+  inspectC2paImage: hostEnvelopeSchemaFor(c2paInspectionSchema),
+  createC2paObservation: hostEnvelopeSchemaFor(
+    z.object({ event: eventRecordSchema, workspace: workspaceSchema }).strict(),
   ),
   requestTrustedTimestamp: hostEnvelopeSchemaFor(
     timestampAcquisitionResultSchema,

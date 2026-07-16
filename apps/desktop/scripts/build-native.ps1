@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $desktop = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent (Split-Path -Parent $desktop)
 $toolchain = if ([string]::IsNullOrWhiteSpace($env:AIGC_PROOF_RUST_TOOLCHAIN)) {
-    Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-msvc"
+    Join-Path $env:USERPROFILE ".rustup\toolchains\1.88.0-x86_64-pc-windows-msvc"
 } else {
     $env:AIGC_PROOF_RUST_TOOLCHAIN
 }
@@ -16,7 +16,7 @@ $targetDirectory = Join-Path $repo "target\windows-msvc"
 if (-not (Test-Path -LiteralPath $cargo -PathType Leaf) -or
     -not (Test-Path -LiteralPath $rustc -PathType Leaf) -or
     -not (Test-Path -LiteralPath $rustdoc -PathType Leaf)) {
-    throw "Rust 1.85.0 x86_64-pc-windows-msvc is required under $toolchain."
+    throw "Rust 1.88.0 x86_64-pc-windows-msvc is required under $toolchain."
 }
 $env:PATH = (Join-Path $toolchain "bin") + ";" + $env:PATH
 $env:RUSTC = $rustc

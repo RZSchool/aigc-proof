@@ -1,4 +1,4 @@
-# .aigcproof Package Format 0.4
+# .aigcproof Package Format 0.5
 
 ## ZIP and entry order
 
@@ -22,7 +22,7 @@ security/keys/<key-fingerprint>.cbor
 security/signatures/creator.cose
 ~~~
 
-Signed 0.4 order before timestamp acquisition is the same as 0.3. When acquisition succeeds, one final entry is appended:
+Signed 0.4/0.5 order before timestamp acquisition is the same as 0.3. When acquisition succeeds, one final entry is appended:
 
 ~~~text
 manifest.json
@@ -33,7 +33,9 @@ security/signatures/creator.cose
 security/timestamps/<signature-id>.tsr
 ~~~
 
-Timestamp attachment always writes a new no-clobber output. `manifest.json`, the public key, and the exact tagged creator `COSE_Sign1` bytes are copied unchanged; only the predeclared bounded DER response is added. A 0.3 package cannot be timestamped in place and must be signed as a contemporary 0.4 package first.
+Timestamp attachment always writes a new no-clobber output. `manifest.json`, the public key, and the exact tagged creator `COSE_Sign1` bytes are copied unchanged; only the predeclared bounded DER response is added. A 0.3 package cannot be timestamped in place and must be signed as a contemporary 0.4/0.5 package first.
+
+Protocol 0.5 introduces no separate C2PA ZIP entry. A `c2pa_observation` is canonical JSON inside `events.json` and binds exact media and manifest-store digests plus trust-snapshot identifiers. The observed media must already be an ordinary declared workspace asset, so its bytes remain covered by the existing asset SHA-256 and creator-signed Manifest.
 
 Each declared asset and security entry must exist exactly once. Missing, undeclared, duplicate, case-conflicting, or reordered entries are invalid. Package paths use UTF-8 and forward slashes and reject absolute, UNC, drive, backslash, NUL, dot, parent, directory, control, Windows-forbidden, reserved-device, or trailing-dot/space forms.
 

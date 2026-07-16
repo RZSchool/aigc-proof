@@ -325,16 +325,23 @@ export class UtilitySupervisor {
     directory: string,
     prefix: string,
   ): Promise<void> {
-    const entries = await fs
-      .readdir(directory, { withFileTypes: true })
-      .catch(() => []);
-    await Promise.all(
-      entries
-        .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
-        .slice(0, 256)
-        .map((entry) =>
-          fs.unlink(path.join(directory, entry.name)).catch(() => undefined),
-        ),
-    );
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const entries = await fs
+        .readdir(directory, { withFileTypes: true })
+        .catch(() => []);
+      await Promise.all(
+        entries
+          .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+          .slice(0, 256)
+          .map((entry) =>
+            fs
+              .rm(path.join(directory, entry.name), { force: true })
+              .catch(() => undefined),
+          ),
+      );
+      if (attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+      }
+    }
   }
 }

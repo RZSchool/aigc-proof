@@ -8,14 +8,15 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/RZSchool/aigc-proof"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 base64 = "=0.22.1"
+c2pa = { version = "=0.85.0", default-features = false, features = ["file_io", "rust_native_crypto"] }
 clap = { version = "=4.5.27", features = ["derive"] }
 cms = { version = "=0.2.3", features = ["std"] }
 const-oid = "=0.9.6"
@@ -31,9 +32,9 @@ serde_json = "=1.0.150"
 serde_json_canonicalizer = "=0.3.2"
 sha2 = "=0.10.8"
 sigstore-tsa = "=0.8.0"
-tempfile = "=3.15.0"
-time = { version = "=0.3.36", features = ["formatting", "parsing"] }
-uuid = { version = "=1.12.1", features = ["v4"] }
+tempfile = "=3.27.0"
+time = { version = "=0.3.53", features = ["formatting", "parsing"] }
+uuid = { version = "=1.23.5", features = ["v4"] }
 url = "=2.5.8"
 unicode-normalization = "=0.1.24"
 x509-cert = "=0.2.5"

@@ -3,6 +3,7 @@ use serde_json::Value;
 const MANIFEST_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/manifest.schema.json");
 const MANIFEST_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/manifest.schema.json");
 const MANIFEST_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/manifest.schema.json");
+const MANIFEST_SCHEMA_V05: &str = include_str!("../../../schemas/v0.5/manifest.schema.json");
 const EVENT_SCHEMA: &str = include_str!("../../../schemas/v0.2/event.schema.json");
 const REPORT_SCHEMA_V02: &str =
     include_str!("../../../schemas/v0.2/verification-result.schema.json");
@@ -10,10 +11,15 @@ const REPORT_SCHEMA_V03: &str =
     include_str!("../../../schemas/v0.3/verification-result.schema.json");
 const REPORT_SCHEMA_V04: &str =
     include_str!("../../../schemas/v0.4/verification-result.schema.json");
+const REPORT_SCHEMA_V05: &str =
+    include_str!("../../../schemas/v0.5/verification-result.schema.json");
 const WORKSPACE_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
 const WORKSPACE_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/workspace.schema.json");
 const WORKSPACE_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/workspace.schema.json");
+const WORKSPACE_SCHEMA_V05: &str = include_str!("../../../schemas/v0.5/workspace.schema.json");
 const TSA_PROFILE_SCHEMA: &str = include_str!("../../../schemas/v0.4/tsa-profile.schema.json");
+const C2PA_PROFILE_SCHEMA: &str =
+    include_str!("../../../schemas/v0.5/c2pa-trust-profile.schema.json");
 
 pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(
@@ -23,6 +29,7 @@ pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
             MANIFEST_SCHEMA_V02,
             MANIFEST_SCHEMA_V03,
             MANIFEST_SCHEMA_V04,
+            MANIFEST_SCHEMA_V05,
         ),
         value,
     )
@@ -40,6 +47,7 @@ pub fn validate_verification_result_schema(value: &Value) -> Result<(), Vec<Stri
             REPORT_SCHEMA_V02,
             REPORT_SCHEMA_V03,
             REPORT_SCHEMA_V04,
+            REPORT_SCHEMA_V05,
         ),
         value,
     )
@@ -53,6 +61,7 @@ pub fn validate_workspace_schema(value: &Value) -> Result<(), Vec<String>> {
             WORKSPACE_SCHEMA_V02,
             WORKSPACE_SCHEMA_V03,
             WORKSPACE_SCHEMA_V04,
+            WORKSPACE_SCHEMA_V05,
         ),
         value,
     )
@@ -62,16 +71,22 @@ pub fn validate_tsa_profile_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(TSA_PROFILE_SCHEMA, value)
 }
 
+pub fn validate_c2pa_profile_schema(value: &Value) -> Result<(), Vec<String>> {
+    validate(C2PA_PROFILE_SCHEMA, value)
+}
+
 fn versioned<'a>(
     value: &Value,
     field: &str,
     legacy: &'a str,
     signed: &'a str,
+    trusted: &'a str,
     current: &'a str,
 ) -> &'a str {
     match value.get(field).and_then(Value::as_str) {
         Some(crate::LEGACY_SCHEMA_VERSION) => legacy,
         Some(crate::SIGNED_SCHEMA_VERSION) => signed,
+        Some(crate::TRUSTED_SCHEMA_VERSION) => trusted,
         _ => current,
     }
 }

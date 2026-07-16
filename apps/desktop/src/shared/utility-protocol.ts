@@ -30,6 +30,9 @@ export const utilityOperations = [
   "validateTsaProfile",
   "prepareTimestamp",
   "attachTimestamp",
+  "validateC2paProfile",
+  "inspectC2pa",
+  "createC2paObservation",
   "validateRecents",
 ] as const;
 export type UtilityOperation = (typeof utilityOperations)[number];
@@ -115,6 +118,35 @@ const attachTimestampPayloadSchema = z
       .string()
       .min(2)
       .max(1024 * 1024),
+  })
+  .strict();
+const c2paProfilePayloadSchema = z
+  .object({
+    profileJson: z
+      .string()
+      .min(2)
+      .max(4 * 1024 * 1024),
+  })
+  .strict();
+const c2paInspectPayloadSchema = z
+  .object({
+    asset: localPathSchema,
+    sidecar: localPathSchema.optional(),
+    profileJson: z
+      .string()
+      .min(2)
+      .max(4 * 1024 * 1024),
+  })
+  .strict();
+const c2paObservationPayloadSchema = z
+  .object({
+    workspace: localPathSchema,
+    assetId: z.string().min(1).max(160),
+    sidecar: localPathSchema.optional(),
+    profileJson: z
+      .string()
+      .min(2)
+      .max(4 * 1024 * 1024),
   })
   .strict();
 const signerLabelPayloadSchema = z
@@ -210,6 +242,24 @@ export const utilityJobSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("attachTimestamp"),
       payload: attachTimestampPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("validateC2paProfile"),
+      payload: c2paProfilePayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("inspectC2pa"),
+      payload: c2paInspectPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("createC2paObservation"),
+      payload: c2paObservationPayloadSchema,
     })
     .strict(),
   z

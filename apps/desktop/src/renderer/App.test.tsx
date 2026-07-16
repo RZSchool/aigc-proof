@@ -6,6 +6,8 @@ import {
   HOST_CAPABILITIES,
   RUNTIME_LIMITS,
   UNAVAILABLE_FEATURES,
+  type C2paSidecarReference,
+  type C2paTrustProfileReference,
   type CreationSessionSummary,
   type ImageReference,
   type PackageReference,
@@ -171,12 +173,12 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.7.0",
-        contractVersion: "1.6.0",
-        nativeApiVersion: "1.5.0",
-        engineVersion: "0.4.0",
-        protocolVersion: "0.4.0",
-        supportedProtocolVersions: ["0.2.0", "0.3.0", "0.4.0"],
+        workbenchVersion: "0.8.0",
+        contractVersion: "1.7.0",
+        nativeApiVersion: "1.6.0",
+        engineVersion: "0.5.0",
+        protocolVersion: "0.5.0",
+        supportedProtocolVersions: ["0.2.0", "0.3.0", "0.4.0", "0.5.0"],
         capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,
@@ -209,9 +211,18 @@ beforeEach(() => {
     choosePackageOutput: vi.fn(),
     chooseTsaProfile: vi.fn(),
     chooseTimestampPackageOutput: vi.fn(),
+    chooseC2paTrustProfile: vi.fn(),
+    chooseC2paImage: vi.fn(),
+    chooseC2paSidecar: vi.fn(),
     chooseReportOutput: vi.fn(),
     importTsaProfile: vi.fn(),
     getTsaProfileStatus: vi.fn().mockResolvedValue({ ok: true, data: null }),
+    importC2paTrustProfile: vi.fn(),
+    getC2paTrustProfileStatus: vi
+      .fn()
+      .mockResolvedValue({ ok: true, data: null }),
+    inspectC2paImage: vi.fn(),
+    createC2paObservation: vi.fn(),
     requestTrustedTimestamp: vi.fn(),
     cancelTrustedTimestamp: vi
       .fn()
@@ -258,7 +269,7 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "显示名称为自我声明",
     );
-    expect(screen.getByText("Workbench 0.7.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 0.8.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
@@ -270,8 +281,8 @@ describe("workbench shell", () => {
   it("shows exact compatible versions and explicitly unavailable features", async () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
-    expect(card).toHaveTextContent("0.4.0");
-    expect(card).toHaveTextContent("1.6.0");
+    expect(card).toHaveTextContent("0.5.0");
+    expect(card).toHaveTextContent("1.7.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -412,6 +423,138 @@ describe("workbench shell", () => {
     ).toHaveTextContent("Local test TSA");
     expect(screen.getByTestId("trusted-time-evidence")).toHaveTextContent(
       "valid_crl",
+    );
+  });
+
+  it("inspects explicit C2PA media and records only a digest-bound observation", async () => {
+    const user = userEvent.setup();
+    const profileReference: C2paTrustProfileReference = {
+      id: `ref_${"3".repeat(32)}`,
+      kind: "c2pa-trust-profile",
+      displayLabel: "Pinned C2PA trust profile",
+      displayPath: "C:\\proofs\\c2pa-trust.json",
+    };
+    const image: ImageReference = {
+      id: `ref_${"4".repeat(32)}`,
+      kind: "image",
+      displayLabel: "signed.png",
+      displayPath: "C:\\proofs\\signed.png",
+    };
+    const sidecar: C2paSidecarReference = {
+      id: `ref_${"5".repeat(32)}`,
+      kind: "c2pa-sidecar",
+      displayLabel: "signed.c2pa",
+      displayPath: "C:\\proofs\\signed.c2pa",
+    };
+    const asset = {
+      asset_id: "00000000-0000-4000-8000-000000000033",
+      role: "output" as const,
+      package_path: "assets/output/signed.png",
+      original_name: "signed.png",
+      media_type: "image/png",
+      size_bytes: 42,
+      sha256: "6".repeat(64),
+    };
+    const summary = {
+      profile: "aigc-proof.c2pa-trust-profile.v1" as const,
+      profileSha256: "7".repeat(64),
+      signerSnapshotSha256: "8".repeat(64),
+      timestampSnapshotSha256: "9".repeat(64),
+      signerSource: "Pinned signer roots",
+      timestampSource: "Pinned TSA roots",
+    };
+    const inspection = {
+      profile: "aigc-proof.c2pa-observation.v1" as const,
+      asset_sha256: asset.sha256,
+      manifest_store_sha256: "a".repeat(64),
+      source_mode: "sidecar" as const,
+      claim_version: 2 as const,
+      active_manifest: "urn:c2pa:test",
+      signer_trust_snapshot_sha256: summary.signerSnapshotSha256,
+      timestamp_trust_snapshot_sha256: summary.timestampSnapshotSha256,
+      validation_state: "trusted" as const,
+      signer_trust: "trusted" as const,
+      timestamp_trust: "not_evaluated" as const,
+      success_codes: ["claimSignature.validated"],
+      informational_codes: [],
+      failure_codes: [],
+      elapsed_ms: 3,
+    };
+    const opened = {
+      ...workspaceSummary,
+      workspace: {
+        ...workspaceSummary.workspace,
+        workspace_version: "0.5.0" as const,
+        assets: [asset],
+      },
+    };
+    vi.mocked(window.aigcProof.chooseExistingWorkspace).mockResolvedValue(
+      workspaceReference,
+    );
+    vi.mocked(window.aigcProof.loadWorkspace).mockResolvedValue({
+      ok: true,
+      data: opened,
+    });
+    vi.mocked(window.aigcProof.chooseC2paTrustProfile).mockResolvedValue(
+      profileReference,
+    );
+    vi.mocked(window.aigcProof.importC2paTrustProfile).mockResolvedValue({
+      ok: true,
+      data: summary,
+    });
+    vi.mocked(window.aigcProof.chooseC2paImage).mockResolvedValue(image);
+    vi.mocked(window.aigcProof.chooseC2paSidecar).mockResolvedValue(sidecar);
+    vi.mocked(window.aigcProof.inspectC2paImage).mockResolvedValue({
+      ok: true,
+      data: inspection,
+    });
+    vi.mocked(window.aigcProof.createC2paObservation).mockResolvedValue({
+      ok: true,
+      data: {
+        workspace: opened.workspace,
+        event: {
+          event_id: "00000000-0000-4000-8000-000000000034",
+          sequence: 0,
+          event_type: "c2pa_observation",
+          created_at: "2026-07-15T00:00:01Z",
+          payload: inspection,
+          previous_event_hash: null,
+          event_hash: "b".repeat(64),
+        },
+      },
+    });
+
+    render(<App />);
+    await user.click(screen.getByTestId("choose-open-workspace"));
+    await user.click(screen.getByTestId("open-workspace"));
+    await user.click(screen.getByTestId("import-c2pa-profile"));
+    expect(await screen.findByTestId("c2pa-profile-summary")).toHaveTextContent(
+      "Pinned signer roots",
+    );
+    await user.click(screen.getByTestId("choose-c2pa-image"));
+    await user.click(screen.getByTestId("choose-c2pa-sidecar"));
+    await user.click(screen.getByTestId("inspect-c2pa"));
+    expect(await screen.findByTestId("c2pa-inspection")).toHaveTextContent(
+      "trusted",
+    );
+    expect(screen.getByTestId("c2pa-inspection")).toHaveTextContent("claim v2");
+    await user.selectOptions(
+      screen.getByTestId("c2pa-workspace-asset"),
+      asset.asset_id,
+    );
+    await user.click(screen.getByTestId("create-c2pa-observation"));
+    await waitFor(() =>
+      expect(window.aigcProof.createC2paObservation).toHaveBeenCalledWith({
+        workspace: workspaceReference,
+        assetId: asset.asset_id,
+        sidecar,
+      }),
+    );
+    expect(screen.getByTestId("c2pa-panel")).toHaveTextContent(
+      "不会联网查找远程清单或软绑定",
+    );
+    expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
+      "原创性始终不评估",
     );
   });
 

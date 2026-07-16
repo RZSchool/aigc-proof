@@ -79,6 +79,30 @@ const cliReport = path.join(work, "CLI 独立验证报告.json");
 const cliTimestampRequest = path.join(work, "CLI 时间戳请求.tsq");
 const cliTimestampPackage = path.join(work, "CLI 可信时间证明包.aigcproof");
 const cliTimestampReport = path.join(work, "CLI 可信时间验证报告.json");
+const c2paCorpus = path.resolve(
+  process.env.AIGC_PROOF_C2PA_CORPUS_DIR ??
+    path.join(workspaceRoot, "test-results", "AP-033", "corpus", "generated"),
+);
+const c2paTrustProfile = path.join(c2paCorpus, "trust-profile.json");
+const c2paEmbeddedImages = ["jpg", "png", "webp"].map((extension) =>
+  path.join(c2paCorpus, `embedded-v2.${extension}`),
+);
+const c2paSidecarImages = ["jpg", "png", "webp"].map((extension) =>
+  path.join(c2paCorpus, `sidecar-source.${extension}`),
+);
+const c2paSidecars = ["jpg", "png", "webp"].map((extension) =>
+  path.join(c2paCorpus, `explicit-v2-${extension}.c2pa`),
+);
+const c2paRemoteImage = path.join(c2paCorpus, "remote-reference.png");
+const c2paUnsupported = path.join(c2paCorpus, "unsupported.pdf");
+const c2paSoftBinding = path.join(c2paCorpus, "soft-binding.jpg");
+const c2paFutureClaim = path.join(c2paCorpus, "future-claim.jpg");
+const c2paAttackImage = path.resolve(
+  c2paCorpus,
+  "..",
+  "attacks",
+  "title_xss_0_xss.jpg",
+);
 const comfyUiInstallation = path.resolve(
   process.env.AIGC_PROOF_COMFYUI_DIR ??
     path.join(workspaceRoot, "..", "ComfyUI_windows_portable"),
@@ -572,10 +596,11 @@ async function clickAndWait(
   expected: string,
   timeout = 120_000,
 ): Promise<string> {
+  const previous = await resultText(cdp);
   await click(cdp, testId);
   return waitFor(
     () => resultText(cdp),
-    (value) => value.includes(expected),
+    (value) => value !== previous && value.includes(expected),
     `${testId} result containing ${expected}`,
     timeout,
   );
@@ -662,7 +687,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.7.0")
+  if (version !== "Workbench 0.8.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -755,6 +780,15 @@ async function main(): Promise<void> {
     fsp.access(path.join(comfyUiInstallation, "python_embeded", "python.exe")),
     fsp.access(path.join(comfyUiInstallation, "ComfyUI", "main.py")),
     fsp.access(path.join(comfyUiInstallation, "ComfyUI", "LICENSE")),
+    fsp.access(c2paTrustProfile),
+    ...c2paEmbeddedImages.map((candidate) => fsp.access(candidate)),
+    ...c2paSidecarImages.map((candidate) => fsp.access(candidate)),
+    ...c2paSidecars.map((candidate) => fsp.access(candidate)),
+    fsp.access(c2paRemoteImage),
+    fsp.access(c2paUnsupported),
+    fsp.access(c2paSoftBinding),
+    fsp.access(c2paFutureClaim),
+    fsp.access(c2paAttackImage),
   ]);
   await fsp.mkdir(existingTarget);
   await fsp.writeFile(existingMarker, "must remain unchanged", "utf8");
@@ -785,6 +819,7 @@ async function main(): Promise<void> {
           reference,
           license,
           other,
+          c2paEmbeddedImages[0],
           crashInput,
         ],
         images: [mutatedImage, manualInputImage, exportedImage, exportedImage],
@@ -806,6 +841,18 @@ async function main(): Promise<void> {
         ],
         packageOutputs: [creationPackage, validPackage, validPackage],
         tsaProfiles: [localTsa.profilePath],
+        c2paTrustProfiles: [c2paTrustProfile],
+        c2paImages: [
+          ...c2paEmbeddedImages,
+          ...c2paSidecarImages,
+          c2paRemoteImage,
+          c2paUnsupported,
+          c2paSoftBinding,
+          c2paFutureClaim,
+          c2paAttackImage,
+          c2paEmbeddedImages[0],
+        ],
+        c2paSidecars,
         timestampPackageOutputs: [
           timestampedCreationPackage,
           cancelledTimestampPackage,
@@ -931,6 +978,158 @@ async function main(): Promise<void> {
   }
   record("add-all-five-asset-roles");
 
+  await click(cdp, "choose-asset");
+  await waitFor(
+    () => controlValue(cdp, "asset-path"),
+    (value) => value.includes(c2paEmbeddedImages[0]!),
+    "Host-issued C2PA image asset",
+  );
+  await setControl(cdp, "asset-role", "output");
+  await clickAndWait(cdp, "add-asset", "资产已添加");
+  record("c2pa-image-ingested-before-observation");
+
+  await clickAndWait(cdp, "import-c2pa-profile", "C2PA trust profile imported");
+  const c2paProfileText = await controlText(cdp, "c2pa-profile-summary");
+  if (
+    !c2paProfileText.includes("Pinned c2pa-rs 0.85.0 test signer roots") ||
+    !c2paProfileText.includes("Pinned c2pa-rs 0.85.0 test timestamp roots")
+  ) {
+    throw new Error(`C2PA profile summary is incomplete: ${c2paProfileText}`);
+  }
+  record("explicit-c2pa-trust-profile-imported", c2paProfileText);
+
+  for (const [index, image] of c2paEmbeddedImages.entries()) {
+    await click(cdp, "choose-c2pa-image");
+    await waitFor(
+      () => controlValue(cdp, "c2pa-image-path"),
+      (value) => value.includes(image),
+      `Host-issued embedded C2PA image ${path.extname(image)}`,
+    );
+    await clickAndWait(cdp, "inspect-c2pa", "C2PA observation preview created");
+    const inspection = await controlText(cdp, "c2pa-inspection");
+    if (
+      !inspection.includes("trusted") ||
+      !inspection.includes("claim v2") ||
+      !inspection.includes("来源：embedded")
+    ) {
+      throw new Error(`Embedded C2PA result is invalid: ${inspection}`);
+    }
+    if (index === 0) {
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="c2pa-inspection"]')?.scrollIntoView({ block: "center" })`,
+      );
+      await delay(100);
+      await fsp.writeFile(
+        path.join(evidence, "c2pa-embedded-valid.png"),
+        await cdp.screenshot(),
+      );
+    }
+  }
+  record("c2pa-embedded-jpeg-png-webp-valid");
+
+  for (const [index, image] of c2paSidecarImages.entries()) {
+    await click(cdp, "choose-c2pa-image");
+    await waitFor(
+      () => controlValue(cdp, "c2pa-image-path"),
+      (value) => value.includes(image),
+      `Host-issued C2PA sidecar source ${path.extname(image)}`,
+    );
+    await click(cdp, "choose-c2pa-sidecar");
+    await waitFor(
+      () => controlValue(cdp, "c2pa-sidecar-path"),
+      (value) => value.endsWith(".c2pa"),
+      "Host-issued explicit C2PA sidecar",
+    );
+    await clickAndWait(cdp, "inspect-c2pa", "C2PA observation preview created");
+    const inspection = await controlText(cdp, "c2pa-inspection");
+    if (
+      !inspection.includes("trusted") ||
+      !inspection.includes("claim v2") ||
+      !inspection.includes("来源：sidecar")
+    ) {
+      throw new Error(`Sidecar C2PA result is invalid: ${inspection}`);
+    }
+    if (index === c2paSidecarImages.length - 1) {
+      await cdp.evaluate(
+        `document.querySelector('[data-testid="c2pa-inspection"]')?.scrollIntoView({ block: "center" })`,
+      );
+      await delay(100);
+      await fsp.writeFile(
+        path.join(evidence, "c2pa-sidecar-valid.png"),
+        await cdp.screenshot(),
+      );
+    }
+    await click(cdp, "clear-c2pa-sidecar");
+  }
+  record("c2pa-sidecar-jpeg-png-webp-valid");
+
+  for (const [candidate, expected] of [
+    [c2paRemoteImage, "C2PA_MANIFEST_NOT_FOUND"],
+    [c2paUnsupported, "IMAGE_TYPE_UNSUPPORTED"],
+    [c2paSoftBinding, "C2PA_SOFT_BINDING_UNSUPPORTED"],
+    [c2paFutureClaim, "C2PA_CLAIM_VERSION_UNSUPPORTED"],
+  ] as const) {
+    await click(cdp, "choose-c2pa-image");
+    await waitFor(
+      () => controlValue(cdp, "c2pa-image-path"),
+      (value) => value.includes(candidate),
+      `Host-issued C2PA negative ${path.basename(candidate)}`,
+    );
+    await clickAndWait(cdp, "inspect-c2pa", expected);
+    record(`c2pa-negative-${expected.toLowerCase()}`);
+  }
+
+  await click(cdp, "choose-c2pa-image");
+  await waitFor(
+    () => controlValue(cdp, "c2pa-image-path"),
+    (value) => value.includes(c2paAttackImage),
+    "Host-issued official C2PA attack-corpus image",
+  );
+  await clickAndWait(cdp, "inspect-c2pa", "C2PA observation preview created");
+  const attackInspection = await controlText(cdp, "c2pa-inspection");
+  if (
+    !attackInspection.includes("claim v2") ||
+    attackInspection.length >= 2_048 ||
+    /<|>|javascript:/iu.test(attackInspection)
+  ) {
+    throw new Error(
+      `C2PA attack-corpus result crossed the bounded UI boundary: ${attackInspection}`,
+    );
+  }
+  record("c2pa-official-attack-content-rejected-at-ui-boundary");
+
+  await click(cdp, "choose-c2pa-image");
+  await waitFor(
+    () => controlValue(cdp, "c2pa-image-path"),
+    (value) => value.includes(c2paEmbeddedImages[0]!),
+    "Host-issued C2PA observation source image",
+  );
+  await clickAndWait(cdp, "inspect-c2pa", "C2PA observation preview created");
+  record("c2pa-observation-source-restored-to-workspace-asset");
+
+  const c2paAssetId = await cdp.evaluate<string>(`(() => {
+    const select = document.querySelector('[data-testid="c2pa-workspace-asset"]');
+    if (!(select instanceof HTMLSelectElement)) throw new Error('C2PA workspace asset selector is missing.');
+    const option = [...select.options].find((candidate) => candidate.textContent?.includes('embedded-v2.jpg'));
+    if (!option) throw new Error('Ingested C2PA image option is missing.');
+    return option.value;
+  })()`);
+  await setControl(cdp, "c2pa-workspace-asset", c2paAssetId);
+  await clickAndWait(
+    cdp,
+    "create-c2pa-observation",
+    "Digest-bound C2PA observation recorded",
+  );
+  await cdp.evaluate(
+    `document.querySelector('[data-testid="result-text"]')?.scrollIntoView({ block: "center" })`,
+  );
+  await delay(100);
+  await fsp.writeFile(
+    path.join(evidence, "c2pa-observation-recorded.png"),
+    await cdp.screenshot(),
+  );
+  record("digest-bound-c2pa-observation-recorded", c2paAssetId);
+
   await click(cdp, "choose-provider");
   await waitFor(
     () => controlValue(cdp, "provider-path"),
@@ -1053,7 +1252,7 @@ async function main(): Promise<void> {
   for (const expected of [
     "AP-031 QA local creator",
     signerFingerprint.trim(),
-    "aigc-proof.creator-signature.cose-ed25519.v2",
+    "aigc-proof.creator-signature.cose-ed25519.v3",
     "自我声明",
   ]) {
     if (!signatureEvidence.includes(expected)) {
@@ -1849,9 +2048,11 @@ async function main(): Promise<void> {
 
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
-    "0.4.0",
+    "0.5.0",
+    "1.7.0",
     "1.6.0",
-    "1.5.0",
+    "c2pa.image.inspect",
+    "c2pa.observation.create",
     "proof.asset.export",
     "proof.asset.match",
     "creation.comfyui-local",
@@ -1884,6 +2085,9 @@ async function main(): Promise<void> {
         packages: [],
         packageOutputs: [],
         tsaProfiles: [],
+        c2paTrustProfiles: [],
+        c2paImages: [],
+        c2paSidecars: [],
         timestampPackageOutputs: [],
         reportOutputs: [],
         providerInstallations: [],
@@ -2169,11 +2373,11 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.7.0",
-    contractVersion: "1.6.0",
-    nativeApiVersion: "1.5.0",
-    engineVersion: "0.4.0",
-    protocolVersion: "0.4.0",
+    workbenchVersion: "0.8.0",
+    contractVersion: "1.7.0",
+    nativeApiVersion: "1.6.0",
+    engineVersion: "0.5.0",
+    protocolVersion: "0.5.0",
     executable: testedExecutable,
     protocol: "file:",
     nativeAddon: testedAddon,

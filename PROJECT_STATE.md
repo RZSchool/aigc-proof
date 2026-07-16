@@ -1,6 +1,6 @@
 Project: AIGC-Proof-Skill Open Source
-Stage: Phase 1 - v0.4 Trusted-Time Verifiable Package Candidate
-Status: AP-032 validated candidate
+Stage: Phase 1 - v0.5 C2PA Bridge Candidate
+Status: AP-033 implementation and validation complete
 
 Implemented in source:
 
@@ -19,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.6.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 1.7.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -42,8 +42,12 @@ Implemented in source:
     creator-signed request plan, 128-bit nonce, explicit portable TSA trust snapshot, strict
     certificate/profile/revocation checks, Main-owned opt-in HTTPS acquisition, and offline
     verification that remains separate from creator identity and content-origin claims.
+22. Protocol 0.5 bounded offline C2PA 2.2 observation bridge for JPEG/PNG/WebP embedded manifests
+    and explicitly selected local sidecars, with claim v1 read compatibility, claim v2 current
+    behavior, separate signer/TSA trust snapshots, normalized reports, and remote/soft-binding/
+    unsupported-media refusal.
 
-Verification status:
+Historical initial verification status (superseded by the versioned records below):
 
 - Rust toolchain: Rust 1.85.0, rustfmt, and Clippy installed and confirmed
 - `cargo fmt --all --check`: passed
@@ -356,10 +360,56 @@ cleanly. The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
 `b091d4d801ace277e154e7902ac6f9a601c19e91456543924af3a20531a5bfd9`. Final structured evidence
 is under `test-results/AP-032/`. macOS was not executed and is not claimed.
 
+C2PA 2.2 bridge (AP-033, 2026-07-16): passed through Workbench 0.8.0 at
+workspace-root `app/AIGC-Proof-Workbench/AIGC-Proof.exe`. Protocol/engine/workspace 0.5.0 reads
+bounded `c2pa.claim.v2` embedded manifests and explicit local `.c2pa` sidecars for JPEG, PNG and
+WebP, retains read-only claim-v1 compatibility, and records only a digest-bound normalized C2PA
+observation. Signer, C2PA TSA, RFC 3161 TSA, creator-key and future official-identity trust remain
+separate. Remote-manifest lookup, soft-binding lookup, MP4/PDF, future claim versions and arbitrary
+assertion text are refused or excluded from the trusted UI boundary. C2PA validity is provenance
+metadata; it does not prove factual truth, identity, originality, copyright, ownership or rights.
+
+The reviewed dependency graph pins `c2pa 0.85.0` with only `file_io` and
+`rust_native_crypto`; default networking and OpenSSL are absent. Frozen independent evidence uses
+C2PA SDK commit `3f40cdd22b60bf955d531b0301604e3f257e0a19`, conformance-public commit
+`5e0e60d90cf8656b4e92320eda7c783ddd1808bf`, C2PA Attacks commit
+`f4af902ea55dfe43c5ce27d5079ba3c47153466c`, and c2patool 0.26.60 crate SHA-256
+`3d41841f6269d593dcebe35fd69e63a84d912ea87388f22265c824e6f7bf8e8d`. The frozen 32-image
+attack set, independently generated reference reports, malformed JUMBF/media, tamper, remote,
+soft-binding, future-version, assertion/ingredient and byte-limit cases are under
+`test-results/AP-033/`.
+
+Native Windows MSVC and actual Ubuntu WSL2 both used isolated Rust 1.88.0 toolchains and passed
+locked formatting, checks, warnings-denied all-target Clippy, every applicable workspace test,
+documentation/doc-tests, metadata/tree and explicit credential-store behavior. Windows executed
+64 normal Rust tests plus the separately enabled OS-credential lifecycle; Ubuntu executed 67 plus
+the persistent-store-unavailable fail-closed path. The 11 C2PA bridge tests exercised the real
+official fixtures and all 32 generated attack assets. The final feature graph contains no active
+remote-fetch or OpenSSL feature.
+
+Windows Node v24.14.0/pnpm 11.7.0 passed Prettier, all TypeScript checks, ESLint, 7 Host-contract
+tests, 16 creation-core tests, 76 Desktop tests and production builds. Development and exact
+packaged Electron/CDP QA passed the complete creator-signature, RFC 3161, C2PA, ComfyUI v0.27.0,
+portable proof, crash recovery, restart and corruption-recovery workflows. The final packaged run
+recorded 74 passing assertions, including embedded and sidecar JPEG/PNG/WebP, future-claim refusal,
+official attack-content isolation and digest-bound observation creation. Package-boundary QA found
+430 files, zero source maps/sources/PDBs and Utility-only native-addon loading. A separate normal
+launch exposed no QA/CDP port and exited cleanly. The real generated output SHA-256 is
+`718878f075ae0dd018951743dd749140b6a74f58c1482c3cdd63f646b6772aaa`; the creation-package
+SHA-256 is `5152856b4b6e4292e3c4def755cb7e51918783e221e934fd68c2fd34f8ebabf3`.
+
+The Windows x64 EXE is 205,586,944 bytes with SHA-256
+`eef34f7b8fc828ac24e5d8d81a17365b862fa74f1bbdb9e14fc1af7eefb462dc`; ASAR SHA-256 is
+`9def0c3e3084a280131a2fc2c3d60c28daaeecdb66d5cbd6490d97d03334f9cb`; native-addon SHA-256 is
+`733113669c488f22fc0768f141deffd1f90949c9c2f5cb2c58823a41a59039a2`; CLI SHA-256 is
+`cfa15c9d11c3b68b4d5af05e1dc708b4e142bac8ac4d49bd541a802d81acf919`. Final structured
+evidence and reviewed screenshots are under `test-results/AP-033/qa/packaged/`. macOS was not
+executed and is not claimed.
+
 Not implemented:
 
 - Externally verified creator identity, accounts or legal-name attestation
-- C2PA / Content Credentials
+- Standalone C2PA authoring/signing, remote lookup, soft binding, video/audio/PDF, or claim 2.3+
 - Originality or copyright evaluation
 - Official verification, accounts, network APIs, official-service databases, WASM, or upload
 

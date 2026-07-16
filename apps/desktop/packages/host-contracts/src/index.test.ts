@@ -40,11 +40,11 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(WORKBENCH_VERSION).toBe("0.7.0");
-    expect(HOST_CONTRACT_VERSION).toBe("1.6.0");
-    expect(NATIVE_API_VERSION).toBe("1.5.0");
-    expect(NATIVE_ENGINE_VERSION).toBe("0.4.0");
-    expect(PROTOCOL_VERSION).toBe("0.4.0");
+    expect(WORKBENCH_VERSION).toBe("0.8.0");
+    expect(HOST_CONTRACT_VERSION).toBe("1.7.0");
+    expect(NATIVE_API_VERSION).toBe("1.6.0");
+    expect(NATIVE_ENGINE_VERSION).toBe("0.5.0");
+    expect(PROTOCOL_VERSION).toBe("0.5.0");
   });
 
   it("applies fail-closed SemVer and capability compatibility", () => {
@@ -52,7 +52,7 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.5.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.6.0");
     for (const invalid of [
       discovery({ apiVersion: "2.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
@@ -186,6 +186,8 @@ describe("@aigc-proof/host-contracts", () => {
       packageOutput: reference("package-output", "e"),
       tsaProfile: reference("tsa-profile", "n"),
       timestampPackageOutput: reference("timestamp-package-output", "o"),
+      c2paProfile: reference("c2pa-trust-profile", "p"),
+      c2paSidecar: reference("c2pa-sidecar", "q"),
       reportOutput: reference("report-output", "f"),
       task: reference("task", "g"),
       result: reference("result", "h"),
@@ -379,6 +381,9 @@ describe("@aigc-proof/host-contracts", () => {
       choosePackageOutput: references.packageOutput,
       chooseTsaProfile: references.tsaProfile,
       chooseTimestampPackageOutput: references.timestampPackageOutput,
+      chooseC2paTrustProfile: references.c2paProfile,
+      chooseC2paImage: references.image,
+      chooseC2paSidecar: references.c2paSidecar,
       chooseReportOutput: references.reportOutput,
       importTsaProfile: {
         ok: true,
@@ -397,6 +402,45 @@ describe("@aigc-proof/host-contracts", () => {
         },
       },
       getTsaProfileStatus: { ok: true, data: null },
+      importC2paTrustProfile: {
+        ok: true,
+        data: {
+          profile: "aigc-proof.c2pa-trust-profile.v1",
+          profileSha256: "8".repeat(64),
+          signerSnapshotSha256: "9".repeat(64),
+          timestampSnapshotSha256: "a".repeat(64),
+          signerSource: "Test signer roots",
+          timestampSource: "Test timestamp roots",
+        },
+      },
+      getC2paTrustProfileStatus: { ok: true, data: null },
+      inspectC2paImage: {
+        ok: true,
+        data: {
+          profile: "aigc-proof.c2pa-observation.v1",
+          asset_sha256: "b".repeat(64),
+          manifest_store_sha256: "c".repeat(64),
+          source_mode: "embedded",
+          claim_version: 2,
+          active_manifest: "urn:uuid:test-manifest",
+          signer_trust_snapshot_sha256: "d".repeat(64),
+          timestamp_trust_snapshot_sha256: "e".repeat(64),
+          validation_state: "valid_untrusted",
+          signer_trust: "untrusted",
+          timestamp_trust: "untrusted",
+          success_codes: [],
+          informational_codes: [],
+          failure_codes: [],
+          elapsed_ms: 1,
+        },
+      },
+      createC2paObservation: {
+        ok: true,
+        data: {
+          event: { ...event, event_type: "c2pa_observation" },
+          workspace,
+        },
+      },
       requestTrustedTimestamp: {
         ok: true,
         data: {

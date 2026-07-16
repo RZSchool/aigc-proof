@@ -15,7 +15,7 @@ $toolRoot = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runt
 $overrideBin = Join-Path $toolRoot "override"
 $fallbackBin = Join-Path $toolRoot "fallback"
 $rustToolchain = if ([string]::IsNullOrWhiteSpace($env:AIGC_PROOF_RUST_TOOLCHAIN)) {
-    Join-Path $env:USERPROFILE ".rustup\toolchains\1.85.0-x86_64-pc-windows-msvc"
+    Join-Path $env:USERPROFILE ".rustup\toolchains\1.88.0-x86_64-pc-windows-msvc"
 } else {
     $env:AIGC_PROOF_RUST_TOOLCHAIN
 }
@@ -148,6 +148,7 @@ if (Test-Path -LiteralPath $Destination) {
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 Copy-Item -Path (Join-Path $source "*") -Destination $Destination -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $desktop "README.txt") -Destination (Join-Path $Destination "README.txt") -Force
+Copy-Item -LiteralPath (Join-Path $repo "THIRD_PARTY_NOTICES.md") -Destination (Join-Path $Destination "THIRD_PARTY_NOTICES.md") -Force
 
 $executable = Join-Path $Destination "AIGC-Proof.exe"
 $asar = Join-Path $Destination "resources\app.asar"
@@ -156,11 +157,11 @@ $nodeVersion = Get-VersionText (Join-Path $nodeBin "node.exe") "--version"
 $pnpmVersion = Get-VersionText $env:ComSpec "/d /c call `"$pnpm`" --version"
 $rustcVersion = Get-VersionText $rustc "-Vv"
 $metadata = [ordered]@{
-    workbench_version = "0.7.0"
-    host_contract_version = "1.6.0"
-    native_api_version = "1.5.0"
-    native_engine_version = "0.4.0"
-    protocol_version = "0.4.0"
+    workbench_version = "0.8.0"
+    host_contract_version = "1.7.0"
+    native_api_version = "1.6.0"
+    native_engine_version = "0.5.0"
+    protocol_version = "0.5.0"
     platform = "Windows x64"
     windows_version = [Environment]::OSVersion.VersionString
     executable = $executable

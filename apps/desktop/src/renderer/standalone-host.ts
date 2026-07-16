@@ -80,6 +80,15 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   chooseTimestampPackageOutput() {
     return this.bridge.chooseTimestampPackageOutput();
   }
+  chooseC2paTrustProfile() {
+    return this.bridge.chooseC2paTrustProfile();
+  }
+  chooseC2paImage() {
+    return this.bridge.chooseC2paImage();
+  }
+  chooseC2paSidecar() {
+    return this.bridge.chooseC2paSidecar();
+  }
   chooseReportOutput() {
     return this.bridge.chooseReportOutput();
   }
@@ -88,6 +97,22 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   }
   getTsaProfileStatus() {
     return this.bridge.getTsaProfileStatus();
+  }
+  importC2paTrustProfile(
+    request: Parameters<ProofHostApi["importC2paTrustProfile"]>[0],
+  ) {
+    return this.bridge.importC2paTrustProfile(request);
+  }
+  getC2paTrustProfileStatus() {
+    return this.bridge.getC2paTrustProfileStatus();
+  }
+  inspectC2paImage(request: Parameters<ProofHostApi["inspectC2paImage"]>[0]) {
+    return this.bridge.inspectC2paImage(request);
+  }
+  createC2paObservation(
+    request: Parameters<ProofHostApi["createC2paObservation"]>[0],
+  ) {
+    return this.bridge.createC2paObservation(request);
   }
   requestTrustedTimestamp(
     request: Parameters<ProofHostApi["requestTrustedTimestamp"]>[0],

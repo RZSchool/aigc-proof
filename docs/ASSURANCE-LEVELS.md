@@ -24,4 +24,10 @@ Protocol 0.4 signs a timestamp plan into the Manifest and may append one RFC 316
 
 Missing or failed acquisition, malformed/substituted evidence, stale or untrusted evidence, and indeterminate revocation are reported independently and never invalidate an otherwise valid creator signature. Trusted time is evidence that the TSA signed the digest at `genTime`; it is not proof of who created the content or when creation began.
 
-No version evaluates real identity, earliest creation time, originality, source authorization, copyright, ownership, legal validity, C2PA provenance, or official verification.
+## Protocol 0.5: optional C2PA provenance observation
+
+Protocol 0.5 may include one or more digest-bound `c2pa_observation` events for JPEG, PNG, or WebP media with claim v2 or read-only claim v1. Each observation separates media/manifest validation, C2PA signer trust, and C2PA timestamp trust. Report states are `absent`, `observed_invalid`, `observed_valid_untrusted`, and `observed_trusted`.
+
+An observed state describes the exact media and manifest store at the recorded time against the exact imported C2PA trust snapshots. It does not inherit authority from the local creator key or RFC 3161 snapshot, and it does not upgrade a package whose internal integrity or creator signature is invalid.
+
+No version evaluates real identity, factual truth, earliest creation time, originality, source authorization, copyright, ownership, legal validity, or official verification. C2PA provenance validity is not any of those claims.

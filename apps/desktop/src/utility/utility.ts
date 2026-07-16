@@ -100,6 +100,12 @@ async function execute(job: UtilityJob): Promise<HostEnvelope<unknown>> {
       return invokeNative(addon.prepareProofTimestamp(job.payload));
     case "attachTimestamp":
       return invokeNative(addon.attachProofTimestamp(job.payload));
+    case "validateC2paProfile":
+      return invokeNative(addon.validateC2paProfile(job.payload));
+    case "inspectC2pa":
+      return invokeNative(addon.inspectC2paImage(job.payload));
+    case "createC2paObservation":
+      return invokeNative(addon.createWorkspaceC2paObservation(job.payload));
     case "validateRecents":
       return validateRecents(job);
   }

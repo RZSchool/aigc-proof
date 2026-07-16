@@ -40,10 +40,22 @@ const api: ProofHostApi = {
   chooseTsaProfile: () => ipcRenderer.invoke(channels.chooseTsaProfile),
   chooseTimestampPackageOutput: () =>
     ipcRenderer.invoke(channels.chooseTimestampPackageOutput),
+  chooseC2paTrustProfile: () =>
+    ipcRenderer.invoke(channels.chooseC2paTrustProfile),
+  chooseC2paImage: () => ipcRenderer.invoke(channels.chooseC2paImage),
+  chooseC2paSidecar: () => ipcRenderer.invoke(channels.chooseC2paSidecar),
   chooseReportOutput: () => ipcRenderer.invoke(channels.chooseReportOutput),
   importTsaProfile: (request) =>
     ipcRenderer.invoke(channels.importTsaProfile, request),
   getTsaProfileStatus: () => ipcRenderer.invoke(channels.getTsaProfileStatus),
+  importC2paTrustProfile: (request) =>
+    ipcRenderer.invoke(channels.importC2paTrustProfile, request),
+  getC2paTrustProfileStatus: () =>
+    ipcRenderer.invoke(channels.getC2paTrustProfileStatus),
+  inspectC2paImage: (request) =>
+    ipcRenderer.invoke(channels.inspectC2paImage, request),
+  createC2paObservation: (request) =>
+    ipcRenderer.invoke(channels.createC2paObservation, request),
   requestTrustedTimestamp: (request) =>
     ipcRenderer.invoke(channels.requestTrustedTimestamp, request),
   cancelTrustedTimestamp: () =>

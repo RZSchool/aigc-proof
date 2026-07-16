@@ -1,4 +1,4 @@
-# Threat Model 0.4
+# Threat Model 0.5
 
 ## Detected inconsistencies
 
@@ -9,6 +9,7 @@
 - Manifest structure or semantic violations
 - Creator-key, signature, protected-header, domain-separation, and signed-Manifest substitution
 - Timestamp response substitution, nonce/policy/imprint mismatch, malformed CMS/DER, signer/ESS/EKU/chain/time/revocation failures
+- C2PA image/manifest-store substitution, media-binding mismatch, malformed claim/signature/certificate, unsupported claim version, untrusted signer/TSA snapshot, and digest-bound observation mismatch
 
 ## Malicious ZIP controls
 
@@ -37,11 +38,19 @@ from the stored record and cannot revoke already shared packages.
 
 ## Not protected
 
-A valid report cannot establish real identity, authorship, originality, rights, authorization,
+A valid report, including a trusted C2PA observation, cannot establish real identity, factual
+truth, authorship, originality, rights, authorization,
 earliest creation time, or legal validity. A valid RFC 3161 result witnesses only the exact
 creator-signature digest at TSA `genTime`; it does not prove content creation began then. It cannot detect a private key copied by
 an already-compromised operating system, memory inspection by a hostile local administrator, or
 social engineering based on a self-asserted label.
+
+C2PA validity establishes only the SDK-validated relationship among the selected media bytes,
+manifest store, signature, certificate chain, and imported trust snapshot. A conforming signer can
+make false assertions, a trusted certificate can be misused, and provenance metadata can be
+incomplete. C2PA signer trust, C2PA TSA trust, RFC 3161 trust, the local creator key, and official
+identity trust are intentionally independent. The bridge rejects remote manifests, soft bindings,
+automatic sidecar discovery, claim versions later than 2, MP4/PDF, and arbitrary assertion text.
 
 SHA-256 collision resistance is assumed for comparison but does not create authenticity. ZIP
 producer metadata can vary by platform; explicit link/special-file metadata is rejected and
@@ -61,13 +70,21 @@ permission, and changed-path references; any display label/path is ignored as au
 supervised Utility Process is the exclusive fixed Node-API owner, and Rust revalidates every
 protocol input off the renderer and Main event loops.
 
-The renderer and Utility have no URL fetch primitive. Main accepts only the endpoint and HTTPS
+The renderer and Utility expose no generic URL fetch primitive. Main accepts only the RFC 3161 endpoint and HTTPS
 roots from an explicitly imported, digest-bound snapshot, forbids credentials/fragments and
 redirects, caps time and response bytes, verifies media type, and displays the exact disclosure
 before normal acquisition. The snapshot is session-only and ordinary verification performs no
 network access. Endpoint operators can correlate network metadata and request time; a malicious
 or compromised trusted root can issue misleading time evidence, so trust-snapshot provenance
 remains the user's responsibility.
+
+C2PA verification has no Main or Utility socket path. Main grants only typed regular-file
+references for JPEG/PNG/WebP, lowercase `.c2pa` sidecars, and trust profiles. The Utility uses the
+SDK with an empty allowed-host list, remote-manifest and OCSP fetch disabled, bounded inputs and
+processing time, and normalized status codes. The Renderer never receives a trust store, parser,
+native handle, raw assertion explanation, or filesystem authority. A hostile image may still
+exercise bugs in the pinned SDK or native image/JUMBF parsers; exact pinning, official corpora,
+attack tests, process isolation, and file/time/count limits reduce but cannot eliminate that risk.
 
 Main validates the native discovery response before proof IPC registration. Missing/malformed
 discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities/

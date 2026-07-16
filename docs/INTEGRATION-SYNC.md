@@ -40,10 +40,10 @@ paths, dialogs, lifecycle, SQLite, authority, and bounded scheduling. A supervis
 is the exclusive `proof_napi.node` owner. The addon is a narrow asynchronous Node-API adapter over
 the Rust engine; Electron does not shell out to the CLI.
 
-Workbench 0.7.0 uses `@aigc-proof/host-contracts` 1.6.0 as the single renderer-safe source of
+Workbench 0.8.0 uses `@aigc-proof/host-contracts` 1.7.0 as the single renderer-safe source of
 `ProofHostApi`, DTOs, strict Schemas, versions, capabilities, and stable errors. The Standalone
-adapter and a deterministic consumer-test Mock implement that contract. Native API 1.5.0 reports
-engine/protocol 0.4.0 plus legacy 0.2.0/0.3.0 support, deterministic capabilities, execution facts, and limits; Main validates
+adapter and a deterministic consumer-test Mock implement that contract. Native API 1.6.0 reports
+engine/protocol 0.5.0 plus legacy 0.2.0/0.3.0/0.4.0 support, deterministic capabilities, execution facts, and limits; Main validates
 the Utility handshake and fails closed before proof IPC registration.
 
 `@aigc-proof/creation-core` 1.0.0 is the Host/UI/database-independent Node layer for creation
@@ -60,7 +60,7 @@ dependency between AIGC-Proof and AWPE.
 
 ## Valid standalone-only behavior
 
-`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.6.0.
+`window.aigcProof` is the implemented Standalone preload transport for `ProofHostApi` 1.7.0.
 Main-owned native dialogs and user-selected local paths are legitimate in the standalone product,
 but the renderer receives only kind-specific opaque references plus non-authoritative display
 information. An AIGCStudio asset identifier or session token belongs to its future adapter and is
@@ -77,7 +77,7 @@ review:
 
 ```text
 AIGCStudio proof UI
-        | ProofHostApi 1.6.0 through a prospective AIGCStudio adapter
+        | ProofHostApi 1.7.0 through a prospective AIGCStudio adapter
         v
 context-isolated preload / allowlisted IPC
         v
@@ -105,9 +105,9 @@ ownership, Utility profile, and dual-product packaging have not been implemented
 
 | Concern            | Standalone Workbench today                                                                                                                         | Prospective AIGCStudio host                                                                                        |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Renderer API       | `ProofHostApi` 1.6.0 through typed `window.aigcProof` and Standalone adapter                                                                       | AIGCStudio adapter/Bridge implementing the same semantics, not implemented                                         |
+| Renderer API       | `ProofHostApi` 1.7.0 through typed `window.aigcProof` and Standalone adapter                                                                       | AIGCStudio adapter/Bridge implementing the same semantics, not implemented                                         |
 | Input authority    | Main issues expiring typed references for selected paths and recent records; display paths are not authority                                       | AIGCStudio asset/workspace/package references or session tokens, not implemented                                   |
-| Native interface   | API 1.5.0, engine 0.4.0, 0.2/0.3/0.4 protocol list, capabilities, execution facts, limits, and fail-closed compatibility                           | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated                                |
+| Native interface   | API 1.6.0, engine 0.5.0, 0.2/0.3/0.4/0.5 protocol list, C2PA capabilities, execution facts, limits, and fail-closed compatibility                  | Same reviewed addon/contract assembled and accepted in AIGCStudio, not demonstrated                                |
 | Creation layer     | Shared creation-core 1.0.0; Standalone Main owns ComfyUI authorization, staging and SQLite                                                         | Same core with Studio-owned provider/assets/tasks/state; not implemented                                           |
 | Native execution   | Supervised Workbench Utility exclusively loads the addon; bounded jobs, progress, no-replay crash recovery, and truthful cancellation are accepted | AIGCStudio-owned Utility profile and crash-containment acceptance, not implemented                                 |
 | Application state  | Disposable Workbench SQLite preferences, recents, indexes, and UI state                                                                            | AIGCStudio owns its database, asset catalog, tasks, staging, and publication; proof integration is not implemented |

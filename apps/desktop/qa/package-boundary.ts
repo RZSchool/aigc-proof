@@ -20,6 +20,7 @@ const packageRoot = path.resolve(
 );
 const executable = path.join(packageRoot, "AIGC-Proof.exe");
 const readme = path.join(packageRoot, "README.txt");
+const notices = path.join(packageRoot, "THIRD_PARTY_NOTICES.md");
 const asar = path.join(packageRoot, "resources", "app.asar");
 const addon = path.join(packageRoot, "resources", "native", "proof_napi.node");
 const requireNative = createRequire(__filename);
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
   await Promise.all([
     fs.access(executable),
     fs.access(readme),
+    fs.access(notices),
     fs.access(asar),
     fs.access(addon),
   ]);
@@ -66,20 +68,28 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.7.0") {
+  if (packagedManifest.version !== "0.8.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
   }
   const readmeSource = await fs.readFile(readme, "utf8");
+  const noticesSource = await fs.readFile(notices, "utf8");
   if (
-    !readmeSource.includes("AIGC-Proof Workbench 0.7.0 Preview") ||
+    !readmeSource.includes("AIGC-Proof Workbench 0.8.0 Preview") ||
     !readmeSource.includes(
-      "Workbench 0.7.0 使用 ProofHostApi 1.6.0 / native API 1.5.0",
+      "Workbench 0.8.0 使用 ProofHostApi 1.7.0 / native API 1.6.0",
     ) ||
-    !readmeSource.includes("AIGC-Proof 0.4.0")
+    !readmeSource.includes("AIGC-Proof 0.5.0")
   ) {
     throw new Error("Packaged README version or protocol boundary is stale.");
+  }
+  if (
+    !noticesSource.includes("c2pa` 0.85.0") ||
+    !noticesSource.includes("Apache-2.0 OR MIT") ||
+    !noticesSource.includes("not included in the Workbench package")
+  ) {
+    throw new Error("Packaged C2PA third-party notice is missing or stale.");
   }
   if (
     !mainSource.includes("nodeIntegration: false") ||
@@ -129,7 +139,7 @@ async function main(): Promise<void> {
     discovery.apiVersion !== NATIVE_API_VERSION ||
     discovery.engineVersion !== NATIVE_ENGINE_VERSION ||
     discovery.supportedProtocolVersions.join(",") !==
-      ["0.2.0", "0.3.0", PROTOCOL_VERSION].join(",") ||
+      ["0.2.0", "0.3.0", "0.4.0", PROTOCOL_VERSION].join(",") ||
     discovery.capabilities.join(",") !== NATIVE_CAPABILITIES.join(",")
   ) {
     throw new Error(
@@ -143,10 +153,10 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.6.0",
+    contractVersion: "1.7.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
-    protocolVersion: "0.4.0",
+    protocolVersion: "0.5.0",
     utilityOnlyAddonLoading: true,
     capabilities: discovery.capabilities,
     packagedFiles: files.length,

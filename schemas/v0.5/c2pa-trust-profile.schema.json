@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v0.5/c2pa-trust-profile.schema.json",
+  "title": "AIGC-Proof C2PA Trust Profile v1",
+  "type": "object",
+  "required": ["profile", "signer", "timestamp"],
+  "properties": {
+    "profile": { "const": "aigc-proof.c2pa-trust-profile.v1" },
+    "signer": { "$ref": "#/$defs/snapshot" },
+    "timestamp": { "$ref": "#/$defs/snapshot" }
+  },
+  "$defs": {
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["source_label", "trust_anchors_pem", "allowed_ekus", "effective_at", "expires_at"],
+      "properties": {
+        "source_label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "trust_anchors_pem": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "type": "string", "minLength": 1, "maxLength": 262144 }
+        },
+        "allowed_ekus": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[0-2](?:\\.(?:0|[1-9][0-9]*)){2,}$" }
+        },
+        "effective_at": { "$ref": "#/$defs/canonicalTimestamp" },
+        "expires_at": { "$ref": "#/$defs/canonicalTimestamp" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

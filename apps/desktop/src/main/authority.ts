@@ -49,10 +49,15 @@ async function canonicalize(
   }
 
   const linkStat = await fs.lstat(absolutePath).catch(() => undefined);
-  if (kind === "image" && linkStat?.isSymbolicLink()) {
+  if (
+    (kind === "image" ||
+      kind === "c2pa-sidecar" ||
+      kind === "c2pa-trust-profile") &&
+    linkStat?.isSymbolicLink()
+  ) {
     throw new HostContractError(
       "HOST_REFERENCE_PATH_CHANGED",
-      "The selected image must be a regular non-symbolic-link file.",
+      "The selected C2PA input must be a regular non-symbolic-link file.",
     );
   }
   const stat = await fs.stat(absolutePath).catch(() => undefined);

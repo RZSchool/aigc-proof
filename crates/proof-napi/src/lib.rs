@@ -9,13 +9,14 @@ use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 use napi_derive::napi;
 use proof_core::{
-    AddAssetOptions, CoreError, ExportWorkspaceOutputOptions, InitWorkspaceOptions,
-    OsSignerKeyStore, RecordEventOptions, SealOptions, SignerService, VerificationLimits,
-    add_asset, attach_timestamp_response, current_timestamp, export_workspace_output,
-    init_workspace, inspect_package, load_workspace, match_image_to_package, media_type_for_path,
-    parse_tsa_profile, prepare_timestamp_request, record_event, seal_signed_workspace,
-    seal_signed_workspace_with_timestamp, tsa_profile_summary, verify_package_with_signer,
-    verify_package_with_signer_and_profile,
+    AddAssetOptions, C2paInspectOptions, CoreError, CreateC2paObservationOptions,
+    ExportWorkspaceOutputOptions, InitWorkspaceOptions, OsSignerKeyStore, RecordEventOptions,
+    SealOptions, SignerService, VerificationLimits, add_asset, attach_timestamp_response,
+    create_c2pa_observation, current_timestamp, export_workspace_output, init_workspace,
+    inspect_c2pa, inspect_package, load_workspace, match_image_to_package, media_type_for_path,
+    parse_c2pa_trust_profile, parse_tsa_profile, prepare_timestamp_request, record_event,
+    seal_signed_workspace, seal_signed_workspace_with_timestamp, tsa_profile_summary,
+    verify_package_with_signer, verify_package_with_signer_and_profile,
 };
 use proof_schema::{AssetRole, parse_json_strict};
 use rusqlite::Error as SqliteError;
@@ -23,10 +24,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.5.0";
-pub const NATIVE_ENGINE_VERSION: &str = "0.4.0";
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0"];
+pub const NATIVE_API_VERSION: &str = "1.6.0";
+pub const NATIVE_ENGINE_VERSION: &str = "0.5.0";
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0", "0.5.0"];
 pub const NATIVE_CAPABILITIES: &[&str] = &[
+    "c2pa.image.inspect",
+    "c2pa.observation.create",
+    "c2pa.trust-profile.validate",
     "execution.phase-progress",
     "proof.asset.add",
     "proof.asset.export",
@@ -123,6 +127,9 @@ enum Operation {
     ValidateTsaProfile(TsaProfileRequest),
     PrepareTimestamp(PrepareTimestampRequest),
     AttachTimestamp(AttachTimestampRequest),
+    ValidateC2paProfile(C2paProfileRequest),
+    InspectC2pa(C2paInspectRequest),
+    CreateC2paObservation(C2paObservationRequest),
     GetSignerStatus,
     CreateSigner(SignerLabelRequest),
     RotateSigner(SignerLabelRequest),
@@ -214,6 +221,29 @@ pub struct AttachTimestampRequest {
     pub package: String,
     pub output: String,
     pub response_path: String,
+    pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct C2paProfileRequest {
+    pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct C2paInspectRequest {
+    pub asset: String,
+    pub sidecar: Option<String>,
+    pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct C2paObservationRequest {
+    pub workspace: String,
+    pub asset_id: String,
+    pub sidecar: Option<String>,
     pub profile_json: String,
 }
 
@@ -329,6 +359,21 @@ pub fn prepare_proof_timestamp(request: PrepareTimestampRequest) -> AsyncTask<Br
 #[napi]
 pub fn attach_proof_timestamp(request: AttachTimestampRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::AttachTimestamp(request)))
+}
+
+#[napi(js_name = "validateC2paProfile")]
+pub fn validate_c2pa_profile(request: C2paProfileRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::ValidateC2paProfile(request)))
+}
+
+#[napi(js_name = "inspectC2paImage")]
+pub fn inspect_c2pa_image(request: C2paInspectRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::InspectC2pa(request)))
+}
+
+#[napi(js_name = "createWorkspaceC2paObservation")]
+pub fn create_workspace_c2pa_observation(request: C2paObservationRequest) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::CreateC2paObservation(request)))
 }
 
 #[napi]
@@ -602,6 +647,58 @@ fn execute<S: proof_core::SignerKeyStore>(
                 "trustedTime": attached.gen_time,
             }))
         }
+        Operation::ValidateC2paProfile(request) => {
+            let profile =
+                parse_c2pa_trust_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            Ok(json!({
+                "profile": profile.profile.profile,
+                "profileSha256": profile.digest,
+                "signerSnapshotSha256": profile.signer_snapshot_sha256,
+                "timestampSnapshotSha256": profile.timestamp_snapshot_sha256,
+                "signerSource": profile.profile.signer.source_label,
+                "timestampSource": profile.profile.timestamp.source_label,
+            }))
+        }
+        Operation::InspectC2pa(request) => {
+            let asset = safe_path(&request.asset, "C2PA asset")?;
+            let sidecar = request
+                .sidecar
+                .as_deref()
+                .map(|value| safe_path(value, "C2PA sidecar"))
+                .transpose()?;
+            let profile =
+                parse_c2pa_trust_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            let inspection = inspect_c2pa(C2paInspectOptions {
+                asset_path: asset,
+                sidecar_path: sidecar,
+                trust_profile: &profile,
+                observed_at: current_timestamp().map_err(BridgeFailure::core)?,
+            })
+            .map_err(BridgeFailure::core)?;
+            Ok(serde_json::to_value(inspection).map_err(BridgeFailure::serialization)?)
+        }
+        Operation::CreateC2paObservation(request) => {
+            let workspace = safe_path(&request.workspace, "workspace")?;
+            let sidecar = request
+                .sidecar
+                .as_deref()
+                .map(|value| safe_path(value, "C2PA sidecar"))
+                .transpose()?;
+            let profile =
+                parse_c2pa_trust_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            let now = current_timestamp().map_err(BridgeFailure::core)?;
+            let event = create_c2pa_observation(CreateC2paObservationOptions {
+                workspace: workspace.clone(),
+                asset_id: request.asset_id.clone(),
+                sidecar_path: sidecar,
+                trust_profile: &profile,
+                event_id: Uuid::new_v4().to_string(),
+                created_at: now,
+            })
+            .map_err(BridgeFailure::core)?;
+            let summary = load_workspace(&workspace).map_err(BridgeFailure::core)?;
+            Ok(json!({ "event": event, "workspace": summary }))
+        }
         Operation::GetSignerStatus => {
             Ok(serde_json::to_value(signer.status()).map_err(BridgeFailure::serialization)?)
         }
@@ -751,11 +848,11 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.5.0");
-        assert_eq!(info.engine_version, "0.4.0");
+        assert_eq!(info.api_version, "1.6.0");
+        assert_eq!(info.engine_version, "0.5.0");
         assert_eq!(
             info.supported_protocol_versions,
-            ["0.2.0", "0.3.0", "0.4.0"]
+            ["0.2.0", "0.3.0", "0.4.0", "0.5.0"]
         );
         assert_eq!(
             info.capabilities,

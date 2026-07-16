@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v0.5/manifest.schema.json",
+  "title": "AIGC-Proof Manifest v0.5",
+  "type": "object",
+  "required": ["spec_version", "proof_id", "created_at", "tool", "project", "assets", "event_chain", "security"],
+  "properties": {
+    "spec_version": { "const": "0.5.0" },
+    "proof_id": {
+      "type": "string",
+      "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "created_at": { "$ref": "#/$defs/canonicalTimestamp" },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "aigc-proof" },
+        "version": { "const": "0.5.0" }
+      },
+      "additionalProperties": false
+    },
+    "project": { "$ref": "#/$defs/project" },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1019,
+      "items": { "$ref": "#/$defs/asset" }
+    },
+    "event_chain": {
+      "type": "object",
+      "required": ["algorithm", "event_count", "root_hash"],
+      "properties": {
+        "algorithm": { "const": "sha-256" },
+        "event_count": { "type": "integer", "minimum": 0 },
+        "root_hash": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "event_count": { "const": 0 } }, "required": ["event_count"] },
+          "then": { "properties": { "root_hash": { "type": "null" } } },
+          "else": { "properties": { "root_hash": { "$ref": "#/$defs/sha256" } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "required": ["creator_signature", "trusted_timestamp"],
+      "properties": {
+        "creator_signature": {
+          "type": "object",
+          "required": ["profile", "signature_id", "display_label", "key_fingerprint", "public_key_path", "signature_path"],
+          "properties": {
+            "profile": { "const": "aigc-proof.creator-signature.cose-ed25519.v3" },
+            "signature_id": { "$ref": "#/$defs/sha256" },
+            "display_label": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "key_fingerprint": { "$ref": "#/$defs/sha256" },
+            "public_key_path": { "type": "string", "pattern": "^security/keys/[0-9a-f]{64}\\.cbor$" },
+            "signature_path": { "const": "security/signatures/creator.cose" }
+          },
+          "additionalProperties": false
+        },
+        "trusted_timestamp": {
+          "type": "object",
+          "required": ["profile", "timestamp_path", "nonce", "requested_policy", "tsa_profile_sha256"],
+          "properties": {
+            "profile": { "const": "aigc-proof.trusted-time.rfc3161.v1" },
+            "timestamp_path": { "type": "string", "pattern": "^security/timestamps/[0-9a-f]{64}\\.tsr$" },
+            "nonce": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+            "requested_policy": {
+              "type": "string",
+              "pattern": "^(any|[0-2](?:\\.(?:0|[1-9][0-9]*)){2,})$"
+            },
+            "tsa_profile_sha256": { "$ref": "#/$defs/sha256" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "canonicalTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "project": {
+      "type": "object",
+      "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "additionalProperties": false
+    },
+    "asset": {
+      "type": "object",
+      "required": ["asset_id", "role", "package_path", "original_name", "media_type", "size_bytes", "sha256"],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "role": { "enum": ["input", "output", "reference", "license", "other"] },
+        "package_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^assets/(input|output|reference|license|other)/[^/]+(?:/[^/]+)*$"
+        },
+        "original_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "media_type": { "type": "string", "minLength": 3, "maxLength": 255 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -7,12 +7,13 @@ use std::str::FromStr;
 use base64::Engine as _;
 use clap::{Parser, Subcommand};
 use proof_core::{
-    AddAssetOptions, CoreError, InitWorkspaceOptions, ParsedTsaProfile, RecordEventOptions,
+    AddAssetOptions, C2paInspectOptions, CoreError, CreateC2paObservationOptions,
+    InitWorkspaceOptions, ParsedC2paTrustProfile, ParsedTsaProfile, RecordEventOptions,
     SealOptions, SignerService, VerificationLimits, add_asset, attach_timestamp_response,
-    current_timestamp, init_workspace, inspect_package, media_type_for_path, parse_tsa_profile,
-    prepare_timestamp_request, record_event, seal_signed_workspace,
-    seal_signed_workspace_with_timestamp, seal_workspace, tsa_profile_summary,
-    verify_package_with_signer, verify_package_with_signer_and_profile,
+    create_c2pa_observation, current_timestamp, init_workspace, inspect_c2pa, inspect_package,
+    media_type_for_path, parse_c2pa_trust_profile, parse_tsa_profile, prepare_timestamp_request,
+    record_event, seal_signed_workspace, seal_signed_workspace_with_timestamp, seal_workspace,
+    tsa_profile_summary, verify_package_with_signer, verify_package_with_signer_and_profile,
 };
 use proof_schema::{
     AssetRole, VerificationStatus, parse_json_strict, validate_verification_result_schema,
@@ -25,8 +26,8 @@ use uuid::Uuid;
 #[command(
     name = "aigc-proof",
     version,
-    about = "Offline AIGC-Proof creator-signature and trusted-time workflow",
-    long_about = "Creates and verifies AIGC-Proof 0.2/0.3/0.4 packages. Protocol 0.4 predeclares an RFC 3161 request bound to the creator signature and verifies responses only against an explicitly imported trust snapshot."
+    about = "Offline AIGC-Proof provenance, creator-signature and trusted-time workflow",
+    long_about = "Creates and verifies AIGC-Proof 0.2 through 0.5 packages. Protocol 0.5 can record a digest-bound, offline C2PA 2.2 image observation using explicitly imported signer and TSA trust snapshots."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -103,6 +104,40 @@ enum Command {
     Timestamp {
         #[command(subcommand)]
         command: TimestampCommand,
+    },
+    /// Inspect C2PA 2.2 image provenance offline or record a digest-bound observation.
+    C2pa {
+        #[command(subcommand)]
+        command: C2paCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum C2paCommand {
+    /// Validate and summarize an explicit portable C2PA trust profile.
+    Profile {
+        #[arg(value_name = "FILE")]
+        trust_profile: PathBuf,
+    },
+    /// Inspect an embedded manifest or an explicitly selected local .c2pa sidecar.
+    Inspect {
+        #[arg(long, value_name = "FILE")]
+        asset: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        sidecar: Option<PathBuf>,
+        #[arg(long, value_name = "FILE")]
+        trust_profile: PathBuf,
+    },
+    /// Inspect and append a C2PA observation for an already ingested workspace asset.
+    Observe {
+        #[arg(long, value_name = "DIR")]
+        workspace: PathBuf,
+        #[arg(long)]
+        asset_id: String,
+        #[arg(long, value_name = "FILE")]
+        sidecar: Option<PathBuf>,
+        #[arg(long, value_name = "FILE")]
+        trust_profile: PathBuf,
     },
 }
 
@@ -454,7 +489,66 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                 Ok(ExitCode::SUCCESS)
             }
         },
+        Command::C2pa { command } => match command {
+            C2paCommand::Profile { trust_profile } => {
+                let profile = read_c2pa_profile(&trust_profile)?;
+                print_json(&json!({
+                    "profile": profile.profile.profile,
+                    "profile_sha256": profile.digest,
+                    "signer_snapshot_sha256": profile.signer_snapshot_sha256,
+                    "timestamp_snapshot_sha256": profile.timestamp_snapshot_sha256,
+                    "signer_source": profile.profile.signer.source_label,
+                    "timestamp_source": profile.profile.timestamp.source_label,
+                }))?;
+                Ok(ExitCode::SUCCESS)
+            }
+            C2paCommand::Inspect {
+                asset,
+                sidecar,
+                trust_profile,
+            } => {
+                let profile = read_c2pa_profile(&trust_profile)?;
+                let inspection = inspect_c2pa(C2paInspectOptions {
+                    asset_path: asset,
+                    sidecar_path: sidecar,
+                    trust_profile: &profile,
+                    observed_at: current_timestamp().map_err(CliError::from_core)?,
+                })
+                .map_err(CliError::from_core)?;
+                print_json(&serde_json::to_value(inspection).map_err(|error| {
+                    CliError::new("C2PA_INSPECTION_SERIALIZATION_FAILED", error.to_string())
+                })?)?;
+                Ok(ExitCode::SUCCESS)
+            }
+            C2paCommand::Observe {
+                workspace,
+                asset_id,
+                sidecar,
+                trust_profile,
+            } => {
+                let profile = read_c2pa_profile(&trust_profile)?;
+                let now = current_timestamp().map_err(CliError::from_core)?;
+                let event = create_c2pa_observation(CreateC2paObservationOptions {
+                    workspace,
+                    asset_id,
+                    sidecar_path: sidecar,
+                    trust_profile: &profile,
+                    event_id: Uuid::new_v4().to_string(),
+                    created_at: now,
+                })
+                .map_err(CliError::from_core)?;
+                print_json(&json!({ "status": "recorded", "event": event }))?;
+                Ok(ExitCode::SUCCESS)
+            }
+        },
     }
+}
+
+fn read_c2pa_profile(path: &Path) -> Result<ParsedC2paTrustProfile, CliError> {
+    let bytes = read_bounded_file(path, 4 * 1024 * 1024, "C2PA_TRUST_PROFILE")?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|error| CliError::new("C2PA_TRUST_PROFILE_UTF8_INVALID", error.to_string()))?;
+    parse_c2pa_trust_profile(text).map_err(CliError::from_core)
 }
 
 fn read_tsa_profile(path: &Path) -> Result<ParsedTsaProfile, CliError> {

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 base64.workspace = true
+c2pa.workspace = true
 cms.workspace = true
 const-oid.workspace = true
 coset.workspace = true
@@ -38,3 +39,6 @@ keyring = { version = "=3.6.3", default-features = false, features = ["windows-n
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["crypto-rust", "linux-native-sync-persistent"] }
+
+[dev-dependencies]
+p256 = { version = "=0.13.2", features = ["ecdsa", "pkcs8"] }

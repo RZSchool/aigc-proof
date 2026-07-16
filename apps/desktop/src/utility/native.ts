@@ -54,6 +54,18 @@ export interface NativeAddon {
     responsePath: string;
     profileJson: string;
   }): Promise<string>;
+  validateC2paProfile(request: { profileJson: string }): Promise<string>;
+  inspectC2paImage(request: {
+    asset: string;
+    sidecar?: string | undefined;
+    profileJson: string;
+  }): Promise<string>;
+  createWorkspaceC2paObservation(request: {
+    workspace: string;
+    assetId: string;
+    sidecar?: string | undefined;
+    profileJson: string;
+  }): Promise<string>;
   getLocalSignerStatus(): Promise<string>;
   createLocalSigner(request: { displayLabel: string }): Promise<string>;
   rotateLocalSigner(request: { displayLabel: string }): Promise<string>;

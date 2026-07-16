@@ -50,7 +50,7 @@ function reference<K extends ReferenceKind>(
 }
 
 const emptyWorkspace = (): Workspace => ({
-  workspace_version: "0.4.0",
+  workspace_version: "0.5.0",
   created_at: "2026-07-13T00:00:00Z",
   project: { name: "Mock project" },
   assets: [],
@@ -69,6 +69,11 @@ export class DeterministicMockProofHost implements ProofHostApi {
     "timestamp-package-output",
     "timestamped proof output",
   );
+  readonly c2paTrustProfileReference = reference(
+    "c2pa-trust-profile",
+    "c2pa-profile.json",
+  );
+  readonly c2paSidecarReference = reference("c2pa-sidecar", "created.c2pa");
   readonly reportOutputReference = reference("report-output", "report output");
   readonly diagnosticReference = reference("diagnostic", "mock diagnostics");
   readonly providerReference = reference(
@@ -328,6 +333,15 @@ export class DeterministicMockProofHost implements ProofHostApi {
   chooseTimestampPackageOutput() {
     return Promise.resolve(this.timestampPackageOutputReference);
   }
+  chooseC2paTrustProfile() {
+    return Promise.resolve(this.c2paTrustProfileReference);
+  }
+  chooseC2paImage() {
+    return Promise.resolve(this.imageReference);
+  }
+  chooseC2paSidecar() {
+    return Promise.resolve(this.c2paSidecarReference);
+  }
   chooseReportOutput() {
     return Promise.resolve(this.reportOutputReference);
   }
@@ -337,6 +351,55 @@ export class DeterministicMockProofHost implements ProofHostApi {
   }
   getTsaProfileStatus() {
     return Promise.resolve(ok(this.tsaSummary()));
+  }
+  importC2paTrustProfile(
+    _request: Parameters<ProofHostApi["importC2paTrustProfile"]>[0],
+  ) {
+    void _request;
+    return Promise.resolve(ok(this.c2paSummary()));
+  }
+  getC2paTrustProfileStatus() {
+    return Promise.resolve(ok(this.c2paSummary()));
+  }
+  inspectC2paImage(_request: Parameters<ProofHostApi["inspectC2paImage"]>[0]) {
+    void _request;
+    return Promise.resolve(
+      ok({
+        profile: "aigc-proof.c2pa-observation.v1" as const,
+        asset_sha256: "a".repeat(64),
+        manifest_store_sha256: "b".repeat(64),
+        source_mode: "embedded" as const,
+        claim_version: 2 as const,
+        active_manifest: "urn:uuid:mock-c2pa-manifest",
+        signer_trust_snapshot_sha256: "c".repeat(64),
+        timestamp_trust_snapshot_sha256: "d".repeat(64),
+        validation_state: "valid_untrusted" as const,
+        signer_trust: "untrusted" as const,
+        timestamp_trust: "untrusted" as const,
+        success_codes: [],
+        informational_codes: [],
+        failure_codes: [],
+        elapsed_ms: 1,
+      }),
+    );
+  }
+  createC2paObservation(
+    request: Parameters<ProofHostApi["createC2paObservation"]>[0],
+  ) {
+    return Promise.resolve(
+      ok({
+        event: {
+          event_id: "mock-c2pa-event",
+          sequence: 1,
+          event_type: "c2pa_observation",
+          created_at: "2026-07-13T00:00:00Z",
+          previous_event_hash: null,
+          payload: { asset_id: request.assetId },
+          event_hash: "e".repeat(64),
+        },
+        workspace: this.#workspace,
+      }),
+    );
   }
   requestTrustedTimestamp(
     _request: Parameters<ProofHostApi["requestTrustedTimestamp"]>[0],
@@ -511,7 +574,7 @@ export class DeterministicMockProofHost implements ProofHostApi {
   verifyPackage(_request: Parameters<ProofHostApi["verifyPackage"]>[0]) {
     void _request;
     const report: VerificationReport = {
-      spec_version: "0.4.0",
+      spec_version: "0.5.0",
       proof_id: "urn:uuid:00000000-0000-4000-8000-000000000000",
       verified_at: "2026-07-13T00:00:00Z",
       status: "valid",
@@ -548,6 +611,16 @@ export class DeterministicMockProofHost implements ProofHostApi {
       revocation_evidence_count: 0,
       effective_at: "2026-01-01T00:00:00Z",
       expires_at: "2027-01-01T00:00:00Z",
+    };
+  }
+  private c2paSummary() {
+    return {
+      profile: "aigc-proof.c2pa-trust-profile.v1" as const,
+      profileSha256: "8".repeat(64),
+      signerSnapshotSha256: "c".repeat(64),
+      timestampSnapshotSha256: "d".repeat(64),
+      signerSource: "Mock C2PA signer roots",
+      timestampSource: "Mock C2PA TSA roots",
     };
   }
   inspectPackage(_request: Parameters<ProofHostApi["inspectPackage"]>[0]) {

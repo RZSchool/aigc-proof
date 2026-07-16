@@ -7,8 +7,8 @@ use coset::{
 };
 use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use proof_schema::{
-    CREATOR_SIGNATURE_PROFILE, CREATOR_SIGNATURE_PROFILE_V03, CreatorSignatureDescriptor,
-    CreatorSignatureEvidence, LocalTrust, SignatureAssurance,
+    CREATOR_SIGNATURE_PROFILE, CREATOR_SIGNATURE_PROFILE_V03, CREATOR_SIGNATURE_PROFILE_V04,
+    CreatorSignatureDescriptor, CreatorSignatureEvidence, LocalTrust, SignatureAssurance,
     display_label_needs_confusable_warning, validate_display_label,
 };
 use rand_core::{OsRng, RngCore};
@@ -20,6 +20,7 @@ use crate::{CoreError, CoreResult, ErrorKind};
 
 pub const CREATOR_SIGNATURE_AAD: &[u8] = b"AIGC-PROOF\0CREATOR-SIGNATURE\0v0.3";
 pub const CREATOR_SIGNATURE_AAD_V04: &[u8] = b"AIGC-PROOF\0CREATOR-SIGNATURE\0v0.4";
+pub const CREATOR_SIGNATURE_AAD_V05: &[u8] = b"AIGC-PROOF\0CREATOR-SIGNATURE\0v0.5";
 pub const DEFAULT_SIGNER_SERVICE: &str = "org.aigcproof.workbench.creator-key.v1";
 pub const DEFAULT_SIGNER_USER: &str = "current-user";
 
@@ -699,7 +700,8 @@ pub(crate) fn verify_manifest_signature(
 fn creator_signature_aad(profile: &str) -> Option<&'static [u8]> {
     match profile {
         CREATOR_SIGNATURE_PROFILE_V03 => Some(CREATOR_SIGNATURE_AAD),
-        CREATOR_SIGNATURE_PROFILE => Some(CREATOR_SIGNATURE_AAD_V04),
+        CREATOR_SIGNATURE_PROFILE_V04 => Some(CREATOR_SIGNATURE_AAD_V04),
+        CREATOR_SIGNATURE_PROFILE => Some(CREATOR_SIGNATURE_AAD_V05),
         _ => None,
     }
 }

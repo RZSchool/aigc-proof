@@ -3,15 +3,17 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
-    CREATOR_SIGNATURE_PROFILE_V03, HASH_ALGORITHM, LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION,
-    SCHEMA_VERSION, SIGNED_SCHEMA_VERSION, SIGNED_WORKSPACE_VERSION, TRUSTED_TIMESTAMP_PREFIX,
-    TRUSTED_TIMESTAMP_PROFILE, TSA_TRUST_PROFILE, WORKSPACE_VERSION, validate_asset_role,
-    validate_canonical_timestamp, validate_display_label, validate_event_type, validate_media_type,
-    validate_package_path, validate_portable_basename, validate_proof_id, validate_sha256_hex,
-    validate_uuid,
+    C2PA_BRIDGE_PROFILE, C2PA_TRUST_PROFILE, CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH,
+    CREATOR_SIGNATURE_PROFILE, CREATOR_SIGNATURE_PROFILE_V03, CREATOR_SIGNATURE_PROFILE_V04,
+    HASH_ALGORITHM, LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION, SCHEMA_VERSION,
+    SIGNED_SCHEMA_VERSION, SIGNED_WORKSPACE_VERSION, TRUSTED_SCHEMA_VERSION,
+    TRUSTED_TIMESTAMP_PREFIX, TRUSTED_TIMESTAMP_PROFILE, TRUSTED_WORKSPACE_VERSION,
+    TSA_TRUST_PROFILE, WORKSPACE_VERSION, validate_asset_role, validate_canonical_timestamp,
+    validate_display_label, validate_event_type, validate_media_type, validate_package_path,
+    validate_portable_basename, validate_proof_id, validate_sha256_hex, validate_uuid,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +179,84 @@ pub struct TsaProfileSummary {
     pub expires_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct C2paTrustSnapshot {
+    pub source_label: String,
+    pub trust_anchors_pem: Vec<String>,
+    #[serde(default)]
+    pub allowed_ekus: Vec<String>,
+    pub effective_at: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct C2paTrustProfile {
+    pub profile: String,
+    pub signer: C2paTrustSnapshot,
+    pub timestamp: C2paTrustSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum C2paSourceMode {
+    Embedded,
+    Sidecar,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum C2paValidationState {
+    Invalid,
+    ValidUntrusted,
+    Trusted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum C2paTrustState {
+    NotEvaluated,
+    Untrusted,
+    Trusted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct C2paObservation {
+    pub profile: String,
+    pub asset_id: String,
+    pub asset_sha256: String,
+    pub manifest_store_sha256: String,
+    pub source_mode: C2paSourceMode,
+    pub claim_version: u8,
+    pub active_manifest: String,
+    pub signer_trust_snapshot_sha256: String,
+    pub timestamp_trust_snapshot_sha256: String,
+    pub validation_state: C2paValidationState,
+    pub signer_trust: C2paTrustState,
+    pub timestamp_trust: C2paTrustState,
+    pub success_codes: Vec<String>,
+    pub informational_codes: Vec<String>,
+    pub failure_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum C2paAssurance {
+    Absent,
+    ObservedInvalid,
+    ObservedValidUntrusted,
+    ObservedTrusted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct C2paEvidence {
+    pub state: C2paAssurance,
+    pub observations: Vec<C2paObservation>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -214,12 +294,15 @@ impl Workspace {
         let mut issues = Vec::new();
         if !matches!(
             self.workspace_version.as_str(),
-            LEGACY_WORKSPACE_VERSION | SIGNED_WORKSPACE_VERSION | WORKSPACE_VERSION
+            LEGACY_WORKSPACE_VERSION
+                | SIGNED_WORKSPACE_VERSION
+                | TRUSTED_WORKSPACE_VERSION
+                | WORKSPACE_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_WORKSPACE_VERSION",
                 "workspace_version",
-                "Workspace version must be 0.2.0, 0.3.0, or 0.4.0.",
+                "Workspace version must be 0.2.0, 0.3.0, 0.4.0, or 0.5.0.",
             ));
         }
         validate_common(
@@ -238,12 +321,12 @@ impl Manifest {
         let mut issues = Vec::new();
         if !matches!(
             self.spec_version.as_str(),
-            LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
+            LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_SPEC_VERSION",
                 "spec_version",
-                "Specification version must be 0.2.0, 0.3.0, or 0.4.0.",
+                "Specification version must be 0.2.0, 0.3.0, 0.4.0, or 0.5.0.",
             ));
         }
         if validate_proof_id(&self.proof_id).is_err() {
@@ -312,10 +395,10 @@ impl Manifest {
                 "security",
                 "Protocol 0.3 manifests require creator signature metadata.",
             )),
-            (SCHEMA_VERSION, Some(security)) => {
+            (TRUSTED_SCHEMA_VERSION, Some(security)) => {
                 validate_creator_signature(
                     &security.creator_signature,
-                    CREATOR_SIGNATURE_PROFILE,
+                    CREATOR_SIGNATURE_PROFILE_V04,
                     &mut issues,
                 );
                 match security.trusted_timestamp.as_ref() {
@@ -331,10 +414,34 @@ impl Manifest {
                     )),
                 }
             }
-            (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+            (TRUSTED_SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
                 "CREATOR_SIGNATURE_ABSENT",
                 "security",
                 "Protocol 0.4 manifests require creator signature and timestamp-plan metadata.",
+            )),
+            (SCHEMA_VERSION, Some(security)) => {
+                validate_creator_signature(
+                    &security.creator_signature,
+                    CREATOR_SIGNATURE_PROFILE,
+                    &mut issues,
+                );
+                match security.trusted_timestamp.as_ref() {
+                    Some(timestamp) => validate_trusted_timestamp(
+                        timestamp,
+                        &security.creator_signature.signature_id,
+                        &mut issues,
+                    ),
+                    None => issues.push(ValidationIssue::new(
+                        "TRUSTED_TIMESTAMP_PLAN_ABSENT",
+                        "security.trusted_timestamp",
+                        "Protocol 0.5 manifests require a predeclared RFC 3161 timestamp plan.",
+                    )),
+                }
+            }
+            (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+                "CREATOR_SIGNATURE_ABSENT",
+                "security",
+                "Protocol 0.5 manifests require creator signature and timestamp-plan metadata.",
             )),
             _ => {}
         }
@@ -498,6 +605,173 @@ impl TsaTrustProfile {
         }
         issues
     }
+}
+
+impl C2paTrustProfile {
+    pub fn validate(&self) -> Vec<ValidationIssue> {
+        let mut issues = Vec::new();
+        if self.profile != C2PA_TRUST_PROFILE {
+            issues.push(ValidationIssue::new(
+                "C2PA_TRUST_PROFILE_UNSUPPORTED",
+                "profile",
+                "C2PA trust profile identifier is unsupported.",
+            ));
+        }
+        validate_c2pa_trust_snapshot("signer", &self.signer, &mut issues);
+        validate_c2pa_trust_snapshot("timestamp", &self.timestamp, &mut issues);
+        issues
+    }
+}
+
+impl C2paObservation {
+    pub fn validate(&self) -> Vec<ValidationIssue> {
+        let mut issues = Vec::new();
+        if self.profile != C2PA_BRIDGE_PROFILE {
+            issues.push(ValidationIssue::new(
+                "C2PA_OBSERVATION_PROFILE_UNSUPPORTED",
+                "profile",
+                "C2PA observation profile is unsupported.",
+            ));
+        }
+        if validate_uuid(&self.asset_id).is_err() {
+            issues.push(ValidationIssue::new(
+                "C2PA_ASSET_ID_INVALID",
+                "asset_id",
+                "C2PA observation asset ID must be a lowercase UUID.",
+            ));
+        }
+        for (field, digest) in [
+            ("asset_sha256", &self.asset_sha256),
+            ("manifest_store_sha256", &self.manifest_store_sha256),
+            (
+                "signer_trust_snapshot_sha256",
+                &self.signer_trust_snapshot_sha256,
+            ),
+            (
+                "timestamp_trust_snapshot_sha256",
+                &self.timestamp_trust_snapshot_sha256,
+            ),
+        ] {
+            if validate_sha256_hex(digest).is_err() {
+                issues.push(ValidationIssue::new(
+                    "C2PA_DIGEST_INVALID",
+                    field,
+                    "C2PA observation digests must be lowercase SHA-256 hexadecimal.",
+                ));
+            }
+        }
+        if !matches!(self.claim_version, 1 | 2) {
+            issues.push(ValidationIssue::new(
+                "C2PA_CLAIM_VERSION_UNSUPPORTED",
+                "claim_version",
+                "Only C2PA claim versions 1 and 2 are supported by this bridge profile.",
+            ));
+        }
+        if !valid_c2pa_text(&self.active_manifest, 512) {
+            issues.push(ValidationIssue::new(
+                "C2PA_ACTIVE_MANIFEST_INVALID",
+                "active_manifest",
+                "Active manifest label must be bounded visible NFC text without controls.",
+            ));
+        }
+        for (field, codes) in [
+            ("success_codes", &self.success_codes),
+            ("informational_codes", &self.informational_codes),
+            ("failure_codes", &self.failure_codes),
+        ] {
+            if codes.len() > 256
+                || codes.iter().any(|code| !valid_c2pa_status_code(code))
+                || codes.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                issues.push(ValidationIssue::new(
+                    "C2PA_STATUS_CODES_INVALID",
+                    field,
+                    "C2PA status codes must be unique, sorted and bounded protocol tokens.",
+                ));
+            }
+        }
+        if matches!(self.validation_state, C2paValidationState::Trusted)
+            && !matches!(self.signer_trust, C2paTrustState::Trusted)
+        {
+            issues.push(ValidationIssue::new(
+                "C2PA_TRUST_STATE_INCONSISTENT",
+                "signer_trust",
+                "A trusted C2PA observation requires a trusted signer result.",
+            ));
+        }
+        issues
+    }
+}
+
+fn validate_c2pa_trust_snapshot(
+    field: &str,
+    snapshot: &C2paTrustSnapshot,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    if validate_display_label(&snapshot.source_label).is_err() {
+        issues.push(ValidationIssue::new(
+            "C2PA_TRUST_SOURCE_LABEL_INVALID",
+            format!("{field}.source_label"),
+            "C2PA trust snapshot source label must be non-empty safe NFC text.",
+        ));
+    }
+    if snapshot.trust_anchors_pem.is_empty()
+        || snapshot.trust_anchors_pem.len() > 32
+        || snapshot
+            .trust_anchors_pem
+            .iter()
+            .any(|value| !valid_pem_certificate(value))
+    {
+        issues.push(ValidationIssue::new(
+            "C2PA_TRUST_ANCHORS_INVALID",
+            format!("{field}.trust_anchors_pem"),
+            "C2PA trust snapshot must contain one to 32 bounded PEM certificates and no private material.",
+        ));
+    }
+    if snapshot.allowed_ekus.is_empty()
+        || snapshot.allowed_ekus.len() > 32
+        || snapshot.allowed_ekus.iter().any(|value| !valid_oid(value))
+    {
+        issues.push(ValidationIssue::new(
+            "C2PA_TRUST_EKUS_INVALID",
+            format!("{field}.allowed_ekus"),
+            "C2PA trust snapshot must contain one to 32 valid extended-key-usage OIDs.",
+        ));
+    }
+    if validate_canonical_timestamp(&snapshot.effective_at).is_err()
+        || validate_canonical_timestamp(&snapshot.expires_at).is_err()
+        || snapshot.effective_at >= snapshot.expires_at
+    {
+        issues.push(ValidationIssue::new(
+            "C2PA_TRUST_VALIDITY_INVALID",
+            format!("{field}.effective_at"),
+            "C2PA trust snapshot effective and expiry times must be ordered canonical UTC timestamps.",
+        ));
+    }
+}
+
+fn valid_pem_certificate(value: &str) -> bool {
+    value.len() <= 256 * 1024
+        && value.is_ascii()
+        && value.starts_with("-----BEGIN CERTIFICATE-----\n")
+        && value.ends_with("-----END CERTIFICATE-----\n")
+        && !value.contains("PRIVATE")
+        && !value.contains('\0')
+}
+
+fn valid_c2pa_text(value: &str, max_bytes: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max_bytes
+        && value.nfc().eq(value.chars())
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_c2pa_status_code(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
 }
 
 fn valid_oid(value: &str) -> bool {
@@ -932,6 +1206,8 @@ pub struct VerificationReport {
     pub creator_signature: Option<CreatorSignatureEvidence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trusted_time: Option<TrustedTimeEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c2pa: Option<C2paEvidence>,
     pub checks: Vec<CheckResult>,
     pub errors: Vec<VerificationError>,
     pub warnings: Vec<VerificationWarning>,

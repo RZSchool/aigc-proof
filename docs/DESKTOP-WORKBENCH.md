@@ -1,11 +1,11 @@
-# Desktop Workbench 0.7.0
+# Desktop Workbench 0.8.0
 
 ## Architecture
 
 The primary desktop frontend is a local-first React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 1.6.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 1.7.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -21,7 +21,7 @@ or native loading. The Standalone implementation issues opaque, expiring, kind-s
 references for native selections and recent records. Display labels and paths are user clarity
 only; Main resolves the stored authority and rechecks the selected path when each operation runs.
 
-Native discovery reports API 1.5.0, engine 0.4.0, supported protocols 0.2.0, 0.3.0, and 0.4.0, implemented capabilities,
+Native discovery reports API 1.6.0, engine 0.5.0, supported protocols 0.2.0, 0.3.0, 0.4.0, and 0.5.0, implemented capabilities,
 execution facts, and runtime limits. The Utility handshake confirms process isolation and phase
 progress; safe interruption of an already-running atomic Rust operation remains unavailable.
 Missing, malformed, incompatible, capability-inconsistent, or limit-inconsistent discovery stops
@@ -123,6 +123,8 @@ all five asset roles and the explicitly opened advanced disclosure,
 real ComfyUI creation, automatic output ingestion, snapshot/evidence review, creation seal/verify/
 report, visible thumbnail, exact no-clobber image export, independent output match, modified and
 non-output classification, invalid-package refusal, restart/export/match, native CLI verification,
+offline C2PA JPEG/PNG/WebP embedded and explicit-sidecar inspection, remote/PDF/soft-binding
+rejection, digest-bound observation creation,
 record, manual seal/no-clobber, verify, report/no-clobber, inspect, reopen, SQLite restart/rebuild/
 corruption recovery, queue/cancellation, Utility crash/restart/no-replay, Unicode/space paths,
 malformed/tampered rejection, and clean exits. It also captures and inspects the unified page at
@@ -132,7 +134,7 @@ launch, disabled CDP, and clean exit.
 
 ## Local creator identity
 
-Workbench 0.7.0 manages one local Ed25519 identity through the operating-system credential store.
+Workbench 0.8.0 manages one local Ed25519 identity through the operating-system credential store.
 The renderer sees status, self-asserted display label, public fingerprint, and warnings only. Main
 validates every request and the Utility invokes the Rust signer. Creation, rotation, disable, and
 each package signature require explicit user actions. Private bytes never enter renderer, preload,
@@ -158,11 +160,25 @@ response before a new no-clobber package is published. Cancellation and acquisit
 the creator signature valid and publish no package. All later verification is offline against the
 explicit snapshot. See [Trusted Time Profile](TRUSTED-TIME-PROFILE.md).
 
+## C2PA 2.2 bridge
+
+The C2PA panel imports one explicit signer/TSA trust profile for the current process and accepts
+only a user-selected JPEG, PNG, WebP, and optional lowercase local `.c2pa` sidecar. Main validates
+opaque regular-file references and the Utility performs bounded SDK validation with all remote
+manifest, OCSP, and soft-binding fetch behavior disabled. The UI shows claim version, source mode,
+media/manifest digests, validation state, signer trust, and timestamp trust separately.
+
+An ingested workspace image can receive a `c2pa_observation` only after Rust rehashes it and
+matches the recorded asset digest. The observation is subsequently covered by the event chain and
+creator signature. Standalone Workbench has no C2PA certificate private-key import or production
+writer. C2PA validity is provenance metadata, not truth, human identity, authorship, originality,
+ownership, copyright, permission, or non-infringement. See [C2PA Bridge Profile](C2PA-BRIDGE.md).
+
 ## Scope
 
-Workbench 0.7.0 uses protocol 0.4.0, verifies signed 0.3.0 and legacy unsigned 0.2.0, and evaluates internal
-integrity, creator signatures, optional RFC 3161 trusted time, and exact byte correspondence to verified package assets. It does
-not provide C2PA, external creator identity, originality evaluation, copyright or ownership
+Workbench 0.8.0 uses protocol 0.5.0, verifies protocol 0.4.0/0.3.0 and legacy unsigned 0.2.0, and evaluates internal
+integrity, creator signatures, optional RFC 3161 trusted time, optional bounded C2PA observations, and exact byte correspondence to verified package assets. It does
+not provide external creator identity, originality evaluation, copyright or ownership
 determinations, official services, accounts, upload, or WASM.
 
 The previous Win32 tactical preview was retired from the source workspace only after the packaged

@@ -172,6 +172,48 @@ describe("Utility supervisor", () => {
     }
   });
 
+  it("removes owned add-asset temporary files before reporting Utility loss", async () => {
+    const child = new FakeUtility(4231);
+    forkMock.mockReturnValue(child);
+    const supervisor = new UtilitySupervisor();
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aigc-proof-cleanup-"),
+    );
+    const assetDirectory = path.join(root, "assets", "other");
+    const temporary = path.join(assetDirectory, ".aigc-proof-asset-fixture");
+    await fs.mkdir(assetDirectory, { recursive: true });
+    await fs.writeFile(temporary, "partial", "utf8");
+    try {
+      const starting = supervisor.start();
+      child.emit("message", ready());
+      await starting;
+      const executing = supervisor.execute(
+        `job_${"c".repeat(32)}`,
+        {
+          operation: "addAsset",
+          payload: {
+            workspace: root,
+            source: path.join(root, "source.bin"),
+            role: "other",
+          },
+        },
+        vi.fn(),
+      );
+      await Promise.resolve();
+      child.pid = undefined;
+      child.emit("exit", 74);
+      await expect(executing).resolves.toMatchObject({
+        ok: false,
+        error: { code: "UTILITY_PROCESS_LOST" },
+      });
+      await expect(fs.stat(temporary)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("kills a Utility that exceeds the bounded progress rate", async () => {
     const child = new FakeUtility(4251);
     forkMock.mockReturnValue(child);

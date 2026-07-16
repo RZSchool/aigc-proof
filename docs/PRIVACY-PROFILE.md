@@ -1,10 +1,10 @@
-# Privacy Profile 0.4
+# Privacy Profile 0.5
 
 The CLI runs offline and does not automatically upload workspaces, packages, prompts, parameters, or assets.
 
 Event payloads are supplied through JSON files so sensitive prompt text does not need to appear directly in shell command history. The JSON file and package may still contain sensitive prompts, model parameters, personal data, licenses, and source assets.
 
-Version 0.4 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace and package contents before sharing them. File, key, profile, and signature digests can reveal equality and should not be treated as anonymous.
+Version 0.5 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace and package contents before sharing them. File, key, trust-profile, signature, C2PA manifest-store, and certificate-snapshot digests can reveal equality and should not be treated as anonymous.
 
 Raw external absolute paths are not stored in the Manifest. original_name is retained, so filenames themselves may be sensitive.
 
@@ -17,7 +17,7 @@ directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.7.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 0.8.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
@@ -46,7 +46,7 @@ unbounded logs. Declared checkpoint names and original asset filenames can still
 and hashes may reveal equality with known content.
 
 The local creator display label and public key fingerprint are intentionally embedded in each
-signed 0.3/0.4 package and may link packages made with the same key. The private key remains in the
+signed 0.3/0.4/0.5 package and may link packages made with the same key. The private key remains in the
 operating-system credential store and is never written to packages, workspaces, reports, SQLite,
 renderer/preload IPC, or logs. Rotation creates a new linkability domain; it does not erase the
 public identity evidence in already shared packages.
@@ -58,3 +58,12 @@ metadata; it does not receive the Manifest, assets, prompt, creator label, publi
 bytes from this adapter. Ordinary verification remains offline. Imported TSA profiles and their
 private HTTPS roots are held only for the current process and are not persisted in SQLite or the
 proof package.
+
+C2PA inspection is offline and receives only image bytes, an explicitly selected local sidecar,
+and an explicitly imported session trust profile. Remote-manifest and soft-binding lookup, OCSP,
+telemetry, and automatic trust retrieval are disabled. The portable observation records exact
+image/manifest-store and trust-snapshot SHA-256 values, active manifest label, and normalized SDK
+status codes; these values may link the same media, manifest, certificate population, or trust
+profile across packages. Arbitrary assertion explanations, ingredient text, certificate subjects,
+and remote content are not copied into the event or trusted UI. Imported C2PA roots remain
+session-only and are not persisted in SQLite or bundled with the product.

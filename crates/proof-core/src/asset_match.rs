@@ -170,7 +170,7 @@ fn metadata_changed(before: &fs::Metadata, after: &fs::Metadata) -> bool {
         || timestamp(before.created()) != timestamp(after.created())
 }
 
-fn detect_image_media_type(file: &mut File, path: &Path) -> CoreResult<&'static str> {
+pub(crate) fn detect_image_media_type(file: &mut File, path: &Path) -> CoreResult<&'static str> {
     let mut header = [0_u8; 12];
     let mut read = 0;
     while read < header.len() {

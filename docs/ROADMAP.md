@@ -9,12 +9,13 @@
 ```
 
 Version 0.2 remains the frozen unsigned compatibility profile. Version 0.3 creator signatures are
-complete under AP-031. Version 0.4 RFC 3161 trusted time is the AP-032 phase and does not
-retroactively add assurance to 0.2/0.3 packages.
+complete under AP-031. Version 0.4 RFC 3161 trusted time is complete under AP-032, and the bounded
+offline C2PA 2.2 bridge is the AP-033 protocol 0.5 phase. Later versions never retroactively add
+assurance to older packages.
 
-The desktop workbench has an independent application version. Workbench 0.7.0 is a local-first
-Electron/React client of the 0.4.0 Rust engine, using `ProofHostApi` 1.6.0, fail-closed
-native API 1.5.0 discovery, typed opaque references, bounded Main-owned jobs, a supervised
+The desktop workbench has an independent application version. Workbench 0.8.0 is a local-first
+Electron/React client of the 0.5.0 Rust engine, using `ProofHostApi` 1.7.0, fail-closed
+native API 1.6.0 discovery, typed opaque references, bounded Main-owned jobs, a supervised
 Utility-only napi-rs boundary, a reusable Node creation core, a loopback-only ComfyUI v0.27.0
 adapter, exact no-clobber creation-output export, byte-for-byte verified-package output matching,
 workspace-scoped explicit history restoration, and disposable SQLite application state. Its full workflow is one menu-free scrollable
@@ -23,8 +24,9 @@ earlier Win32 preview was retired from primary use only after packaged replaceme
 succeeded.
 
 Local COSE/Ed25519 signatures are the 0.3/AP-031 phase; explicit RFC 3161 acquisition and offline
-verification are the 0.4/AP-032 phase. C2PA, official identity services, production KMS/HSM,
-S3-backed services, and WASM remain separate reviewed phases and are not implied by Workbench 0.7.0.
+verification are the 0.4/AP-032 phase; bounded C2PA 2.2 observation is the 0.5/AP-033 phase.
+Official identity services, production C2PA signing/KMS/HSM, S3-backed services, and WASM remain
+separate reviewed phases and are not implied by Workbench 0.8.0.
 
 ## Rights Protection product track
 

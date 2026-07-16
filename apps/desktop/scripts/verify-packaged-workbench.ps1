@@ -9,6 +9,7 @@ $exe = Join-Path $PackageDirectory "AIGC-Proof.exe"
 $required = @(
     $exe,
     (Join-Path $PackageDirectory "README.txt"),
+    (Join-Path $PackageDirectory "THIRD_PARTY_NOTICES.md"),
     (Join-Path $PackageDirectory "artifact-metadata.json"),
     (Join-Path $PackageDirectory "resources\app.asar"),
     (Join-Path $PackageDirectory "resources\native\proof_napi.node"),
@@ -22,6 +23,9 @@ $required = @(
     (Join-Path $QaEvidence "image-output-match.png"),
     (Join-Path $QaEvidence "capability-diagnostics.png"),
     (Join-Path $QaEvidence "trusted-time-valid.png"),
+    (Join-Path $QaEvidence "c2pa-embedded-valid.png"),
+    (Join-Path $QaEvidence "c2pa-sidecar-valid.png"),
+    (Join-Path $QaEvidence "c2pa-observation-recorded.png"),
     (Join-Path $QaEvidence "layout-1320x880-top.png"),
     (Join-Path $QaEvidence "layout-1320x880-middle.png"),
     (Join-Path $QaEvidence "layout-1320x880-lower.png"),
@@ -40,21 +44,21 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $qa = [IO.File]::ReadAllText($qaPath, $utf8NoBom) | ConvertFrom-Json
 $metadataPath = Join-Path $PackageDirectory "artifact-metadata.json"
 $metadata = [IO.File]::ReadAllText($metadataPath, $utf8NoBom) | ConvertFrom-Json
-if ($metadata.workbench_version -ne "0.7.0" -or
-    $metadata.host_contract_version -ne "1.6.0" -or
-    $metadata.native_api_version -ne "1.5.0" -or
-    $metadata.native_engine_version -ne "0.4.0" -or
-    $metadata.protocol_version -ne "0.4.0") {
+if ($metadata.workbench_version -ne "0.8.0" -or
+    $metadata.host_contract_version -ne "1.7.0" -or
+    $metadata.native_api_version -ne "1.6.0" -or
+    $metadata.native_engine_version -ne "0.5.0" -or
+    $metadata.protocol_version -ne "0.5.0") {
     throw "Packaged artifact version metadata is invalid."
 }
 if ($qa.result -ne "PASS" -or
     $qa.mode -ne "packaged" -or
     $qa.protocol -ne "file:" -or
-    $qa.workbenchVersion -ne "0.7.0" -or
-    $qa.contractVersion -ne "1.6.0" -or
-    $qa.nativeApiVersion -ne "1.5.0" -or
-    $qa.engineVersion -ne "0.4.0" -or
-    $qa.protocolVersion -ne "0.4.0") {
+    $qa.workbenchVersion -ne "0.8.0" -or
+    $qa.contractVersion -ne "1.7.0" -or
+    $qa.nativeApiVersion -ne "1.6.0" -or
+    $qa.engineVersion -ne "0.5.0" -or
+    $qa.protocolVersion -ne "0.5.0") {
     throw "Packaged CDP QA result is invalid."
 }
 if (($qa.steps | Where-Object result -ne "PASS").Count -ne 0) {

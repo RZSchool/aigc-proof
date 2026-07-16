@@ -170,6 +170,96 @@ fn real_cli_rejects_tampering_and_malicious_zip() {
     assert_report_error(&output.stdout, "ZIP_ENTRY_PATH_UNSAFE");
 }
 
+#[test]
+fn real_cli_inspects_and_records_a_digest_bound_c2pa_observation() {
+    let Some(corpus) = std::env::var_os("AIGC_PROOF_C2PA_CORPUS_DIR") else {
+        eprintln!("skipped: AIGC_PROOF_C2PA_CORPUS_DIR is not configured");
+        return;
+    };
+    let corpus = std::path::PathBuf::from(corpus);
+    let temp = TempDir::new().unwrap();
+    fs::copy(
+        corpus.join("embedded-v2.jpg"),
+        temp.path().join("signed.jpg"),
+    )
+    .unwrap();
+    fs::copy(
+        corpus.join("trust-profile.json"),
+        temp.path().join("c2pa-trust.json"),
+    )
+    .unwrap();
+    fs::copy(
+        corpus.join("remote-reference.png"),
+        temp.path().join("remote.png"),
+    )
+    .unwrap();
+    let profile = success(temp.path(), &["c2pa", "profile", "c2pa-trust.json"]);
+    let summary: Value = serde_json::from_slice(&profile.stdout).unwrap();
+    assert_eq!(summary["profile"], "aigc-proof.c2pa-trust-profile.v1");
+    let inspection = success(
+        temp.path(),
+        &[
+            "c2pa",
+            "inspect",
+            "--asset",
+            "signed.jpg",
+            "--trust-profile",
+            "c2pa-trust.json",
+        ],
+    );
+    let inspection: Value = serde_json::from_slice(&inspection.stdout).unwrap();
+    assert_eq!(inspection["claim_version"], 2);
+    assert_eq!(inspection["source_mode"], "embedded");
+    assert_eq!(inspection["validation_state"], "trusted");
+
+    success(temp.path(), &["init", "workspace"]);
+    success(
+        temp.path(),
+        &["add", "workspace", "signed.jpg", "--role", "output"],
+    );
+    let workspace: Value = serde_json::from_slice(
+        &fs::read(temp.path().join("workspace/proof-workspace.json")).unwrap(),
+    )
+    .unwrap();
+    let asset_id = workspace["assets"][0]["asset_id"].as_str().unwrap();
+    success(
+        temp.path(),
+        &[
+            "c2pa",
+            "observe",
+            "--workspace",
+            "workspace",
+            "--asset-id",
+            asset_id,
+            "--trust-profile",
+            "c2pa-trust.json",
+        ],
+    );
+    let events: Value = serde_json::from_slice(
+        &fs::read(temp.path().join("workspace/events/events.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(events[0]["event_type"], "c2pa_observation");
+    assert_eq!(
+        events[0]["payload"]["asset_sha256"],
+        workspace["assets"][0]["sha256"]
+    );
+
+    let remote = run(
+        temp.path(),
+        &[
+            "c2pa",
+            "inspect",
+            "--asset",
+            "remote.png",
+            "--trust-profile",
+            "c2pa-trust.json",
+        ],
+    );
+    assert_eq!(remote.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&remote.stderr).contains("C2PA_MANIFEST_NOT_FOUND"));
+}
+
 fn rewrite_package(source: &Path, destination: &Path, mutation: &str) {
     let mut archive = zip::ZipArchive::new(File::open(source).unwrap()).unwrap();
     let mut writer = zip::ZipWriter::new(File::create(destination).unwrap());

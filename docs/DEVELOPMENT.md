@@ -1,6 +1,6 @@
 # Development
 
-rust-toolchain.toml pins Rust 1.85.0 with rustfmt and Clippy. Restore repository context using AGENTS.md and the required Git commands before every task.
+rust-toolchain.toml pins Rust 1.88.0 with rustfmt and Clippy. Restore repository context using AGENTS.md and the required Git commands before every task.
 
 Required validation order:
 
@@ -14,7 +14,7 @@ scripts/smoke-test.sh
 ~~~
 
 Run cargo metadata --format-version 1 and cargo tree when the toolchain is available. Retain the generated Cargo.lock. cargo audit is optional only when already installed.
-CI uses Rust 1.85.0 explicitly, consumes Cargo.lock with `--locked`, and covers Ubuntu,
+CI uses Rust 1.88.0 explicitly, consumes Cargo.lock with `--locked`, and covers Ubuntu,
 Windows, and macOS. The shell smoke path runs on Ubuntu and macOS; `scripts/smoke-test.ps1`
 runs the equivalent native PowerShell path on Windows. `scripts/test.ps1` runs the complete
 locked Windows check sequence and then invokes that smoke test. The real binary integration
@@ -44,8 +44,8 @@ over a loopback CDP port enabled only by the dedicated QA flag. `pnpm qa:package
 the packaged ASAR and native addon. On native Windows, `scripts/package-workbench.ps1` builds the
 addon and directly launchable folder, while `scripts/verify-packaged-workbench.ps1` checks normal
 launch, disabled CDP, and clean exit. Passing source tests alone is not packaged acceptance.
-Workbench startup validates the supervised Utility's native API 1.5.0 / engine 0.4.0 / protocol
-0.2.0, 0.3.0, and 0.4.0 discovery, execution facts, and limits before proof IPC registration. Main is the authority,
+Workbench startup validates the supervised Utility's native API 1.6.0 / engine 0.5.0 / protocol
+0.2.0, 0.3.0, 0.4.0, and 0.5.0 discovery, execution facts, and limits before proof IPC registration. Main is the authority,
 job scheduler, SQLite owner, and result publisher; only Utility source may load
 `proof_napi.node`. The QA-only selection manifest and crash command are accepted only together
 with the explicit QA/CDP flag; normal launch cannot use either surface.
@@ -66,6 +66,14 @@ redirect/media/size/timeout/substitution failures, exercises cancellation, and c
 failed timestamp acquisition never invalidates the creator signature. Test keys and responses
 remain under the scheme evidence directory and never enter Git or the packaged app.
 
+AP-033 acceptance additionally pins the official C2PA SDK, conformance, attacks, and c2patool
+reference inputs under `test-results/AP-033`. Set `AIGC_PROOF_C2PA_SDK_FIXTURES` for the Rust
+bridge corpus tests and `AIGC_PROOF_C2PA_CORPUS_DIR` for desktop QA. The harness inspects real
+claim-v2 JPEG/PNG/WebP embedded and no-embed sidecar fixtures, records a workspace digest-bound
+observation, and rejects remote references, unsupported media, soft binding, tampering, and
+malformed/limit cases. Test certificates and private keys remain evidence-only and are never
+packaged.
+
 The smoke tests execute the real init/add/record/seal/verify/inspect binary flow and parse the
 persisted JSON report. The PowerShell path also supplies CRLF input and event JSON. Static review
 or cargo check alone is not a program test.
@@ -73,7 +81,7 @@ or cargo check alone is not a program test.
 If rustup is missing, install it only from the official Rust project, then install the pinned toolchain:
 
 ~~~bash
-rustup toolchain install 1.85.0 --profile default --component rustfmt clippy
+rustup toolchain install 1.88.0 --profile default --component rustfmt clippy
 ~~~
 
 Never claim tests passed when the toolchain or executable path did not run.

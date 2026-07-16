@@ -20,6 +20,10 @@ import {
   addAssetRequestSchema,
   addAssetResultSchema,
   assetSchema,
+  c2paInspectionSchema,
+  c2paTrustProfileRequestSchema,
+  c2paTrustProfileSummarySchema,
+  createC2paObservationRequestSchema,
   completeCreationProofRequestSchema,
   disableSignerRequestSchema,
   createCreationSessionRequestSchema,
@@ -29,6 +33,7 @@ import {
   creationSnapshotSchema,
   exportCreationOutputRequestSchema,
   exportedCreationOutputSchema,
+  eventRecordSchema,
   freezeCreationSessionRequestSchema,
   getCreationSessionsRequestSchema,
   hostDiagnosticsSchema,
@@ -38,6 +43,7 @@ import {
   initializeWorkspaceRequestSchema,
   inspectProviderInstallationRequestSchema,
   inspectionSchema,
+  inspectC2paRequestSchema,
   jobCreateRequestSchema,
   localSignerStatusSchema,
   packageRequestSchema,
@@ -70,6 +76,7 @@ import {
   type JobSnapshot,
   type VerificationReport,
   type TsaProfileSummary,
+  type C2paTrustProfileSummary,
   type WorkbenchState,
   type WorkspaceParentReference,
   type WorkspaceSummary,
@@ -101,6 +108,7 @@ const WORKSPACE_PERMISSIONS = [
   "sealPackage",
   "exportWorkspaceOutput",
   "getCreationSessions",
+  "createC2paObservation",
 ] as const;
 const nativeWorkspaceSummarySchema = z
   .object({ path: localPathSchema, workspace: workspaceSchema })
@@ -175,6 +183,9 @@ const nativeAttachedTimestampSchema = z
     timestampPath: localPathSchema,
     trustedTime: z.string().min(1),
   })
+  .strict();
+const nativeC2paObservationResultSchema = z
+  .object({ event: eventRecordSchema, workspace: workspaceSchema })
   .strict();
 const tsaProfileTransportSchema = z
   .object({
@@ -418,6 +429,10 @@ export async function registerIpc(
   const tsaProfiles = new Map<
     number,
     { rawJson: string; summary: TsaProfileSummary; httpsRoots: string[] }
+  >();
+  const c2paProfiles = new Map<
+    number,
+    { rawJson: string; summary: C2paTrustProfileSummary }
   >();
   const timestampAbortControllers = new Map<number, AbortController>();
   let creationEventSequence = 0;
@@ -1755,6 +1770,55 @@ export async function registerIpc(
         )
       : null;
   });
+  ipcMain.handle(channels.chooseC2paTrustProfile, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "c2paTrustProfiles", {
+      title: "Import C2PA trust profile",
+      buttonLabel: "Import trust profile",
+      properties: ["openFile"],
+      filters: [{ name: "C2PA trust profile", extensions: ["json"] }],
+    });
+    return selected
+      ? registry.issue(
+          "c2pa-trust-profile",
+          selected,
+          event.sender.id,
+          ["importC2paTrustProfile"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.chooseC2paImage, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "c2paImages", {
+      title: "Select a C2PA image",
+      buttonLabel: "Select image",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "Supported images",
+          extensions: ["jpg", "jpeg", "png", "webp"],
+        },
+      ],
+    });
+    return selected
+      ? registry.issue("image", selected, event.sender.id, ["inspectC2paImage"])
+      : null;
+  });
+  ipcMain.handle(channels.chooseC2paSidecar, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "c2paSidecars", {
+      title: "Select an explicit local C2PA sidecar",
+      buttonLabel: "Select sidecar",
+      properties: ["openFile"],
+      filters: [{ name: "C2PA sidecar", extensions: ["c2pa"] }],
+    });
+    return selected
+      ? registry.issue("c2pa-sidecar", selected, event.sender.id, [
+          "inspectC2paImage",
+          "createC2paObservation",
+        ])
+      : null;
+  });
   ipcMain.handle(channels.importTsaProfile, async (event, raw: unknown) => {
     const request = validated(tsaProfileRequestSchema, raw);
     if (isFailure(request)) return request;
@@ -1815,6 +1879,132 @@ export async function registerIpc(
     ok: true,
     data: tsaProfiles.get(event.sender.id)?.summary ?? null,
   }));
+  ipcMain.handle(
+    channels.importC2paTrustProfile,
+    async (event, raw: unknown) => {
+      const request = validated(c2paTrustProfileRequestSchema, raw);
+      if (isFailure(request)) return request;
+      try {
+        const selected = await registry.resolve(
+          request.profile,
+          "c2pa-trust-profile",
+          event.sender.id,
+          "importC2paTrustProfile",
+        );
+        const metadata = await fs.lstat(selected);
+        if (
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          metadata.size > 4 * 1024 * 1024
+        ) {
+          throw new Error(
+            "C2PA_TRUST_PROFILE_FILE_INVALID: trust profile must be a regular file no larger than 4 MiB.",
+          );
+        }
+        const rawJson = await fs.readFile(selected, "utf8");
+        const summary = c2paTrustProfileSummarySchema.parse(
+          await executeUtility({
+            operation: "validateC2paProfile",
+            payload: { profileJson: rawJson },
+          }),
+        );
+        c2paProfiles.set(event.sender.id, { rawJson, summary });
+        registry.consume(
+          request.profile,
+          "c2pa-trust-profile",
+          event.sender.id,
+          "importC2paTrustProfile",
+        );
+        return { ok: true, data: summary };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+  ipcMain.handle(channels.getC2paTrustProfileStatus, (event) => ({
+    ok: true,
+    data: c2paProfiles.get(event.sender.id)?.summary ?? null,
+  }));
+  ipcMain.handle(channels.inspectC2paImage, async (event, raw: unknown) => {
+    const request = validated(inspectC2paRequestSchema, raw);
+    if (isFailure(request)) return request;
+    try {
+      const profile = c2paProfiles.get(event.sender.id);
+      if (!profile) {
+        throw new Error(
+          "C2PA_TRUST_PROFILE_NOT_IMPORTED: import an explicit C2PA trust profile first.",
+        );
+      }
+      const asset = await registry.resolve(
+        request.image,
+        "image",
+        event.sender.id,
+        "inspectC2paImage",
+      );
+      const sidecar = request.sidecar
+        ? await registry.resolve(
+            request.sidecar,
+            "c2pa-sidecar",
+            event.sender.id,
+            "inspectC2paImage",
+          )
+        : undefined;
+      const inspection = await executeUtility({
+        operation: "inspectC2pa",
+        payload: {
+          asset,
+          ...(sidecar ? { sidecar } : {}),
+          profileJson: profile.rawJson,
+        },
+      });
+      return { ok: true, data: c2paInspectionSchema.parse(inspection) };
+    } catch (error) {
+      return failure(error);
+    }
+  });
+  ipcMain.handle(
+    channels.createC2paObservation,
+    async (event, raw: unknown) => {
+      const request = validated(createC2paObservationRequestSchema, raw);
+      if (isFailure(request)) return request;
+      try {
+        const profile = c2paProfiles.get(event.sender.id);
+        if (!profile) {
+          throw new Error(
+            "C2PA_TRUST_PROFILE_NOT_IMPORTED: import an explicit C2PA trust profile first.",
+          );
+        }
+        const workspace = await registry.resolve(
+          request.workspace,
+          "workspace",
+          event.sender.id,
+          "createC2paObservation",
+        );
+        const sidecar = request.sidecar
+          ? await registry.resolve(
+              request.sidecar,
+              "c2pa-sidecar",
+              event.sender.id,
+              "createC2paObservation",
+            )
+          : undefined;
+        const result = nativeC2paObservationResultSchema.parse(
+          await executeUtility({
+            operation: "createC2paObservation",
+            payload: {
+              workspace,
+              assetId: request.assetId,
+              ...(sidecar ? { sidecar } : {}),
+              profileJson: profile.rawJson,
+            },
+          }),
+        );
+        return { ok: true, data: result };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
   ipcMain.handle(
     channels.requestTrustedTimestamp,
     async (event, raw: unknown) => {

@@ -5,6 +5,8 @@ import {
   PROTOCOL_VERSION,
   RUNTIME_LIMITS,
 } from "@aigc-proof/host-contracts";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { validateNativeAddonDiscovery } from "./native-contract";
@@ -58,5 +60,19 @@ describe("native compatibility gate", () => {
       }),
     ).toThrow(expect.objectContaining({ code: "NATIVE_API_INCOMPATIBLE" }));
     expect(initializeWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("freezes C2PA Node-API export names instead of relying on acronym casing", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../../../../crates/proof-napi/src/lib.rs"),
+      "utf8",
+    );
+    for (const exportName of [
+      "validateC2paProfile",
+      "inspectC2paImage",
+      "createWorkspaceC2paObservation",
+    ]) {
+      expect(source).toContain(`#[napi(js_name = "${exportName}")]`);
+    }
   });
 });

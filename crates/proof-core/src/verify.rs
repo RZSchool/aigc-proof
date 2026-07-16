@@ -4,13 +4,14 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use proof_schema::{
-    Assurance, CheckResult, CheckStatus, CreatorSignatureEvidence, EVENTS_PATH, Event,
+    Assurance, C2PA_OBSERVATION_EVENT, C2paAssurance, C2paEvidence, C2paObservation,
+    C2paValidationState, CheckResult, CheckStatus, CreatorSignatureEvidence, EVENTS_PATH, Event,
     IdentityAssurance, Inspection, InternalIntegrity, LEGACY_SCHEMA_VERSION, LocalTrust,
     MANIFEST_PATH, Manifest, RevocationEvidenceState, SCHEMA_VERSION, SIGNED_SCHEMA_VERSION,
-    SignatureAssurance, TRUSTED_TIMESTAMP_PROFILE, TimeAssurance, TrustedTimeEvidence,
-    VerificationError, VerificationReport, VerificationStatus, VerificationWarning,
-    display_label_needs_confusable_warning, parse_json_strict, validate_event_schema,
-    validate_manifest_schema, validate_package_path, validate_proof_id,
+    SignatureAssurance, TRUSTED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PROFILE, TimeAssurance,
+    TrustedTimeEvidence, VerificationError, VerificationReport, VerificationStatus,
+    VerificationWarning, display_label_needs_confusable_warning, parse_json_strict,
+    validate_event_schema, validate_manifest_schema, validate_package_path, validate_proof_id,
 };
 use serde_json::Value;
 use zip::{CompressionMethod, ZipArchive};
@@ -264,7 +265,7 @@ fn verify_package_internal(
     };
     if matches!(
         manifest.spec_version.as_str(),
-        LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
+        LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         report.spec_version = manifest.spec_version.clone();
     }
@@ -273,7 +274,10 @@ fn verify_package_internal(
     } else {
         SignatureAssurance::Absent
     };
-    report.trusted_time = if report.spec_version == SCHEMA_VERSION {
+    report.trusted_time = if matches!(
+        report.spec_version.as_str(),
+        TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+    ) {
         TimeAssurance::Absent
     } else {
         TimeAssurance::NotPresent
@@ -296,7 +300,7 @@ fn verify_package_internal(
     );
 
     let event_error_start = report.errors.len();
-    verify_events(&mut archive, &entries, limits, &manifest, &mut report);
+    let events = verify_events(&mut archive, &entries, limits, &manifest, &mut report);
     let events_valid = report.errors.len() == event_error_start;
     report.stage(
         "EVENT_CHAIN",
@@ -315,7 +319,7 @@ fn verify_package_internal(
 
     if matches!(
         manifest.spec_version.as_str(),
-        SIGNED_SCHEMA_VERSION | SCHEMA_VERSION
+        SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         let signature_error_start = report.errors.len();
         verify_creator_signature(
@@ -344,7 +348,10 @@ fn verify_package_internal(
             },
         );
     }
-    if manifest.spec_version == SCHEMA_VERSION {
+    if matches!(
+        manifest.spec_version.as_str(),
+        TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+    ) {
         verify_trusted_timestamp(
             &mut archive,
             &entries,
@@ -352,6 +359,26 @@ fn verify_package_internal(
             &manifest,
             tsa_profile,
             &mut report,
+        );
+    }
+    if manifest.spec_version == SCHEMA_VERSION {
+        let c2pa_error_start = report.errors.len();
+        report.c2pa_evidence = Some(match events.as_deref() {
+            Some(events) => collect_c2pa_evidence(events, &manifest, &mut report),
+            None => C2paEvidence {
+                state: C2paAssurance::Absent,
+                observations: Vec::new(),
+            },
+        });
+        let observations_valid = report.errors.len() == c2pa_error_start;
+        report.stage(
+            "C2PA_OBSERVATIONS",
+            observations_valid,
+            if observations_valid {
+                "Digest-bound C2PA observations are structurally valid and remain a separate assurance signal."
+            } else {
+                "One or more C2PA observation events are malformed or do not match a declared asset."
+            },
         );
     }
     let report = report.finish();
@@ -1048,10 +1075,8 @@ fn verify_events<R: Read + Seek>(
     limits: &VerificationLimits,
     manifest: &Manifest,
     report: &mut ReportBuilder,
-) {
-    let Some(metadata) = entries.iter().find(|entry| entry.name == EVENTS_PATH) else {
-        return;
-    };
+) -> Option<Vec<Event>> {
+    let metadata = entries.iter().find(|entry| entry.name == EVENTS_PATH)?;
     let bytes = match read_entry_limited(
         archive,
         metadata,
@@ -1061,7 +1086,7 @@ fn verify_events<R: Read + Seek>(
         Ok(bytes) => bytes,
         Err(error) => {
             report.error(error.code, Some(EVENTS_PATH.to_owned()), error.message);
-            return;
+            return None;
         }
     };
     let value: Value = match parse_json_strict(&bytes) {
@@ -1072,7 +1097,7 @@ fn verify_events<R: Read + Seek>(
                 Some(EVENTS_PATH.to_owned()),
                 error.to_string(),
             );
-            return;
+            return None;
         }
     };
     match canonical_json(&value) {
@@ -1090,7 +1115,7 @@ fn verify_events<R: Read + Seek>(
             Some(EVENTS_PATH.to_owned()),
             "events.json must contain an array.",
         );
-        return;
+        return None;
     };
     for (index, event_value) in values.iter().enumerate() {
         if let Err(errors) = validate_event_schema(event_value) {
@@ -1111,7 +1136,7 @@ fn verify_events<R: Read + Seek>(
                 Some(EVENTS_PATH.to_owned()),
                 error.to_string(),
             );
-            return;
+            return None;
         }
     };
     for issue in verify_event_chain(&events) {
@@ -1135,6 +1160,85 @@ fn verify_events<R: Read + Seek>(
             Some("event_chain.root_hash".to_owned()),
             "Manifest root_hash does not match the final event_hash.",
         );
+    }
+    Some(events)
+}
+
+fn collect_c2pa_evidence(
+    events: &[Event],
+    manifest: &Manifest,
+    report: &mut ReportBuilder,
+) -> C2paEvidence {
+    let mut observations = Vec::new();
+    let mut observed_assets = HashSet::new();
+    for (index, event) in events.iter().enumerate() {
+        if event.event_type != C2PA_OBSERVATION_EVENT {
+            continue;
+        }
+        let observation: C2paObservation = match serde_json::from_value(event.payload.clone()) {
+            Ok(observation) => observation,
+            Err(_) => {
+                report.error(
+                    "C2PA_OBSERVATION_MODEL_INVALID",
+                    Some(format!("events[{index}].payload")),
+                    "C2PA observation payload does not match the bounded bridge model.",
+                );
+                continue;
+            }
+        };
+        for issue in observation.validate() {
+            report.error(
+                issue.code,
+                Some(format!("events[{index}].payload.{}", issue.field)),
+                issue.message,
+            );
+        }
+        let Some(asset) = manifest
+            .assets
+            .iter()
+            .find(|asset| asset.asset_id == observation.asset_id)
+        else {
+            report.error(
+                "C2PA_OBSERVATION_ASSET_MISSING",
+                Some(format!("events[{index}].payload.asset_id")),
+                "C2PA observation does not reference a declared package asset.",
+            );
+            continue;
+        };
+        if asset.sha256 != observation.asset_sha256 {
+            report.error(
+                "C2PA_OBSERVATION_ASSET_DIGEST_MISMATCH",
+                Some(format!("events[{index}].payload.asset_sha256")),
+                "C2PA observation asset digest does not match the declared package asset.",
+            );
+        }
+        if !observed_assets.insert(observation.asset_id.clone()) {
+            report.error(
+                "C2PA_OBSERVATION_DUPLICATE_ASSET",
+                Some(format!("events[{index}].payload.asset_id")),
+                "Only one unambiguous C2PA observation may be recorded for each asset.",
+            );
+        }
+        observations.push(observation);
+    }
+    let state = if observations.is_empty() {
+        C2paAssurance::Absent
+    } else if observations
+        .iter()
+        .any(|observation| matches!(observation.validation_state, C2paValidationState::Invalid))
+    {
+        C2paAssurance::ObservedInvalid
+    } else if observations
+        .iter()
+        .all(|observation| matches!(observation.validation_state, C2paValidationState::Trusted))
+    {
+        C2paAssurance::ObservedTrusted
+    } else {
+        C2paAssurance::ObservedValidUntrusted
+    };
+    C2paEvidence {
+        state,
+        observations,
     }
 }
 
@@ -1196,6 +1300,7 @@ struct ReportBuilder {
     creator_signature: Option<CreatorSignatureEvidence>,
     trusted_time: TimeAssurance,
     trusted_time_evidence: Option<TrustedTimeEvidence>,
+    c2pa_evidence: Option<C2paEvidence>,
     timestamp_warning: Option<(String, String)>,
     checks: Vec<CheckResult>,
     errors: Vec<VerificationError>,
@@ -1219,6 +1324,7 @@ impl ReportBuilder {
             creator_signature: None,
             trusted_time: TimeAssurance::Absent,
             trusted_time_evidence: None,
+            c2pa_evidence: None,
             timestamp_warning: None,
             checks: Vec::new(),
             errors: Vec::new(),
@@ -1280,7 +1386,7 @@ impl ReportBuilder {
             warnings.push(VerificationWarning {
                 code: "ASSURANCE_LIMITS".to_owned(),
                 message: if self.spec_version == SCHEMA_VERSION {
-                    "Creator display label remains self-asserted. Trusted time, when valid, witnesses only the exact creator signature; originality and rights are not evaluated.".to_owned()
+                    "Creator display label remains self-asserted. Trusted time, when valid, witnesses only the exact creator signature. C2PA reports provenance metadata, not factual truth, identity, originality or rights.".to_owned()
                 } else {
                     "Creator display label is self-asserted. Trusted time and originality are not evaluated.".to_owned()
                 },
@@ -1308,6 +1414,14 @@ impl ReportBuilder {
         if let Some((code, message)) = self.timestamp_warning {
             warnings.push(VerificationWarning { code, message });
         }
+        let c2pa = if self.spec_version == SCHEMA_VERSION {
+            Some(self.c2pa_evidence.unwrap_or(C2paEvidence {
+                state: C2paAssurance::Absent,
+                observations: Vec::new(),
+            }))
+        } else {
+            None
+        };
         VerificationReport {
             spec_version: self.spec_version,
             proof_id: self.proof_id,
@@ -1316,6 +1430,7 @@ impl ReportBuilder {
             assurance,
             creator_signature: self.creator_signature,
             trusted_time: self.trusted_time_evidence,
+            c2pa,
             checks: self.checks,
             errors: self.errors,
             warnings,

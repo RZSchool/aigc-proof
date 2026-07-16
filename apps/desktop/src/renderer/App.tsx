@@ -3,6 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AssetRole,
   BridgeEnvelope,
+  C2paInspection,
+  C2paSidecarReference,
+  C2paTrustProfileSummary,
   CreationSessionSummary,
   HostDiagnostics,
   HostReference,
@@ -135,6 +138,14 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   const [timestampOutputPath, setTimestampOutputPath] = useState("");
   const [timestampOutputReference, setTimestampOutputReference] =
     useState<TimestampPackageOutputReference>();
+  const [c2paProfile, setC2paProfile] = useState<C2paTrustProfileSummary>();
+  const [c2paProfilePath, setC2paProfilePath] = useState("");
+  const [c2paImage, setC2paImage] = useState<ImageReference>();
+  const [c2paImagePath, setC2paImagePath] = useState("");
+  const [c2paSidecar, setC2paSidecar] = useState<C2paSidecarReference>();
+  const [c2paSidecarPath, setC2paSidecarPath] = useState("");
+  const [c2paAssetId, setC2paAssetId] = useState("");
+  const [c2paInspection, setC2paInspection] = useState<C2paInspection>();
   const [providerPath, setProviderPath] = useState("");
   const [providerReference, setProviderReference] =
     useState<ProviderInstallationReference>();
@@ -196,6 +207,9 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
     });
     void proofHost.getTsaProfileStatus().then((response) => {
       if (active && response.ok) setTsaProfile(response.data ?? undefined);
+    });
+    void proofHost.getC2paTrustProfileStatus().then((response) => {
+      if (active && response.ok) setC2paProfile(response.data ?? undefined);
     });
     const unsubscribe = proofHost.subscribeJobEvents((event) => {
       if (!active) return;
@@ -457,6 +471,71 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       setTsaProfile(response.data);
       setTsaProfilePath(selected.displayPath ?? selected.displayLabel);
       showSuccess("TSA trust snapshot imported", response.data);
+    });
+  }
+
+  async function importC2paProfile(): Promise<void> {
+    const selected = await proofHost.chooseC2paTrustProfile();
+    if (!selected) return;
+    await run("Importing C2PA trust profile", async () => {
+      const response = await proofHost.importC2paTrustProfile({
+        profile: selected,
+      });
+      if (!response.ok) return showFailure(response);
+      setC2paProfile(response.data);
+      setC2paProfilePath(selected.displayPath ?? selected.displayLabel);
+      showSuccess("C2PA trust profile imported", response.data);
+    });
+  }
+
+  async function chooseC2paImage(): Promise<void> {
+    const selected = await proofHost.chooseC2paImage();
+    if (!selected) return;
+    setC2paImage(selected);
+    setC2paImagePath(selected.displayPath ?? selected.displayLabel);
+    setC2paInspection(undefined);
+  }
+
+  async function chooseC2paSidecar(): Promise<void> {
+    const selected = await proofHost.chooseC2paSidecar();
+    if (!selected) return;
+    setC2paSidecar(selected);
+    setC2paSidecarPath(selected.displayPath ?? selected.displayLabel);
+    setC2paInspection(undefined);
+  }
+
+  async function inspectC2pa(): Promise<void> {
+    await run("Inspecting Content Credentials offline", async () => {
+      if (!c2paImage)
+        throw new Error("Select a JPEG, PNG or WebP image first.");
+      const response = await proofHost.inspectC2paImage({
+        image: c2paImage,
+        ...(c2paSidecar ? { sidecar: c2paSidecar } : {}),
+      });
+      if (!response.ok) return showFailure(response);
+      setC2paInspection(response.data);
+      showSuccess("C2PA observation preview created", response.data);
+    });
+  }
+
+  async function createC2paObservation(): Promise<void> {
+    await run("Recording digest-bound C2PA observation", async () => {
+      if (!workspace || !c2paAssetId) {
+        throw new Error(
+          "Open a workspace and select an ingested image asset first.",
+        );
+      }
+      const response = await proofHost.createC2paObservation({
+        workspace: workspace.reference,
+        assetId: c2paAssetId,
+        ...(c2paSidecar ? { sidecar: c2paSidecar } : {}),
+      });
+      if (!response.ok) return showFailure(response);
+      setWorkspace({ ...workspace, workspace: response.data.workspace });
+      showSuccess(
+        "Digest-bound C2PA observation recorded",
+        response.data.event,
+      );
     });
   }
 
@@ -869,7 +948,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.7.0</span>
+            <span data-testid="workbench-version">Workbench 0.8.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -889,9 +968,12 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         <strong>能力边界：内部完整性、本地创建者数字签名与可选可信时间</strong>
         <span>
           显示名称为自我声明 · Ed25519 签名可验证 · 本机信任仅表示密钥匹配 · RFC
-          3161 时间仅在显式请求并通过信任快照验证后可信 · 原创性与 C2PA 未评估
+          3161 时间仅在显式请求并通过信任快照验证后可信 · C2PA
+          为可选离线来源观察 · 原创性始终不评估
         </span>
-        <small>不是实名、版权登记、公证、权属证明、原创认证或官方验证。</small>
+        <small>
+          不是事实真实性、实名、版权登记、公证、权属证明、原创认证或官方验证。
+        </small>
       </section>
 
       <section className={`status-strip ${resultKind}`} aria-live="polite">
@@ -913,7 +995,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       <main className="workflow-canvas" data-testid="unified-workflow">
         <section className="panel intro-panel" data-region="overview">
           <div>
-            <p className="eyebrow">PROTOCOL 0.4.0 · ONE PAGE</p>
+            <p className="eyebrow">PROTOCOL 0.5.0 · ONE PAGE</p>
             <h2>生成图片、保存原图、核对证明，一页完成</h2>
             <p>
               后续步骤始终可见；不满足前置条件时会给出提示。长任务由隔离 Utility
@@ -1875,6 +1957,132 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               </button>
             </div>
           </div>
+          <div className="subpanel" data-testid="c2pa-panel">
+            <strong>C2PA 2.2 / Content Credentials（离线桥接）</strong>
+            <p>
+              仅读取 JPEG、PNG、WebP 内嵌清单或你明确选择的本地 .c2pa
+              sidecar；不会联网查找远程清单或软绑定。
+              有效性是来源元数据，不代表内容真实、身份、原创、权利或授权。
+            </p>
+            <Field label="C2PA 信任配置">
+              <div className="field-row">
+                <input
+                  data-testid="c2pa-profile-path"
+                  readOnly
+                  value={c2paProfilePath || c2paProfile?.signerSource || ""}
+                  placeholder="导入独立的签名者与 TSA 信任快照"
+                />
+                <button
+                  className="secondary"
+                  data-testid="import-c2pa-profile"
+                  onClick={() => void importC2paProfile()}
+                >
+                  导入配置
+                </button>
+              </div>
+            </Field>
+            {c2paProfile && (
+              <small data-testid="c2pa-profile-summary">
+                签名者：{c2paProfile.signerSource} · TSA：
+                {c2paProfile.timestampSource}
+              </small>
+            )}
+            <Field label="待检查图片">
+              <div className="field-row">
+                <input
+                  data-testid="c2pa-image-path"
+                  readOnly
+                  value={c2paImagePath}
+                  placeholder="选择 JPEG、PNG 或 WebP"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-c2pa-image"
+                  onClick={() => void chooseC2paImage()}
+                >
+                  选择图片
+                </button>
+              </div>
+            </Field>
+            <Field label="本地 sidecar（可选）">
+              <div className="field-row">
+                <input
+                  data-testid="c2pa-sidecar-path"
+                  readOnly
+                  value={c2paSidecarPath}
+                  placeholder="不选择时仅读取内嵌清单"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-c2pa-sidecar"
+                  onClick={() => void chooseC2paSidecar()}
+                >
+                  选择 .c2pa
+                </button>
+                {c2paSidecar && (
+                  <button
+                    className="quiet-button"
+                    data-testid="clear-c2pa-sidecar"
+                    onClick={() => {
+                      setC2paSidecar(undefined);
+                      setC2paSidecarPath("");
+                      setC2paInspection(undefined);
+                    }}
+                  >
+                    使用内嵌清单
+                  </button>
+                )}
+              </div>
+            </Field>
+            <div className="actions">
+              <button
+                className="primary"
+                data-testid="inspect-c2pa"
+                disabled={!c2paProfile || !c2paImage}
+                onClick={() => void inspectC2pa()}
+              >
+                离线检查 Content Credentials
+              </button>
+            </div>
+            {c2paInspection && (
+              <div className="signature-evidence" data-testid="c2pa-inspection">
+                <strong>{c2paInspection.validation_state}</strong>
+                <span>claim v{c2paInspection.claim_version}</span>
+                <span>来源：{c2paInspection.source_mode}</span>
+                <span>签名者信任：{c2paInspection.signer_trust}</span>
+                <span>时间戳信任：{c2paInspection.timestamp_trust}</span>
+                <code>{c2paInspection.asset_sha256}</code>
+              </div>
+            )}
+            <Field label="记录到当前工作区资产（可选）">
+              <select
+                data-testid="c2pa-workspace-asset"
+                value={c2paAssetId}
+                onChange={(event) => setC2paAssetId(event.target.value)}
+              >
+                <option value="">选择已接入的图片资产</option>
+                {(workspace?.workspace.assets ?? [])
+                  .filter((asset) =>
+                    ["image/jpeg", "image/png", "image/webp"].includes(
+                      asset.media_type,
+                    ),
+                  )
+                  .map((asset) => (
+                    <option key={asset.asset_id} value={asset.asset_id}>
+                      {asset.original_name} · {asset.role}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <button
+              className="secondary"
+              data-testid="create-c2pa-observation"
+              disabled={!c2paProfile || !workspace || !c2paAssetId}
+              onClick={() => void createC2paObservation()}
+            >
+              创建摘要绑定的 C2PA 观察记录
+            </button>
+          </div>
           <div className="actions">
             <button
               className="primary"
@@ -2323,6 +2531,16 @@ function VerificationCard({ report }: { report: VerificationReport }) {
           <span>吊销证据：{report.trusted_time.revocation}</span>
           <small>
             可信时间仅证明时间戳机构在该时刻签署了包内签名字节摘要；不证明实名、原创性、版权、权属或授权。
+          </small>
+        </div>
+      )}
+      {report.c2pa && (
+        <div className="signature-evidence" data-testid="c2pa-evidence">
+          <strong>C2PA：{report.c2pa.state}</strong>
+          <span>观察记录：{report.c2pa.observations.length}</span>
+          <small>
+            C2PA
+            仅表达媒体来源元数据及其验证状态；不证明事实真实、人员身份、原创性、所有权、版权或授权。
           </small>
         </div>
       )}

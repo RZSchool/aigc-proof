@@ -1,6 +1,7 @@
-//! Offline AIGC-Proof 0.2/0.3/0.4 workspace, signed package, and verification operations.
+//! Offline AIGC-Proof 0.2-0.5 workspace, signed package, and verification operations.
 
 mod asset_match;
+mod c2pa_bridge;
 mod error;
 mod event_chain;
 mod hash;
@@ -11,6 +12,13 @@ mod timestamp_package;
 mod verify;
 mod workspace;
 
+pub use c2pa_bridge::{
+    C2PA_MAX_ASSERTIONS, C2PA_MAX_ASSET_BYTES, C2PA_MAX_ELAPSED, C2PA_MAX_INGREDIENTS,
+    C2PA_MAX_MANIFEST_BYTES, C2PA_MAX_MANIFESTS, C2paHostSignRequest, C2paHostSigningCallback,
+    C2paInspectOptions, C2paInspection, C2paSigningAlgorithm, CreateC2paObservationOptions,
+    ParsedC2paTrustProfile, create_c2pa_observation, inspect_c2pa, parse_c2pa_trust_profile,
+    sign_c2pa_with_host_callback,
+};
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event_chain::{
     EventChainIssue, canonical_json, create_event, event_digest, verify_event_chain,
@@ -42,7 +50,7 @@ pub use workspace::{
     load_workspace, media_type_for_path, record_event,
 };
 
-pub const SPEC_VERSION: &str = "0.4.0";
+pub const SPEC_VERSION: &str = "0.5.0";
 
 pub fn current_timestamp() -> CoreResult<String> {
     proof_schema::format_canonical_utc(time::OffsetDateTime::now_utc()).map_err(|message| {

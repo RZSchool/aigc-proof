@@ -15,6 +15,9 @@ const qaSelectionsSchema = z
     packageOutputs: z.array(selectedPath),
     tsaProfiles: z.array(selectedPath).default([]),
     timestampPackageOutputs: z.array(selectedPath).default([]),
+    c2paTrustProfiles: z.array(selectedPath).default([]),
+    c2paImages: z.array(selectedPath).default([]),
+    c2paSidecars: z.array(selectedPath).default([]),
     reportOutputs: z.array(selectedPath),
     providerInstallations: z.array(selectedPath).default([]),
   })
