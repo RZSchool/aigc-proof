@@ -30,4 +30,12 @@ Protocol 0.5 may include one or more digest-bound `c2pa_observation` events for 
 
 An observed state describes the exact media and manifest store at the recorded time against the exact imported C2PA trust snapshots. It does not inherit authority from the local creator key or RFC 3161 snapshot, and it does not upgrade a package whose internal integrity or creator signature is invalid.
 
-No version evaluates real identity, factual truth, earliest creation time, originality, source authorization, copyright, ownership, legal validity, or official verification. C2PA provenance validity is not any of those claims.
+## Protocol 1.0: stable independent assurance
+
+Protocol 1.0 retains Internal Integrity, creator signature, RFC 3161, and C2PA as separate layers and adds optional external official identity evidence. Trusted time is optional for a new 1.0 package; its absence does not imply acquisition failure.
+
+Official identity states are `absent`, `unsupported`, `malformed`, `invalid`, `untrusted`, `revoked`, `expired`, `indeterminate`, and `valid_trusted`. Only `valid_trusted` means the attestation signature, explicitly selected issuer key, creator-key fingerprint, purpose/consent, time interval, signed status, freshness and rollback policy all passed. `revoked` and `expired` remain distinct; a missing, stale, or incomplete status is `indeterminate`, never valid.
+
+The Workbench groups these results for readability but exposes no combined score or success badge. A valid official claim cannot repair invalid Internal Integrity, creator signature, trusted time, or C2PA evidence, and failure in one optional layer cannot rewrite another layer's result.
+
+No version evaluates factual truth, earliest creation time, originality, authorship, source authorization, copyright, ownership, legal validity, or non-infringement. C2PA provenance validity and a bounded official identity claim are not any of those claims.

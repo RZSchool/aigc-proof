@@ -1,4 +1,4 @@
-//! Public v0.2-v0.5 protocol types, strict JSON parsing, and shared validation.
+//! Public v0.2-v1.0 protocol types, strict JSON parsing, and shared validation.
 
 mod model;
 mod schema;
@@ -8,7 +8,9 @@ mod validation;
 pub use model::*;
 pub use schema::{
     validate_c2pa_profile_schema, validate_event_schema, validate_manifest_schema,
-    validate_tsa_profile_schema, validate_verification_result_schema, validate_workspace_schema,
+    validate_official_attestation_schema, validate_official_status_schema,
+    validate_official_trust_schema, validate_tsa_profile_schema,
+    validate_verification_result_schema, validate_workspace_schema,
 };
 pub use strict_json::parse_json_strict;
 pub use validation::{
@@ -21,11 +23,13 @@ pub use validation::{
 pub const LEGACY_SCHEMA_VERSION: &str = "0.2.0";
 pub const SIGNED_SCHEMA_VERSION: &str = "0.3.0";
 pub const TRUSTED_SCHEMA_VERSION: &str = "0.4.0";
-pub const SCHEMA_VERSION: &str = "0.5.0";
+pub const C2PA_SCHEMA_VERSION: &str = "0.5.0";
+pub const SCHEMA_VERSION: &str = "1.0.0";
 pub const LEGACY_WORKSPACE_VERSION: &str = "0.2.0";
 pub const SIGNED_WORKSPACE_VERSION: &str = "0.3.0";
 pub const TRUSTED_WORKSPACE_VERSION: &str = "0.4.0";
-pub const WORKSPACE_VERSION: &str = "0.5.0";
+pub const C2PA_WORKSPACE_VERSION: &str = "0.5.0";
+pub const WORKSPACE_VERSION: &str = "1.0.0";
 pub const HASH_ALGORITHM: &str = "sha-256";
 pub const CANONICALIZATION: &str = "rfc8785-jcs";
 pub const MANIFEST_PATH: &str = "manifest.json";
@@ -42,3 +46,8 @@ pub const TRUSTED_TIMESTAMP_PREFIX: &str = "security/timestamps/";
 pub const C2PA_BRIDGE_PROFILE: &str = "aigc-proof.c2pa-observation.v1";
 pub const C2PA_TRUST_PROFILE: &str = "aigc-proof.c2pa-trust-profile.v1";
 pub const C2PA_OBSERVATION_EVENT: &str = "c2pa_observation";
+pub const OFFICIAL_ATTESTATION_PROFILE: &str = "aigc-proof.official-attestation.v1";
+pub const OFFICIAL_STATUS_PROFILE: &str = "aigc-proof.official-status-snapshot.v1";
+pub const OFFICIAL_TRUST_PROFILE: &str = "aigc-proof.official-issuer-trust.v1";
+pub const OFFICIAL_ATTESTATION_AAD: &[u8] = b"AIGC-Proof Official Attestation v1\0";
+pub const OFFICIAL_STATUS_AAD: &[u8] = b"AIGC-Proof Official Status Snapshot v1\0";

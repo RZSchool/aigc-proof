@@ -107,7 +107,9 @@ fn official_fixtures() -> Option<PathBuf> {
 }
 
 fn trust_profile_json(fixtures: &Path) -> String {
-    let roots = fs::read_to_string(fixtures.join("certs/trust/test_cert_root_bundle.pem")).unwrap();
+    let roots = fs::read_to_string(fixtures.join("certs/trust/test_cert_root_bundle.pem"))
+        .unwrap()
+        .replace("\r\n", "\n");
     let roots = roots
         .split("-----BEGIN CERTIFICATE-----")
         .skip(1)

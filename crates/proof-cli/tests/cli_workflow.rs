@@ -166,7 +166,13 @@ fn real_cli_rejects_tampering_and_malicious_zip() {
     writer.write_all(b"bad").unwrap();
     writer.finish().unwrap();
     let output = run(temp.path(), &["verify", "malicious.aigcproof"]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_report_error(&output.stdout, "ZIP_ENTRY_PATH_UNSAFE");
 }
 

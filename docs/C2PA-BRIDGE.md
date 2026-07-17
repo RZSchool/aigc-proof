@@ -2,13 +2,15 @@
 
 ## Boundary
 
-AIGC-Proof protocol 0.5 reads C2PA 2.2 Content Credentials without treating them as AIGC-Proof signatures or identity attestations. The bridge accepts claim v2 for JPEG, PNG, and WebP, plus claim v1 for read-only compatibility. A manifest may be embedded or supplied as a lowercase local `.c2pa` sidecar selected explicitly by the user.
+AIGC-Proof protocol 0.5 introduced the C2PA 2.2 Content Credentials bridge and protocol 1.0 retains it unchanged without treating C2PA as an AIGC-Proof signature or identity attestation. The bridge accepts claim v2 for JPEG, PNG, and WebP, plus claim v1 for read-only compatibility. A manifest may be embedded or supplied as a lowercase local `.c2pa` sidecar selected explicitly by the user.
 
 The bridge does not support MP4, PDF, claim versions later than 2, remote-manifest retrieval, soft-binding lookup, OCSP fetching, or automatic sidecar discovery. It does not copy arbitrary assertion explanations, certificate subjects, or ingredient text into trusted UI or portable observations.
 
 ## Dependency and execution profile
 
-The product pins Rust `c2pa` 0.85.0 with `default-features = false` and only `file_io` plus `rust_native_crypto`. Product verification configures an empty allowed-host list, disables remote-manifest and OCSP fetches, and runs in the supervised Utility Process. Electron Renderer and Main contain no C2PA parser, PKIX implementation, trust store, socket, native addon, or raw path authority.
+The product pins Rust `c2pa` 0.89.3 with `default-features = false` and only `file_io` plus `rust_native_crypto`. This security-maintained patch line resolves the `quick-xml` denial-of-service advisories affecting the AP-033 runtime dependency; the frozen 0.85.0 SDK corpus remains a read-compatibility input. Product verification configures an empty allowed-host list, disables remote-manifest and OCSP fetches, and runs in the supervised Utility Process. Electron Renderer and Main contain no C2PA parser, PKIX implementation, trust store, socket, native addon, or raw path authority.
+
+The locked advisory gate uses the frozen RustSec database and fails on warnings except for two reviewed entries: RUSTSEC-2023-0071 has no fixed `rsa` release and concerns private-key timing, while this bridge never creates, imports, or uses an RSA private key; RUSTSEC-2024-0370 is an unmaintained build-time procedural macro and is absent from the packaged runtime surface. Neither exception suppresses a reachable parser, memory-safety, network, signature-verification, or packaged-runtime vulnerability. The complete lock graph must otherwise be clean, and every third-party package must declare a license without AGPL, SSPL, BUSL, or Commons Clause terms.
 
 Inputs are regular files selected through Main-owned dialogs. The adapter limits an image to 128 MiB, a manifest store to 32 MiB, a trust profile to 4 MiB, 64 manifests, 1,024 assertions, 256 ingredients, bounded labels/certificates/status codes, a 32 MiB SDK backing-store threshold, and 30 seconds of processing. The SDK owns JUMBF, COSE, certificate, media-binding, and claim parsing; AIGC-Proof does not implement a parallel parser.
 
@@ -19,11 +21,11 @@ Inputs are regular files selected through Main-owned dialogs. The adapter limits
 - signer roots, allowed EKUs, source label, and validity interval;
 - C2PA timestamp roots, allowed EKUs, source label, and validity interval.
 
-Strict JSON is validated before use, canonicalized with RFC 8785 JCS, and SHA-256 hashed as a whole and per snapshot. Profiles are explicit session inputs and are not persisted in SQLite or bundled as product roots. C2PA signer trust and C2PA timestamp trust remain separate from the local creator Ed25519 key, the RFC 3161 snapshot, and any later official-identity root.
+Strict JSON is validated before use, canonicalized with RFC 8785 JCS, and SHA-256 hashed as a whole and per snapshot. Profiles are explicit session inputs and are not persisted in SQLite or bundled as product roots. C2PA signer trust and C2PA timestamp trust remain separate from the local creator Ed25519 key, the RFC 3161 snapshot, and official-identity issuer trust.
 
 ## Observation
 
-`c2pa_observation` is an ordinary signed event in a protocol 0.5 workspace. It records:
+`c2pa_observation` is an ordinary signed event in a protocol 0.5 or 1.0 workspace. It records:
 
 - profile identifier;
 - workspace asset ID and exact asset SHA-256;
@@ -44,7 +46,7 @@ None of these states proves factual truth, a person's identity, authorship, orig
 
 The public Rust core exposes an optional typed callback for a future conforming Host. The callback receives only bounded SDK to-be-signed bytes, their SHA-256, and the selected algorithm; it returns a bounded signature and an X.509 chain. The SDK creates a claim-v2 `c2pa.created` assertion with the `trainedAlgorithmicMedia` digital-source type and writes to a new output without overwrite.
 
-Standalone Workbench 0.8.0 does not expose this writer, private-key import, certificate enrollment, TSA URL, or production trust root. Tests use only fixed public test certificates and an ephemeral in-process private key. Media must be C2PA-signed before it is ingested or sealed as an AIGC-Proof output.
+Standalone Workbench 1.0.0 does not expose this writer, private-key import, certificate enrollment, TSA URL, or production trust root. Tests use only fixed public test certificates and an ephemeral in-process private key. Media must be C2PA-signed before it is ingested or sealed as an AIGC-Proof output.
 
 ## CLI
 

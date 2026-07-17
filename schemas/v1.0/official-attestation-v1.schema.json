@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v1.0/official-attestation-v1.schema.json",
+  "title": "AIGC-Proof Official Attestation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "issuer", "attestation_id", "subject", "creator_key_fingerprint", "method_class", "purpose", "consent", "issued_at", "expires_at", "status_endpoint_class"],
+  "properties": {
+    "profile": { "const": "aigc-proof.official-attestation.v1" },
+    "issuer": { "type": "string", "pattern": "^urn:aigc-proof:official:[A-Za-z0-9._:-]{1,96}$" },
+    "attestation_id": { "type": "string", "format": "uuid" },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opaque_id", "subject_type", "display_claim"],
+      "properties": {
+        "opaque_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "subject_type": { "enum": ["person", "organization"] },
+        "display_claim": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "creator_key_fingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "method_class": { "enum": ["synthetic_test", "organization_control", "person_presence"] },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 96 },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consent_id", "recorded_at", "purpose"],
+      "properties": {
+        "consent_id": { "type": "string", "format": "uuid" },
+        "recorded_at": { "type": "integer", "minimum": 0 },
+        "purpose": { "type": "string", "minLength": 1, "maxLength": 96 }
+      }
+    },
+    "issued_at": { "type": "integer", "minimum": 0 },
+    "expires_at": { "type": "integer", "minimum": 1 },
+    "status_endpoint_class": { "const": "offline_snapshot" }
+  }
+}

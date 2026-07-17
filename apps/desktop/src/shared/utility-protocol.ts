@@ -33,6 +33,7 @@ export const utilityOperations = [
   "validateC2paProfile",
   "inspectC2pa",
   "createC2paObservation",
+  "verifyOfficialIdentity",
   "validateRecents",
 ] as const;
 export type UtilityOperation = (typeof utilityOperations)[number];
@@ -149,6 +150,33 @@ const c2paObservationPayloadSchema = z
       .max(4 * 1024 * 1024),
   })
   .strict();
+const officialIdentityPayloadSchema = z
+  .object({
+    attestationCoseBase64: z
+      .string()
+      .min(1)
+      .max(96 * 1024),
+    issuerTrustJson: z
+      .string()
+      .min(2)
+      .max(64 * 1024),
+    statusCoseBase64: z
+      .string()
+      .min(1)
+      .max(96 * 1024)
+      .optional(),
+    creatorKeyFingerprint: z.string().regex(/^(?:sha256:)?[0-9a-f]{64}$/u),
+    purpose: z.string().min(1).max(96),
+    verificationTime: z.number().int().nonnegative(),
+    minimumTrustSequence: z.number().int().positive(),
+    minimumStatusSequence: z.number().int().positive(),
+    expectedPreviousStatusDigest: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
+    maxStatusAgeSeconds: z.number().int().min(0).max(31_536_000),
+  })
+  .strict();
 const signerLabelPayloadSchema = z
   .object({ displayLabel: z.string().min(1).max(200) })
   .strict();
@@ -260,6 +288,12 @@ export const utilityJobSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("createC2paObservation"),
       payload: c2paObservationPayloadSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("verifyOfficialIdentity"),
+      payload: officialIdentityPayloadSchema,
     })
     .strict(),
   z

@@ -4,12 +4,13 @@ AIGC-Proof is licensed under Apache-2.0. Its locked dependency graph includes th
 
 ## Content Authenticity Initiative C2PA SDK
 
-- Package: `c2pa` 0.85.0
-- Reviewed source tag/commit: `c2pa-v0.85.0` / `3f40cdd22b60bf955d531b0301604e3f257e0a19`
+- Package: `c2pa` 0.89.3
+- Reviewed source tag object/peeled commit: `c2pa-v0.89.3` / `4b9caf5398ca0e0106f989306daa00a9955504ea` / `e2c90ec7f1fd0a3c90adfaf93107e19abd5383b8`
+- crates.io checksum: `033a638e07c1c6194f0e0964e2cf0c1848109b25cc77d7070a9417e59005b010`
 - License: Apache-2.0 OR MIT
 - Project: <https://github.com/contentauth/c2pa-rs>
 
-The product builds this SDK with default features disabled and only the `file_io` and `rust_native_crypto` features. `c2patool` and C2PA Attacks are independent test/reference tools and are not included in the Workbench package.
+The product builds this SDK with default features disabled and only the `file_io` and `rust_native_crypto` features. The AP-033 `c2pa` 0.85.0 corpus remains a read-compatibility fixture only. `c2patool` and C2PA Attacks are independent test/reference tools and are not included in the Workbench package.
 
 ## Desktop runtime
 

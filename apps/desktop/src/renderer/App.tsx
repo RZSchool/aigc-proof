@@ -14,6 +14,10 @@ import type {
   Inspection,
   JobSnapshot,
   LocalSignerStatus,
+  OfficialAttestationReference,
+  OfficialIdentityVerification,
+  OfficialIssuerTrustReference,
+  OfficialStatusReference,
   PackageOutputReference,
   PackageReference,
   ProofHostApi,
@@ -146,6 +150,22 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
   const [c2paSidecarPath, setC2paSidecarPath] = useState("");
   const [c2paAssetId, setC2paAssetId] = useState("");
   const [c2paInspection, setC2paInspection] = useState<C2paInspection>();
+  const [officialAttestation, setOfficialAttestation] =
+    useState<OfficialAttestationReference>();
+  const [officialAttestationPath, setOfficialAttestationPath] = useState("");
+  const [officialIssuerTrust, setOfficialIssuerTrust] =
+    useState<OfficialIssuerTrustReference>();
+  const [officialIssuerTrustPath, setOfficialIssuerTrustPath] = useState("");
+  const [officialStatus, setOfficialStatus] =
+    useState<OfficialStatusReference>();
+  const [officialStatusPath, setOfficialStatusPath] = useState("");
+  const [officialFingerprint, setOfficialFingerprint] = useState("");
+  const [officialPurpose, setOfficialPurpose] = useState("creator_identity");
+  const [officialVerificationTime, setOfficialVerificationTime] = useState(() =>
+    Math.floor(Date.now() / 1000).toString(),
+  );
+  const [officialVerification, setOfficialVerification] =
+    useState<OfficialIdentityVerification>();
   const [providerPath, setProviderPath] = useState("");
   const [providerReference, setProviderReference] =
     useState<ProviderInstallationReference>();
@@ -536,6 +556,68 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
         "Digest-bound C2PA observation recorded",
         response.data.event,
       );
+    });
+  }
+
+  async function chooseOfficialAttestation(): Promise<void> {
+    const selected = await proofHost.chooseOfficialAttestation();
+    if (!selected) return;
+    setOfficialAttestation(selected);
+    setOfficialAttestationPath(selected.displayPath ?? selected.displayLabel);
+    setOfficialVerification(undefined);
+  }
+
+  async function chooseOfficialIssuerTrust(): Promise<void> {
+    const selected = await proofHost.chooseOfficialIssuerTrust();
+    if (!selected) return;
+    setOfficialIssuerTrust(selected);
+    setOfficialIssuerTrustPath(selected.displayPath ?? selected.displayLabel);
+    setOfficialVerification(undefined);
+  }
+
+  async function chooseOfficialStatus(): Promise<void> {
+    const selected = await proofHost.chooseOfficialStatus();
+    if (!selected) return;
+    setOfficialStatus(selected);
+    setOfficialStatusPath(selected.displayPath ?? selected.displayLabel);
+    setOfficialVerification(undefined);
+  }
+
+  async function verifyOfficialIdentity(): Promise<void> {
+    await run("Verifying official identity offline", async () => {
+      if (!officialAttestation || !officialIssuerTrust) {
+        throw new Error(
+          "Select an official attestation and an explicit issuer trust snapshot first.",
+        );
+      }
+      const fingerprint =
+        officialFingerprint.trim() || signerStatus?.key_fingerprint || "";
+      const verificationTime = Number(officialVerificationTime);
+      if (!/^(?:sha256:)?[0-9a-f]{64}$/u.test(fingerprint)) {
+        throw new Error("Enter the exact creator Ed25519 key fingerprint.");
+      }
+      if (!Number.isSafeInteger(verificationTime) || verificationTime < 0) {
+        throw new Error(
+          "Verification time must be a non-negative Unix timestamp.",
+        );
+      }
+      const response = await proofHost.verifyOfficialIdentity({
+        attestation: officialAttestation,
+        issuerTrust: officialIssuerTrust,
+        ...(officialStatus ? { status: officialStatus } : {}),
+        creatorKeyFingerprint: fingerprint,
+        purpose: officialPurpose,
+        verificationTime,
+        minimumTrustSequence: 1,
+        minimumStatusSequence: 1,
+        maxStatusAgeSeconds: 604_800,
+      });
+      if (!response.ok) return showFailure(response);
+      setOfficialVerification(response.data);
+      setOfficialAttestation(undefined);
+      setOfficialIssuerTrust(undefined);
+      setOfficialStatus(undefined);
+      showSuccess("Official identity verification completed", response.data);
     });
   }
 
@@ -948,7 +1030,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 0.8.0</span>
+            <span data-testid="workbench-version">Workbench 1.0.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -965,14 +1047,18 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       </header>
 
       <section className="assurance-banner" data-testid="assurance-banner">
-        <strong>能力边界：内部完整性、本地创建者数字签名与可选可信时间</strong>
+        <strong>
+          能力边界：内部完整性、本地创建者数字签名、可选可信时间、C2PA
+          与官方身份声明
+        </strong>
         <span>
           显示名称为自我声明 · Ed25519 签名可验证 · 本机信任仅表示密钥匹配 · RFC
           3161 时间仅在显式请求并通过信任快照验证后可信 · C2PA
-          为可选离线来源观察 · 原创性始终不评估
+          为可选离线来源观察 · 官方身份仅验证显式声明与创建者公钥/用途/状态绑定
+          · 原创性始终不评估
         </span>
         <small>
-          不是事实真实性、实名、版权登记、公证、权属证明、原创认证或官方验证。
+          不是事实真实性、作者认证、版权登记、公证、权属证明、原创认证或法律结论。
         </small>
       </section>
 
@@ -995,7 +1081,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
       <main className="workflow-canvas" data-testid="unified-workflow">
         <section className="panel intro-panel" data-region="overview">
           <div>
-            <p className="eyebrow">PROTOCOL 0.5.0 · ONE PAGE</p>
+            <p className="eyebrow">PROTOCOL 1.0.0 · INTEROPERABLE ASSURANCE</p>
             <h2>生成图片、保存原图、核对证明，一页完成</h2>
             <p>
               后续步骤始终可见；不满足前置条件时会给出提示。长任务由隔离 Utility
@@ -2083,6 +2169,121 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               创建摘要绑定的 C2PA 观察记录
             </button>
           </div>
+          <div className="subpanel" data-testid="official-identity-panel">
+            <strong>使用者身份 / 官方身份声明（完全离线）</strong>
+            <p>
+              显式导入声明、签发者信任快照和签名状态快照。结果只说明该身份声明与指定创建者公钥及用途的绑定状态，
+              不等同于作者身份、事实真实、原创、所有权、版权或授权。
+            </p>
+            <Field label="官方身份声明 COSE">
+              <div className="field-row">
+                <input
+                  data-testid="official-attestation-path"
+                  readOnly
+                  value={officialAttestationPath}
+                  placeholder="选择 official-attestation-v1.cose"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-official-attestation"
+                  onClick={() => void chooseOfficialAttestation()}
+                >
+                  选择声明
+                </button>
+              </div>
+            </Field>
+            <Field label="显式签发者信任快照 JSON">
+              <div className="field-row">
+                <input
+                  data-testid="official-trust-path"
+                  readOnly
+                  value={officialIssuerTrustPath}
+                  placeholder="选择 official-issuer-trust-v1.json"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-official-trust"
+                  onClick={() => void chooseOfficialIssuerTrust()}
+                >
+                  选择信任快照
+                </button>
+              </div>
+            </Field>
+            <Field label="签名状态快照 COSE（缺失时结果为 indeterminate）">
+              <div className="field-row">
+                <input
+                  data-testid="official-status-path"
+                  readOnly
+                  value={officialStatusPath}
+                  placeholder="选择 official-status-snapshot-v1.cose"
+                />
+                <button
+                  className="secondary"
+                  data-testid="choose-official-status"
+                  onClick={() => void chooseOfficialStatus()}
+                >
+                  选择状态
+                </button>
+              </div>
+            </Field>
+            <Field label="要绑定的创建者 Ed25519 公钥指纹">
+              <input
+                data-testid="official-creator-fingerprint"
+                value={officialFingerprint}
+                placeholder={
+                  signerStatus?.key_fingerprint ?? "64 位小写 SHA-256"
+                }
+                onChange={(event) => setOfficialFingerprint(event.target.value)}
+              />
+            </Field>
+            <div className="field-grid compact-grid">
+              <Field label="声明用途">
+                <input
+                  data-testid="official-purpose"
+                  value={officialPurpose}
+                  maxLength={96}
+                  onChange={(event) => setOfficialPurpose(event.target.value)}
+                />
+              </Field>
+              <Field label="明确验证时间（Unix 秒）">
+                <input
+                  data-testid="official-verification-time"
+                  inputMode="numeric"
+                  value={officialVerificationTime}
+                  onChange={(event) =>
+                    setOfficialVerificationTime(event.target.value)
+                  }
+                />
+              </Field>
+            </div>
+            <button
+              className="primary"
+              data-testid="verify-official-identity"
+              disabled={!officialAttestation || !officialIssuerTrust}
+              onClick={() => void verifyOfficialIdentity()}
+            >
+              离线验证官方身份声明
+            </button>
+            {officialVerification && (
+              <div
+                className="signature-evidence"
+                data-testid="official-identity-evidence"
+              >
+                <strong>官方身份：{officialVerification.state}</strong>
+                <span>{officialVerification.code}</span>
+                <span>
+                  {officialVerification.display_claim ?? "未提供显示声明"}
+                </span>
+                <span>
+                  信任序列 {officialVerification.trust_sequence} · 状态序列{" "}
+                  {officialVerification.status_sequence ?? "缺失"}
+                </span>
+                <code>{officialVerification.issuer_trust_sha256}</code>
+                <code>{officialVerification.creator_key_fingerprint}</code>
+                <small>{officialVerification.message}</small>
+              </div>
+            )}
+          </div>
           <div className="actions">
             <button
               className="primary"
@@ -2497,6 +2698,10 @@ function VerificationCard({ report }: { report: VerificationReport }) {
         <div>
           <dt>创建者身份</dt>
           <dd>{report.assurance.creator_identity}</dd>
+        </div>
+        <div>
+          <dt>官方身份声明</dt>
+          <dd>{report.assurance.official_identity ?? "absent"}</dd>
         </div>
         <div>
           <dt>数字签名</dt>

@@ -433,7 +433,7 @@ pub fn sign_c2pa_with_host_callback(
     };
     let definition = json!({
         "claim_version": 2,
-        "claim_generator_info": [{"name": "AIGC-Proof host callback", "version": "0.8.0"}]
+        "claim_generator_info": [{"name": "AIGC-Proof host callback", "version": "1.0.0"}]
     });
     let signing_context = Context::new()
         .with_settings(json!({

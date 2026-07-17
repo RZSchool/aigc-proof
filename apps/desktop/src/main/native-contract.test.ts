@@ -38,7 +38,7 @@ describe("native compatibility gate", () => {
     [{}, "NATIVE_DISCOVERY_MISSING"],
     [{ getApiInfo: () => ({}) }, "NATIVE_DISCOVERY_INVALID"],
     [
-      { getApiInfo: () => ({ ...validDiscovery, apiVersion: "2.0.0" }) },
+      { getApiInfo: () => ({ ...validDiscovery, apiVersion: "3.0.0" }) },
       "NATIVE_API_INCOMPATIBLE",
     ],
     [

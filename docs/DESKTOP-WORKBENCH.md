@@ -1,11 +1,11 @@
-# Desktop Workbench 0.8.0
+# Desktop Workbench 1.0.0
 
 ## Architecture
 
 The primary desktop frontend is a local-first React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 1.7.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 2.0.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -21,7 +21,7 @@ or native loading. The Standalone implementation issues opaque, expiring, kind-s
 references for native selections and recent records. Display labels and paths are user clarity
 only; Main resolves the stored authority and rechecks the selected path when each operation runs.
 
-Native discovery reports API 1.6.0, engine 0.5.0, supported protocols 0.2.0, 0.3.0, 0.4.0, and 0.5.0, implemented capabilities,
+Native discovery reports API 2.0.0, engine 1.0.0, supported protocols 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0, implemented capabilities,
 execution facts, and runtime limits. The Utility handshake confirms process isolation and phase
 progress; safe interruption of an already-running atomic Rust operation remains unavailable.
 Missing, malformed, incompatible, capability-inconsistent, or limit-inconsistent discovery stops
@@ -134,7 +134,7 @@ launch, disabled CDP, and clean exit.
 
 ## Local creator identity
 
-Workbench 0.8.0 manages one local Ed25519 identity through the operating-system credential store.
+Workbench 1.0.0 manages one local Ed25519 identity through the operating-system credential store.
 The renderer sees status, self-asserted display label, public fingerprint, and warnings only. Main
 validates every request and the Utility invokes the Rust signer. Creation, rotation, disable, and
 each package signature require explicit user actions. Private bytes never enter renderer, preload,
@@ -174,11 +174,17 @@ creator signature. Standalone Workbench has no C2PA certificate private-key impo
 writer. C2PA validity is provenance metadata, not truth, human identity, authorship, originality,
 ownership, copyright, permission, or non-infringement. See [C2PA Bridge Profile](C2PA-BRIDGE.md).
 
+## Offline official identity
+
+The official identity panel accepts only explicit local attestation COSE, issuer-trust JSON, and optional signed status COSE references issued by Main. Main rechecks that each input is a regular non-symlink file no larger than 64 KiB and passes bounded bytes to Utility. The user supplies the exact creator-key fingerprint, purpose, and verification time. No private service, account, status endpoint, ambient root, or network fetch is available.
+
+The panel shows `valid_trusted`, revoked, expired, untrusted, invalid, malformed, unsupported, or indeterminate evidence with stable code, claim, sequences, key fingerprint, and artifact digests. It stays separate from package integrity, creator signature, RFC 3161, C2PA, and originality. See [Official Identity Profile](OFFICIAL-IDENTITY-PROFILE.md).
+
 ## Scope
 
-Workbench 0.8.0 uses protocol 0.5.0, verifies protocol 0.4.0/0.3.0 and legacy unsigned 0.2.0, and evaluates internal
-integrity, creator signatures, optional RFC 3161 trusted time, optional bounded C2PA observations, and exact byte correspondence to verified package assets. It does
-not provide external creator identity, originality evaluation, copyright or ownership
+Workbench 1.0.0 uses protocol 1.0.0, verifies protocol 0.5.0/0.4.0/0.3.0 and legacy unsigned 0.2.0, and evaluates internal
+integrity, creator signatures, optional RFC 3161 trusted time, optional bounded C2PA observations, optional offline official identity claims, and exact byte correspondence to verified package assets. It does
+not provide authorship, originality evaluation, copyright or ownership
 determinations, official services, accounts, upload, or WASM.
 
 The previous Win32 tactical preview was retired from the source workspace only after the packaged

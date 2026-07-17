@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v1.0/official-status-snapshot-v1.schema.json",
+  "title": "AIGC-Proof Official Status Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "issuer", "sequence", "effective_at", "generated_at", "previous_digest", "entries"],
+  "properties": {
+    "profile": { "const": "aigc-proof.official-status-snapshot.v1" },
+    "issuer": { "type": "string", "pattern": "^urn:aigc-proof:official:[A-Za-z0-9._:-]{1,96}$" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "effective_at": { "type": "integer", "minimum": 0 },
+    "generated_at": { "type": "integer", "minimum": 0 },
+    "previous_digest": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }] },
+    "entries": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attestation_id", "status", "effective_at"],
+        "properties": {
+          "attestation_id": { "type": "string", "format": "uuid" },
+          "status": { "enum": ["valid", "revoked", "expired"] },
+          "effective_at": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

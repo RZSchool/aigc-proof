@@ -4,12 +4,12 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use proof_schema::{
-    Assurance, C2PA_OBSERVATION_EVENT, C2paAssurance, C2paEvidence, C2paObservation,
-    C2paValidationState, CheckResult, CheckStatus, CreatorSignatureEvidence, EVENTS_PATH, Event,
-    IdentityAssurance, Inspection, InternalIntegrity, LEGACY_SCHEMA_VERSION, LocalTrust,
-    MANIFEST_PATH, Manifest, RevocationEvidenceState, SCHEMA_VERSION, SIGNED_SCHEMA_VERSION,
-    SignatureAssurance, TRUSTED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PROFILE, TimeAssurance,
-    TrustedTimeEvidence, VerificationError, VerificationReport, VerificationStatus,
+    Assurance, C2PA_OBSERVATION_EVENT, C2PA_SCHEMA_VERSION, C2paAssurance, C2paEvidence,
+    C2paObservation, C2paValidationState, CheckResult, CheckStatus, CreatorSignatureEvidence,
+    EVENTS_PATH, Event, IdentityAssurance, Inspection, InternalIntegrity, LEGACY_SCHEMA_VERSION,
+    LocalTrust, MANIFEST_PATH, Manifest, RevocationEvidenceState, SCHEMA_VERSION,
+    SIGNED_SCHEMA_VERSION, SignatureAssurance, TRUSTED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PROFILE,
+    TimeAssurance, TrustedTimeEvidence, VerificationError, VerificationReport, VerificationStatus,
     VerificationWarning, display_label_needs_confusable_warning, parse_json_strict,
     validate_event_schema, validate_manifest_schema, validate_package_path, validate_proof_id,
 };
@@ -265,7 +265,11 @@ fn verify_package_internal(
     };
     if matches!(
         manifest.spec_version.as_str(),
-        LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+        LEGACY_SCHEMA_VERSION
+            | SIGNED_SCHEMA_VERSION
+            | TRUSTED_SCHEMA_VERSION
+            | C2PA_SCHEMA_VERSION
+            | SCHEMA_VERSION
     ) {
         report.spec_version = manifest.spec_version.clone();
     }
@@ -276,7 +280,7 @@ fn verify_package_internal(
     };
     report.trusted_time = if matches!(
         report.spec_version.as_str(),
-        TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+        TRUSTED_SCHEMA_VERSION | C2PA_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         TimeAssurance::Absent
     } else {
@@ -319,7 +323,7 @@ fn verify_package_internal(
 
     if matches!(
         manifest.spec_version.as_str(),
-        SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+        SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | C2PA_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         let signature_error_start = report.errors.len();
         verify_creator_signature(
@@ -350,7 +354,7 @@ fn verify_package_internal(
     }
     if matches!(
         manifest.spec_version.as_str(),
-        TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+        TRUSTED_SCHEMA_VERSION | C2PA_SCHEMA_VERSION | SCHEMA_VERSION
     ) {
         verify_trusted_timestamp(
             &mut archive,
@@ -361,7 +365,10 @@ fn verify_package_internal(
             &mut report,
         );
     }
-    if manifest.spec_version == SCHEMA_VERSION {
+    if matches!(
+        manifest.spec_version.as_str(),
+        C2PA_SCHEMA_VERSION | SCHEMA_VERSION
+    ) {
         let c2pa_error_start = report.errors.len();
         report.c2pa_evidence = Some(match events.as_deref() {
             Some(events) => collect_c2pa_evidence(events, &manifest, &mut report),
@@ -1374,6 +1381,8 @@ impl ReportBuilder {
         };
         let mut assurance = Assurance::for_integrity(integrity);
         assurance.creator_identity = self.identity;
+        assurance.official_identity = (self.spec_version == SCHEMA_VERSION)
+            .then_some(proof_schema::OfficialIdentityAssurance::Absent);
         assurance.digital_signature = self.signature.clone();
         assurance.trusted_time = self.trusted_time.clone();
         let mut warnings = Vec::new();
@@ -1385,8 +1394,8 @@ impl ReportBuilder {
         } else {
             warnings.push(VerificationWarning {
                 code: "ASSURANCE_LIMITS".to_owned(),
-                message: if self.spec_version == SCHEMA_VERSION {
-                    "Creator display label remains self-asserted. Trusted time, when valid, witnesses only the exact creator signature. C2PA reports provenance metadata, not factual truth, identity, originality or rights.".to_owned()
+                message: if matches!(self.spec_version.as_str(), C2PA_SCHEMA_VERSION | SCHEMA_VERSION) {
+                    "Creator display label remains self-asserted. Official identity is absent unless separately imported and verified. Trusted time witnesses only the exact creator signature. C2PA reports provenance metadata, not factual truth, identity, originality or rights.".to_owned()
                 } else {
                     "Creator display label is self-asserted. Trusted time and originality are not evaluated.".to_owned()
                 },
@@ -1414,7 +1423,10 @@ impl ReportBuilder {
         if let Some((code, message)) = self.timestamp_warning {
             warnings.push(VerificationWarning { code, message });
         }
-        let c2pa = if self.spec_version == SCHEMA_VERSION {
+        let c2pa = if matches!(
+            self.spec_version.as_str(),
+            C2PA_SCHEMA_VERSION | SCHEMA_VERSION
+        ) {
             Some(self.c2pa_evidence.unwrap_or(C2paEvidence {
                 state: C2paAssurance::Absent,
                 observations: Vec::new(),

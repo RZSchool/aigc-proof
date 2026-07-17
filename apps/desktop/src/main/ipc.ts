@@ -44,6 +44,7 @@ import {
   inspectProviderInstallationRequestSchema,
   inspectionSchema,
   inspectC2paRequestSchema,
+  officialIdentityVerificationSchema,
   jobCreateRequestSchema,
   localSignerStatusSchema,
   packageRequestSchema,
@@ -61,6 +62,7 @@ import {
   tsaProfileRequestSchema,
   tsaProfileSummarySchema,
   verificationReportSchema,
+  verifyOfficialIdentityRequestSchema,
   workspaceRequestSchema,
   workspaceSchema,
   workspaceTargetRequestSchema,
@@ -1819,6 +1821,71 @@ export async function registerIpc(
         ])
       : null;
   });
+  ipcMain.handle(channels.chooseOfficialAttestation, async (event) => {
+    const selected = await selectedOpenPath(
+      qaSelections,
+      "officialAttestations",
+      {
+        title: "Select official identity attestation",
+        buttonLabel: "Select attestation",
+        properties: ["openFile"],
+        filters: [{ name: "Official attestation COSE", extensions: ["cose"] }],
+      },
+    );
+    return selected
+      ? registry.issue(
+          "official-attestation",
+          selected,
+          event.sender.id,
+          ["verifyOfficialIdentity"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.chooseOfficialIssuerTrust, async (event) => {
+    const selected = await selectedOpenPath(
+      qaSelections,
+      "officialIssuerTrusts",
+      {
+        title: "Select explicit official issuer trust snapshot",
+        buttonLabel: "Select trust snapshot",
+        properties: ["openFile"],
+        filters: [{ name: "Official issuer trust JSON", extensions: ["json"] }],
+      },
+    );
+    return selected
+      ? registry.issue(
+          "official-issuer-trust",
+          selected,
+          event.sender.id,
+          ["verifyOfficialIdentity"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
+  ipcMain.handle(channels.chooseOfficialStatus, async (event) => {
+    const selected = await selectedOpenPath(qaSelections, "officialStatuses", {
+      title: "Select signed official status snapshot",
+      buttonLabel: "Select status snapshot",
+      properties: ["openFile"],
+      filters: [{ name: "Official status COSE", extensions: ["cose"] }],
+    });
+    return selected
+      ? registry.issue(
+          "official-status",
+          selected,
+          event.sender.id,
+          ["verifyOfficialIdentity"],
+          undefined,
+          undefined,
+          true,
+        )
+      : null;
+  });
   ipcMain.handle(channels.importTsaProfile, async (event, raw: unknown) => {
     const request = validated(tsaProfileRequestSchema, raw);
     if (isFailure(request)) return request;
@@ -1999,6 +2066,103 @@ export async function registerIpc(
             },
           }),
         );
+        return { ok: true, data: result };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+  );
+  ipcMain.handle(
+    channels.verifyOfficialIdentity,
+    async (event, raw: unknown) => {
+      const request = validated(verifyOfficialIdentityRequestSchema, raw);
+      if (isFailure(request)) return request;
+      try {
+        const owner = event.sender.id;
+        const attestationPath = await registry.resolve(
+          request.attestation,
+          "official-attestation",
+          owner,
+          "verifyOfficialIdentity",
+        );
+        const trustPath = await registry.resolve(
+          request.issuerTrust,
+          "official-issuer-trust",
+          owner,
+          "verifyOfficialIdentity",
+        );
+        const statusPath = request.status
+          ? await registry.resolve(
+              request.status,
+              "official-status",
+              owner,
+              "verifyOfficialIdentity",
+            )
+          : undefined;
+        for (const selected of [attestationPath, trustPath, statusPath].filter(
+          (value): value is string => Boolean(value),
+        )) {
+          const metadata = await fs.lstat(selected);
+          if (
+            !metadata.isFile() ||
+            metadata.isSymbolicLink() ||
+            metadata.size < 1 ||
+            metadata.size > 64 * 1024
+          ) {
+            throw new Error(
+              "OFFICIAL_INPUT_FILE_INVALID: official identity inputs must be regular files no larger than 64 KiB.",
+            );
+          }
+        }
+        const [attestation, issuerTrust, status] = await Promise.all([
+          fs.readFile(attestationPath),
+          fs.readFile(trustPath, "utf8"),
+          statusPath ? fs.readFile(statusPath) : Promise.resolve(undefined),
+        ]);
+        const result = officialIdentityVerificationSchema.parse(
+          await executeUtility({
+            operation: "verifyOfficialIdentity",
+            payload: {
+              attestationCoseBase64: attestation.toString("base64"),
+              issuerTrustJson: issuerTrust,
+              ...(status
+                ? { statusCoseBase64: status.toString("base64") }
+                : {}),
+              creatorKeyFingerprint: request.creatorKeyFingerprint,
+              purpose: request.purpose,
+              verificationTime: request.verificationTime,
+              minimumTrustSequence: request.minimumTrustSequence,
+              minimumStatusSequence: request.minimumStatusSequence,
+              ...(request.expectedPreviousStatusDigest
+                ? {
+                    expectedPreviousStatusDigest:
+                      request.expectedPreviousStatusDigest,
+                  }
+                : {}),
+              maxStatusAgeSeconds: request.maxStatusAgeSeconds,
+            },
+          }),
+        );
+        registry.consume(
+          request.attestation,
+          "official-attestation",
+          owner,
+          "verifyOfficialIdentity",
+        );
+        registry.consume(
+          request.issuerTrust,
+          "official-issuer-trust",
+          owner,
+          "verifyOfficialIdentity",
+        );
+        if (request.status) {
+          registry.consume(
+            request.status,
+            "official-status",
+            owner,
+            "verifyOfficialIdentity",
+          );
+        }
         return { ok: true, data: result };
       } catch (error) {
         return failure(error);

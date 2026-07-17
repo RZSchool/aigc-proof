@@ -64,7 +64,7 @@ fn workspace_with_asset(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[test]
-fn protocol_03_signed_package_is_valid_and_trust_is_local() {
+fn protocol_10_signed_package_is_valid_and_trust_is_local() {
     let root = tempdir().unwrap();
     let workspace = workspace_with_asset(root.path());
     let package = root.path().join("signed.aigcproof");
@@ -84,7 +84,7 @@ fn protocol_03_signed_package_is_valid_and_trust_is_local() {
 
     let untrusted = verify_package(&package, &VerificationLimits::default(), NOW.to_owned());
     assert_eq!(untrusted.status, VerificationStatus::Valid);
-    assert_eq!(untrusted.spec_version, "0.3.0");
+    assert_eq!(untrusted.spec_version, "1.0.0");
     assert_eq!(
         untrusted.assurance.digital_signature,
         SignatureAssurance::ValidUntrusted
@@ -175,6 +175,41 @@ fn signed_package_rejects_signature_key_and_manifest_identity_substitution() {
     }
 }
 
+#[test]
+fn protocol_10_rejects_version_downgrade_and_unknown_manifest_members() {
+    let root = tempdir().unwrap();
+    let workspace = workspace_with_asset(root.path());
+    let package = root.path().join("signed.aigcproof");
+    let signer = SignerService::new(MemoryStore::default());
+    signer.create("Stable protocol creator").unwrap();
+    seal_signed_workspace(
+        SealOptions {
+            workspace,
+            output: package.clone(),
+            proof_id: format!("urn:uuid:{}", Uuid::new_v4()),
+            created_at: NOW.to_owned(),
+        },
+        &signer,
+    )
+    .unwrap();
+    let substitute_key = signer.export_public_key().unwrap();
+
+    for mutation in ["spec-downgrade", "unknown-manifest-member"] {
+        let mutated = root.path().join(format!("{mutation}.aigcproof"));
+        rewrite_signed_package(&package, &mutated, mutation, &substitute_key);
+        let report = verify_package(&mutated, &VerificationLimits::default(), NOW.to_owned());
+        assert_eq!(report.status, VerificationStatus::Invalid, "{mutation}");
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.code == "MANIFEST_SCHEMA_INVALID"),
+            "{mutation}: {:?}",
+            report.errors
+        );
+    }
+}
+
 fn rewrite_signed_package(
     source: &std::path::Path,
     destination: &std::path::Path,
@@ -196,6 +231,14 @@ fn rewrite_signed_package(
             let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             value["security"]["creator_signature"]["display_label"] =
                 serde_json::Value::String("Substituted creator".to_owned());
+            bytes = canonical_json(&value).unwrap();
+        } else if mutation == "spec-downgrade" && name == "manifest.json" {
+            let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            value["spec_version"] = serde_json::Value::String("0.5.0".to_owned());
+            bytes = canonical_json(&value).unwrap();
+        } else if mutation == "unknown-manifest-member" && name == "manifest.json" {
+            let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            value["future_noncritical"] = serde_json::json!({ "value": true });
             bytes = canonical_json(&value).unwrap();
         }
         writer

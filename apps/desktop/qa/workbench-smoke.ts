@@ -103,6 +103,55 @@ const c2paAttackImage = path.resolve(
   "attacks",
   "title_xss_0_xss.jpg",
 );
+const officialVectorRoot = path.join(
+  repo,
+  "tests",
+  "vectors",
+  "official-identity",
+);
+const officialIndependentAttestation = path.join(
+  work,
+  "independent-official-attestation-v1.cose",
+);
+const officialIndependentTrust = path.join(
+  work,
+  "independent-official-issuer-trust-v1.json",
+);
+const officialIndependentStatus = path.join(
+  work,
+  "independent-official-status-v1.cose",
+);
+const officialMalformedAttestation = path.join(
+  work,
+  "malformed-official-attestation.cose",
+);
+const officialRevokedTrust = path.join(
+  work,
+  "revoked-official-issuer-trust.json",
+);
+const officialUnsupportedTrust = path.join(
+  work,
+  "unsupported-official-issuer-trust.json",
+);
+const ap034FixtureRoot = path.resolve(
+  process.env.AIGC_PROOF_OFFICIAL_FIXTURE_DIR ??
+    path.join(
+      workspaceRoot,
+      "test-results",
+      "AP-034",
+      "bundle-acceptance-final",
+      "fixtures",
+    ),
+);
+const ap034Attestation = path.join(
+  ap034FixtureRoot,
+  "official-attestation-v1.cose",
+);
+const ap034Trust = path.join(ap034FixtureRoot, "official-issuer-trust-v1.json");
+const ap034Status = path.join(
+  ap034FixtureRoot,
+  "official-status-snapshot-v1.cose",
+);
 const comfyUiInstallation = path.resolve(
   process.env.AIGC_PROOF_COMFYUI_DIR ??
     path.join(workspaceRoot, "..", "ComfyUI_windows_portable"),
@@ -687,7 +736,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 0.8.0")
+  if (version !== "Workbench 1.0.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -776,6 +825,57 @@ async function main(): Promise<void> {
   await fsp.rm(evidence, { recursive: true, force: true });
   await fsp.mkdir(work, { recursive: true });
   localTsa = await createLocalTsa();
+  const independentTrust = JSON.parse(
+    await fsp.readFile(
+      path.join(officialVectorRoot, "independent-trust.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  await Promise.all([
+    fsp.writeFile(
+      officialIndependentAttestation,
+      Buffer.from(
+        (
+          await fsp.readFile(
+            path.join(officialVectorRoot, "independent-attestation.cose.b64"),
+            "utf8",
+          )
+        ).trim(),
+        "base64",
+      ),
+    ),
+    fsp.writeFile(
+      officialIndependentTrust,
+      `${JSON.stringify(independentTrust)}\n`,
+      "utf8",
+    ),
+    fsp.writeFile(
+      officialIndependentStatus,
+      Buffer.from(
+        (
+          await fsp.readFile(
+            path.join(officialVectorRoot, "independent-status.cose.b64"),
+            "utf8",
+          )
+        ).trim(),
+        "base64",
+      ),
+    ),
+    fsp.writeFile(officialMalformedAttestation, "not a COSE_Sign1", "utf8"),
+    fsp.writeFile(
+      officialRevokedTrust,
+      `${JSON.stringify({ ...independentTrust, status: "revoked" })}\n`,
+      "utf8",
+    ),
+    fsp.writeFile(
+      officialUnsupportedTrust,
+      `${JSON.stringify({
+        ...independentTrust,
+        profile: "aigc-proof.official-issuer-trust.v2",
+      })}\n`,
+      "utf8",
+    ),
+  ]);
   await Promise.all([
     fsp.access(path.join(comfyUiInstallation, "python_embeded", "python.exe")),
     fsp.access(path.join(comfyUiInstallation, "ComfyUI", "main.py")),
@@ -789,6 +889,9 @@ async function main(): Promise<void> {
     fsp.access(c2paSoftBinding),
     fsp.access(c2paFutureClaim),
     fsp.access(c2paAttackImage),
+    fsp.access(ap034Attestation),
+    fsp.access(ap034Trust),
+    fsp.access(ap034Status),
   ]);
   await fsp.mkdir(existingTarget);
   await fsp.writeFile(existingMarker, "must remain unchanged", "utf8");
@@ -853,6 +956,27 @@ async function main(): Promise<void> {
           c2paEmbeddedImages[0],
         ],
         c2paSidecars,
+        officialAttestations: [
+          officialIndependentAttestation,
+          officialIndependentAttestation,
+          officialIndependentAttestation,
+          officialIndependentAttestation,
+          officialIndependentAttestation,
+          officialIndependentAttestation,
+          officialMalformedAttestation,
+          ap034Attestation,
+        ],
+        officialIssuerTrusts: [
+          officialIndependentTrust,
+          officialIndependentTrust,
+          officialIndependentTrust,
+          officialIndependentTrust,
+          officialRevokedTrust,
+          officialUnsupportedTrust,
+          officialIndependentTrust,
+          ap034Trust,
+        ],
+        officialStatuses: [officialIndependentStatus, ap034Status],
         timestampPackageOutputs: [
           timestampedCreationPackage,
           cancelledTimestampPackage,
@@ -1129,6 +1253,144 @@ async function main(): Promise<void> {
     await cdp.screenshot(),
   );
   record("digest-bound-c2pa-observation-recorded", c2paAssetId);
+
+  const officialFingerprint =
+    "sha256:630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd";
+  async function verifyOfficialCase(options: {
+    attestation: string;
+    trust: string;
+    status?: string;
+    fingerprint?: string;
+    verificationTime: number;
+    expectedState: string;
+    expectedCode: string;
+    evidenceName: string;
+  }): Promise<void> {
+    await click(cdp, "choose-official-attestation");
+    await waitFor(
+      () => controlValue(cdp, "official-attestation-path"),
+      (value) => value.includes(path.basename(options.attestation)),
+      `Host-issued official attestation ${options.evidenceName}`,
+    );
+    await click(cdp, "choose-official-trust");
+    await waitFor(
+      () => controlValue(cdp, "official-trust-path"),
+      (value) => value.includes(path.basename(options.trust)),
+      `Host-issued official trust ${options.evidenceName}`,
+    );
+    if (options.status) {
+      await click(cdp, "choose-official-status");
+      await waitFor(
+        () => controlValue(cdp, "official-status-path"),
+        (value) => value.includes(path.basename(options.status!)),
+        `Host-issued official status ${options.evidenceName}`,
+      );
+    }
+    await setControl(
+      cdp,
+      "official-creator-fingerprint",
+      options.fingerprint ?? officialFingerprint,
+    );
+    await setControl(cdp, "official-purpose", "creator_identity");
+    await setControl(
+      cdp,
+      "official-verification-time",
+      String(options.verificationTime),
+    );
+    await clickAndWait(
+      cdp,
+      "verify-official-identity",
+      "Official identity verification completed",
+    );
+    const identityEvidence = await waitFor(
+      () => controlText(cdp, "official-identity-evidence"),
+      (value) =>
+        value.includes(`官方身份：${options.expectedState}`) &&
+        value.includes(options.expectedCode),
+      `official identity ${options.evidenceName}`,
+    );
+    record(`official-identity-${options.evidenceName}`, identityEvidence);
+  }
+
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialIndependentTrust,
+    status: officialIndependentStatus,
+    verificationTime: 1_800_000_000,
+    expectedState: "valid_trusted",
+    expectedCode: "OFFICIAL_IDENTITY_VALID_TRUSTED",
+    evidenceName: "valid-trusted",
+  });
+  await cdp.evaluate(
+    `document.querySelector('[data-testid="official-identity-evidence"]')?.scrollIntoView({ block: "center" })`,
+  );
+  await delay(100);
+  await fsp.writeFile(
+    path.join(evidence, "official-identity-valid-trusted.png"),
+    await cdp.screenshot(),
+  );
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialIndependentTrust,
+    verificationTime: 1_800_000_000,
+    expectedState: "indeterminate",
+    expectedCode: "OFFICIAL_STATUS_SNAPSHOT_ABSENT",
+    evidenceName: "status-absent-indeterminate",
+  });
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialIndependentTrust,
+    verificationTime: 1_800_003_600,
+    expectedState: "expired",
+    expectedCode: "OFFICIAL_ATTESTATION_EXPIRED",
+    evidenceName: "expired",
+  });
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialIndependentTrust,
+    fingerprint: `sha256:${"f".repeat(64)}`,
+    verificationTime: 1_800_000_000,
+    expectedState: "invalid",
+    expectedCode: "OFFICIAL_CREATOR_KEY_MISMATCH",
+    evidenceName: "creator-substitution-invalid",
+  });
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialRevokedTrust,
+    verificationTime: 1_800_000_000,
+    expectedState: "untrusted",
+    expectedCode: "OFFICIAL_ISSUER_KEY_REVOKED",
+    evidenceName: "issuer-revoked-untrusted",
+  });
+  await verifyOfficialCase({
+    attestation: officialIndependentAttestation,
+    trust: officialUnsupportedTrust,
+    verificationTime: 1_800_000_000,
+    expectedState: "unsupported",
+    expectedCode: "OFFICIAL_TRUST_POLICY_UNSUPPORTED",
+    evidenceName: "profile-unsupported",
+  });
+  await verifyOfficialCase({
+    attestation: officialMalformedAttestation,
+    trust: officialIndependentTrust,
+    verificationTime: 1_800_000_000,
+    expectedState: "malformed",
+    expectedCode: "OFFICIAL_COSE_MALFORMED",
+    evidenceName: "malformed",
+  });
+  await verifyOfficialCase({
+    attestation: ap034Attestation,
+    trust: ap034Trust,
+    status: ap034Status,
+    verificationTime: 1_784_173_500,
+    expectedState: "revoked",
+    expectedCode: "OFFICIAL_ATTESTATION_REVOKED",
+    evidenceName: "ap034-producer-revoked",
+  });
+  await fsp.writeFile(
+    path.join(evidence, "official-identity-ap034-revoked.png"),
+    await cdp.screenshot(),
+  );
 
   await click(cdp, "choose-provider");
   await waitFor(
@@ -2048,9 +2310,9 @@ async function main(): Promise<void> {
 
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
-    "0.5.0",
-    "1.7.0",
-    "1.6.0",
+    "1.0.0",
+    "2.0.0",
+    "official.identity.verify",
     "c2pa.image.inspect",
     "c2pa.observation.create",
     "proof.asset.export",
@@ -2373,11 +2635,11 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "0.8.0",
-    contractVersion: "1.7.0",
-    nativeApiVersion: "1.6.0",
-    engineVersion: "0.5.0",
-    protocolVersion: "0.5.0",
+    workbenchVersion: "1.0.0",
+    contractVersion: "2.0.0",
+    nativeApiVersion: "2.0.0",
+    engineVersion: "1.0.0",
+    protocolVersion: "1.0.0",
     executable: testedExecutable,
     protocol: "file:",
     nativeAddon: testedAddon,

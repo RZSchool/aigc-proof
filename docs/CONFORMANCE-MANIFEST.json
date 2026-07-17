@@ -1,0 +1,60 @@
+{
+  "profile": "aigc-proof.conformance-manifest.v1",
+  "protocol_version": "1.0.0",
+  "rust_toolchain": "1.88.0",
+  "sources": [
+    {
+      "name": "COSE WG Examples",
+      "commit": "53c9d634333bb4f529d78f5980fffa2667ee2c12"
+    },
+    {
+      "name": "Sigstore conformance",
+      "commit": "5fa7a5ed04d3cb7258c65856117d60ffb0db952f"
+    },
+    {
+      "name": "c2pa-rs runtime",
+      "version": "0.89.3",
+      "tag": "c2pa-v0.89.3",
+      "tag_object": "4b9caf5398ca0e0106f989306daa00a9955504ea",
+      "peeled_commit": "e2c90ec7f1fd0a3c90adfaf93107e19abd5383b8",
+      "crate_sha256": "033a638e07c1c6194f0e0964e2cf0c1848109b25cc77d7070a9417e59005b010"
+    },
+    {
+      "name": "AP-033 c2pa-rs compatibility corpus",
+      "version": "0.85.0",
+      "tag": "c2pa-v0.85.0",
+      "peeled_commit": "3f40cdd22b60bf955d531b0301604e3f257e0a19"
+    },
+    {
+      "name": "C2PA conformance-public",
+      "commit": "5e0e60d90cf8656b4e92320eda7c783ddd1808bf"
+    },
+    {
+      "name": "C2PA Attacks",
+      "commit": "f4af902ea55dfe43c5ce27d5079ba3c47153466c"
+    },
+    {
+      "name": "c2patool",
+      "version": "0.26.60",
+      "archive_sha256": "3d41841f6269d593dcebe35fd69e63a84d912ea87388f22265c824e6f7bf8e8d"
+    },
+    {
+      "name": "AP-034 official producer",
+      "commit": "ab427a712009a77cb64b9465b07553b2dd7cd9c0",
+      "artifacts": {
+        "attestation_decoded_sha256": "fd65499e50c47b10436ad5babd8b436ff57fe919a6d2301046d29550d5e8cf74",
+        "issuer_trust_sha256": "2bc7c5d9837fd737a0bfabe2627e67ec4d81e46d730c58ade314686f2e0b2727",
+        "status_decoded_sha256": "def761b49f121a7eeb50a9d661c9d979d9f8c35c832a1b49b785c4e15b659a5f"
+      }
+    }
+  ],
+  "local_vectors": {
+    "rfc8785_input_sha256": "764e1b47bf5f0a420b3bf7da700783ed9d20f34d14d789fa25179e10eb58eed3",
+    "rfc8785_expected_sha256": "a7942e8aadd23087c351ebd1bfe3dec020285ade4719c095369fe99777d9b9e2",
+    "creator_signature_vector_sha256": "d7ee3a4beef49bf32ff3e9f14e7981cd55e2dcd3b64b43eee8ed3772e0f5c650",
+    "ap034_official_trust_checked_file_sha256": "6b3857e719c94499b143c28c547a609224ec2a109069648011c53d3c224f521b",
+    "independent_official_attestation_decoded_sha256": "1b1f014227bccbd23a04b57e3d3977ea9ef49ce57eb22105b6053ef3d9cfb33b",
+    "independent_official_trust_sha256": "e9a3e00b8669b18b42b5835062adda590752362f56c5e3cd609ea677dd31db0b",
+    "independent_official_status_decoded_sha256": "8adf31734d4f918bf28cb21401c9b852217212f2e0d1c25b487ec8648a7f6e3c"
+  }
+}

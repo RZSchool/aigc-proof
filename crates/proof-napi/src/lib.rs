@@ -5,17 +5,19 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 use napi_derive::napi;
 use proof_core::{
     AddAssetOptions, C2paInspectOptions, CoreError, CreateC2paObservationOptions,
-    ExportWorkspaceOutputOptions, InitWorkspaceOptions, OsSignerKeyStore, RecordEventOptions,
-    SealOptions, SignerService, VerificationLimits, add_asset, attach_timestamp_response,
-    create_c2pa_observation, current_timestamp, export_workspace_output, init_workspace,
-    inspect_c2pa, inspect_package, load_workspace, match_image_to_package, media_type_for_path,
-    parse_c2pa_trust_profile, parse_tsa_profile, prepare_timestamp_request, record_event,
-    seal_signed_workspace, seal_signed_workspace_with_timestamp, tsa_profile_summary,
+    ExportWorkspaceOutputOptions, InitWorkspaceOptions, OfficialIdentityVerifyOptions,
+    OsSignerKeyStore, RecordEventOptions, SealOptions, SignerService, VerificationLimits,
+    add_asset, attach_timestamp_response, create_c2pa_observation, current_timestamp,
+    export_workspace_output, init_workspace, inspect_c2pa, inspect_package, load_workspace,
+    match_image_to_package, media_type_for_path, parse_c2pa_trust_profile, parse_tsa_profile,
+    prepare_timestamp_request, record_event, seal_signed_workspace,
+    seal_signed_workspace_with_timestamp, tsa_profile_summary, verify_official_identity,
     verify_package_with_signer, verify_package_with_signer_and_profile,
 };
 use proof_schema::{AssetRole, parse_json_strict};
@@ -24,14 +26,15 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "1.6.0";
-pub const NATIVE_ENGINE_VERSION: &str = "0.5.0";
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0", "0.5.0"];
+pub const NATIVE_API_VERSION: &str = "2.0.0";
+pub const NATIVE_ENGINE_VERSION: &str = "1.0.0";
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"];
 pub const NATIVE_CAPABILITIES: &[&str] = &[
     "c2pa.image.inspect",
     "c2pa.observation.create",
     "c2pa.trust-profile.validate",
     "execution.phase-progress",
+    "official.identity.verify",
     "proof.asset.add",
     "proof.asset.export",
     "proof.asset.match",
@@ -130,6 +133,7 @@ enum Operation {
     ValidateC2paProfile(C2paProfileRequest),
     InspectC2pa(C2paInspectRequest),
     CreateC2paObservation(C2paObservationRequest),
+    VerifyOfficialIdentity(OfficialIdentityRequest),
     GetSignerStatus,
     CreateSigner(SignerLabelRequest),
     RotateSigner(SignerLabelRequest),
@@ -245,6 +249,21 @@ pub struct C2paObservationRequest {
     pub asset_id: String,
     pub sidecar: Option<String>,
     pub profile_json: String,
+}
+
+#[derive(Debug, Clone)]
+#[napi(object)]
+pub struct OfficialIdentityRequest {
+    pub attestation_cose_base64: String,
+    pub issuer_trust_json: String,
+    pub status_cose_base64: Option<String>,
+    pub creator_key_fingerprint: String,
+    pub purpose: String,
+    pub verification_time: i64,
+    pub minimum_trust_sequence: i64,
+    pub minimum_status_sequence: i64,
+    pub expected_previous_status_digest: Option<String>,
+    pub max_status_age_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -374,6 +393,13 @@ pub fn inspect_c2pa_image(request: C2paInspectRequest) -> AsyncTask<BridgeTask> 
 #[napi(js_name = "createWorkspaceC2paObservation")]
 pub fn create_workspace_c2pa_observation(request: C2paObservationRequest) -> AsyncTask<BridgeTask> {
     AsyncTask::new(BridgeTask::new(Operation::CreateC2paObservation(request)))
+}
+
+#[napi(js_name = "verifyOfficialIdentity")]
+pub fn verify_official_identity_attestation(
+    request: OfficialIdentityRequest,
+) -> AsyncTask<BridgeTask> {
+    AsyncTask::new(BridgeTask::new(Operation::VerifyOfficialIdentity(request)))
 }
 
 #[napi]
@@ -699,6 +725,53 @@ fn execute<S: proof_core::SignerKeyStore>(
             let summary = load_workspace(&workspace).map_err(BridgeFailure::core)?;
             Ok(json!({ "event": event, "workspace": summary }))
         }
+        Operation::VerifyOfficialIdentity(request) => {
+            if request.attestation_cose_base64.len() > 96 * 1024
+                || request
+                    .status_cose_base64
+                    .as_ref()
+                    .is_some_and(|value| value.len() > 96 * 1024)
+                || request.issuer_trust_json.len() > 64 * 1024
+            {
+                return Err(BridgeFailure::input(
+                    "OFFICIAL_INPUT_LIMIT_EXCEEDED",
+                    "Official identity inputs exceed the native API limits.",
+                ));
+            }
+            let attestation = STANDARD
+                .decode(&request.attestation_cose_base64)
+                .map_err(|_| {
+                    BridgeFailure::input(
+                        "OFFICIAL_ATTESTATION_BASE64_INVALID",
+                        "Attestation COSE is not strict base64.",
+                    )
+                })?;
+            let status = request
+                .status_cose_base64
+                .as_deref()
+                .map(|value| {
+                    STANDARD.decode(value).map_err(|_| {
+                        BridgeFailure::input(
+                            "OFFICIAL_STATUS_BASE64_INVALID",
+                            "Status COSE is not strict base64.",
+                        )
+                    })
+                })
+                .transpose()?;
+            let report = verify_official_identity(OfficialIdentityVerifyOptions {
+                attestation_cose: &attestation,
+                issuer_trust_json: request.issuer_trust_json.as_bytes(),
+                status_cose: status.as_deref(),
+                expected_creator_key_fingerprint: &request.creator_key_fingerprint,
+                expected_purpose: &request.purpose,
+                verification_time: request.verification_time,
+                minimum_trust_sequence: request.minimum_trust_sequence,
+                minimum_status_sequence: request.minimum_status_sequence,
+                expected_previous_status_digest: request.expected_previous_status_digest.as_deref(),
+                max_status_age_seconds: request.max_status_age_seconds,
+            });
+            Ok(serde_json::to_value(report).map_err(BridgeFailure::serialization)?)
+        }
         Operation::GetSignerStatus => {
             Ok(serde_json::to_value(signer.status()).map_err(BridgeFailure::serialization)?)
         }
@@ -848,11 +921,11 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "1.6.0");
-        assert_eq!(info.engine_version, "0.5.0");
+        assert_eq!(info.api_version, "2.0.0");
+        assert_eq!(info.engine_version, "1.0.0");
         assert_eq!(
             info.supported_protocol_versions,
-            ["0.2.0", "0.3.0", "0.4.0", "0.5.0"]
+            ["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"]
         );
         assert_eq!(
             info.capabilities,

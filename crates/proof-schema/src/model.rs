@@ -6,14 +6,15 @@ use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    C2PA_BRIDGE_PROFILE, C2PA_TRUST_PROFILE, CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH,
-    CREATOR_SIGNATURE_PROFILE, CREATOR_SIGNATURE_PROFILE_V03, CREATOR_SIGNATURE_PROFILE_V04,
-    HASH_ALGORITHM, LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION, SCHEMA_VERSION,
-    SIGNED_SCHEMA_VERSION, SIGNED_WORKSPACE_VERSION, TRUSTED_SCHEMA_VERSION,
-    TRUSTED_TIMESTAMP_PREFIX, TRUSTED_TIMESTAMP_PROFILE, TRUSTED_WORKSPACE_VERSION,
-    TSA_TRUST_PROFILE, WORKSPACE_VERSION, validate_asset_role, validate_canonical_timestamp,
-    validate_display_label, validate_event_type, validate_media_type, validate_package_path,
-    validate_portable_basename, validate_proof_id, validate_sha256_hex, validate_uuid,
+    C2PA_BRIDGE_PROFILE, C2PA_SCHEMA_VERSION, C2PA_TRUST_PROFILE, C2PA_WORKSPACE_VERSION,
+    CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
+    CREATOR_SIGNATURE_PROFILE_V03, CREATOR_SIGNATURE_PROFILE_V04, HASH_ALGORITHM,
+    LEGACY_SCHEMA_VERSION, LEGACY_WORKSPACE_VERSION, SCHEMA_VERSION, SIGNED_SCHEMA_VERSION,
+    SIGNED_WORKSPACE_VERSION, TRUSTED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PREFIX,
+    TRUSTED_TIMESTAMP_PROFILE, TRUSTED_WORKSPACE_VERSION, TSA_TRUST_PROFILE, WORKSPACE_VERSION,
+    validate_asset_role, validate_canonical_timestamp, validate_display_label, validate_event_type,
+    validate_media_type, validate_package_path, validate_portable_basename, validate_proof_id,
+    validate_sha256_hex, validate_uuid,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -257,6 +258,128 @@ pub struct C2paEvidence {
     pub observations: Vec<C2paObservation>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OfficialSubjectType {
+    Person,
+    Organization,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OfficialMethodClass {
+    SyntheticTest,
+    OrganizationControl,
+    PersonPresence,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialConsentClaim {
+    pub consent_id: uuid::Uuid,
+    pub recorded_at: i64,
+    pub purpose: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialAttestedSubject {
+    pub opaque_id: String,
+    pub subject_type: OfficialSubjectType,
+    pub display_claim: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialAttestation {
+    pub profile: String,
+    pub issuer: String,
+    pub attestation_id: uuid::Uuid,
+    pub subject: OfficialAttestedSubject,
+    pub creator_key_fingerprint: String,
+    pub method_class: OfficialMethodClass,
+    pub purpose: String,
+    pub consent: OfficialConsentClaim,
+    pub issued_at: i64,
+    pub expires_at: i64,
+    pub status_endpoint_class: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialStatusEntry {
+    pub attestation_id: uuid::Uuid,
+    pub status: String,
+    pub effective_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialStatusSnapshot {
+    pub profile: String,
+    pub issuer: String,
+    pub sequence: i64,
+    pub effective_at: i64,
+    pub generated_at: i64,
+    pub previous_digest: Option<String>,
+    pub entries: Vec<OfficialStatusEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialIssuerTrustSnapshot {
+    pub profile: String,
+    pub issuer: String,
+    pub sequence: i64,
+    pub key_id: String,
+    pub algorithm: String,
+    pub public_key_b64: String,
+    pub valid_from: i64,
+    pub valid_until: i64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OfficialIdentityAssurance {
+    Absent,
+    Unsupported,
+    Malformed,
+    Invalid,
+    Untrusted,
+    Revoked,
+    Expired,
+    Indeterminate,
+    ValidTrusted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OfficialIdentityVerification {
+    pub state: OfficialIdentityAssurance,
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attestation_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_claim: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator_key_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method_class: Option<OfficialMethodClass>,
+    pub trust_sequence: i64,
+    pub issuer_trust_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_sequence: Option<i64>,
+    pub attestation_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_sha256: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -297,12 +420,13 @@ impl Workspace {
             LEGACY_WORKSPACE_VERSION
                 | SIGNED_WORKSPACE_VERSION
                 | TRUSTED_WORKSPACE_VERSION
+                | C2PA_WORKSPACE_VERSION
                 | WORKSPACE_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_WORKSPACE_VERSION",
                 "workspace_version",
-                "Workspace version must be 0.2.0, 0.3.0, 0.4.0, or 0.5.0.",
+                "Workspace version must be 0.2.0, 0.3.0, 0.4.0, 0.5.0, or 1.0.0.",
             ));
         }
         validate_common(
@@ -321,12 +445,16 @@ impl Manifest {
         let mut issues = Vec::new();
         if !matches!(
             self.spec_version.as_str(),
-            LEGACY_SCHEMA_VERSION | SIGNED_SCHEMA_VERSION | TRUSTED_SCHEMA_VERSION | SCHEMA_VERSION
+            LEGACY_SCHEMA_VERSION
+                | SIGNED_SCHEMA_VERSION
+                | TRUSTED_SCHEMA_VERSION
+                | C2PA_SCHEMA_VERSION
+                | SCHEMA_VERSION
         ) {
             issues.push(ValidationIssue::new(
                 "UNSUPPORTED_SPEC_VERSION",
                 "spec_version",
-                "Specification version must be 0.2.0, 0.3.0, 0.4.0, or 0.5.0.",
+                "Specification version must be 0.2.0, 0.3.0, 0.4.0, 0.5.0, or 1.0.0.",
             ));
         }
         if validate_proof_id(&self.proof_id).is_err() {
@@ -419,7 +547,7 @@ impl Manifest {
                 "security",
                 "Protocol 0.4 manifests require creator signature and timestamp-plan metadata.",
             )),
-            (SCHEMA_VERSION, Some(security)) => {
+            (C2PA_SCHEMA_VERSION, Some(security)) => {
                 validate_creator_signature(
                     &security.creator_signature,
                     CREATOR_SIGNATURE_PROFILE,
@@ -438,10 +566,29 @@ impl Manifest {
                     )),
                 }
             }
-            (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+            (C2PA_SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
                 "CREATOR_SIGNATURE_ABSENT",
                 "security",
                 "Protocol 0.5 manifests require creator signature and timestamp-plan metadata.",
+            )),
+            (SCHEMA_VERSION, Some(security)) => {
+                validate_creator_signature(
+                    &security.creator_signature,
+                    CREATOR_SIGNATURE_PROFILE,
+                    &mut issues,
+                );
+                if let Some(timestamp) = security.trusted_timestamp.as_ref() {
+                    validate_trusted_timestamp(
+                        timestamp,
+                        &security.creator_signature.signature_id,
+                        &mut issues,
+                    );
+                }
+            }
+            (SCHEMA_VERSION, None) => issues.push(ValidationIssue::new(
+                "CREATOR_SIGNATURE_ABSENT",
+                "security",
+                "Protocol 1.0 manifests require creator-signature metadata; trusted time remains optional and independent.",
             )),
             _ => {}
         }
@@ -1109,6 +1256,8 @@ pub enum OriginalityAssurance {
 pub struct Assurance {
     pub internal_integrity: InternalIntegrity,
     pub creator_identity: IdentityAssurance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub official_identity: Option<OfficialIdentityAssurance>,
     pub digital_signature: SignatureAssurance,
     pub trusted_time: TimeAssurance,
     pub originality: OriginalityAssurance,
@@ -1161,6 +1310,7 @@ impl Assurance {
         Self {
             internal_integrity: value,
             creator_identity: IdentityAssurance::NotVerified,
+            official_identity: None,
             digital_signature: SignatureAssurance::NotPresent,
             trusted_time: TimeAssurance::NotPresent,
             originality: OriginalityAssurance::NotEvaluated,

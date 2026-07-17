@@ -1,4 +1,4 @@
-# Threat Model 0.5
+# Threat Model 1.0
 
 ## Detected inconsistencies
 
@@ -10,6 +10,7 @@
 - Creator-key, signature, protected-header, domain-separation, and signed-Manifest substitution
 - Timestamp response substitution, nonce/policy/imprint mismatch, malformed CMS/DER, signer/ESS/EKU/chain/time/revocation failures
 - C2PA image/manifest-store substitution, media-binding mismatch, malformed claim/signature/certificate, unsupported claim version, untrusted signer/TSA snapshot, and digest-bound observation mismatch
+- Official attestation/status/key/AAD substitution, creator-fingerprint or purpose mismatch, issuer distrust, expiry/revocation, status rollback/fork/staleness, malformed deterministic COSE/JCS, and unknown critical fields
 
 ## Malicious ZIP controls
 
@@ -30,6 +31,8 @@ are warned but cannot be made authoritative. Local trust compares only with the 
 credential record and is vulnerable to local-account or credential-store compromise; it is not a
 public PKI, revocation system, or remote identity proof.
 
+An official identity `valid_trusted` result adds only the bounded claim signed by the explicitly selected issuer key and confirmed by the explicitly selected status snapshot. A malicious or incorrectly governed issuer can still make a false claim; a stale snapshot can omit later revocation; and rollback protection depends on the caller retaining sequence/predecessor state. The verifier therefore requires explicit time/freshness/rollback inputs and reports missing status as `indeterminate`. It never contacts the private producer or a moving-latest endpoint.
+
 Private bytes are stored only through the operating-system credential adapter. Store failure,
 malformed records, missing private bytes, and key/public mismatch fail closed. There is no file,
 SQLite, environment, package, or IPC fallback. Rotation invalidates local trust for old keys but
@@ -38,7 +41,7 @@ from the stored record and cannot revoke already shared packages.
 
 ## Not protected
 
-A valid report, including a trusted C2PA observation, cannot establish real identity, factual
+A valid report, including a trusted C2PA observation or official identity claim, cannot establish factual
 truth, authorship, originality, rights, authorization,
 earliest creation time, or legal validity. A valid RFC 3161 result witnesses only the exact
 creator-signature digest at TSA `genTime`; it does not prove content creation began then. It cannot detect a private key copied by
@@ -85,6 +88,8 @@ processing time, and normalized status codes. The Renderer never receives a trus
 native handle, raw assertion explanation, or filesystem authority. A hostile image may still
 exercise bugs in the pinned SDK or native image/JUMBF parsers; exact pinning, official corpora,
 attack tests, process isolation, and file/time/count limits reduce but cannot eliminate that risk.
+
+Official identity verification has no Main or Utility socket, service-client, account, or private-key path. Main grants one-use references only to explicit regular attestation/trust/status files no larger than 64 KiB; Utility receives bounded bytes and policy values. A hostile artifact can still exercise CBOR/JSON/crypto parsing, so strict duplicate rejection, deterministic encoding, exact profile/AAD/header checks, size/count limits, public and producer corpora, and Utility isolation remain mandatory.
 
 Main validates the native discovery response before proof IPC registration. Missing/malformed
 discovery, an unknown API major, an unexpected engine/protocol, or inconsistent capabilities/

@@ -11,6 +11,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+base64.workspace = true
 napi = { version = "=2.16.17", default-features = false, features = ["napi8"] }
 napi-derive = "=2.16.13"
 proof-core = { path = "../proof-core" }

@@ -1,6 +1,6 @@
 # @aigc-proof/creation-core 1.0.0
 
-Reusable Node creation-to-proof semantics for Workbench 0.8.0. This package has no React,
+Reusable Node creation-to-proof semantics for Workbench 1.0.0. This package has no React,
 Electron, SQLite, Standalone database, or renderer dependency.
 
 It provides:
@@ -20,5 +20,5 @@ exported or constructed by the packaged Main process.
 
 ComfyUI, Python/GPU runtimes, custom nodes, and model weights are external user-managed
 components. Their observations do not by themselves establish software provenance, identity,
-rights, originality, signature, trusted time, or C2PA trust. Protocol and native engine are 0.5.0;
+rights, originality, signature, trusted time, C2PA trust, or official identity. Protocol and native engine are 1.0.0;
 creator signature, trusted-time, and C2PA observation assurance remain separate Rust/Main boundaries.

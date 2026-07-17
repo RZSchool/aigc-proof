@@ -5,17 +5,17 @@
 0.3 Creator Signature
 0.4 Trusted Timestamp
 0.5 C2PA Bridge
-1.0 Stable Specification
+1.0 Stable Specification + Offline Official Identity
 ```
 
 Version 0.2 remains the frozen unsigned compatibility profile. Version 0.3 creator signatures are
 complete under AP-031. Version 0.4 RFC 3161 trusted time is complete under AP-032, and the bounded
-offline C2PA 2.2 bridge is the AP-033 protocol 0.5 phase. Later versions never retroactively add
+offline C2PA 2.2 bridge is the AP-033 protocol 0.5 phase. The public offline official-attestation verifier and stable compatibility contract are the AP-035 protocol 1.0 phase. Later versions never retroactively add
 assurance to older packages.
 
-The desktop workbench has an independent application version. Workbench 0.8.0 is a local-first
-Electron/React client of the 0.5.0 Rust engine, using `ProofHostApi` 1.7.0, fail-closed
-native API 1.6.0 discovery, typed opaque references, bounded Main-owned jobs, a supervised
+The desktop workbench has an independent application version. Workbench 1.0.0 is a local-first
+Electron/React client of the 1.0.0 Rust engine, using `ProofHostApi` 2.0.0, fail-closed
+native API 2.0.0 discovery, typed opaque references, bounded Main-owned jobs, a supervised
 Utility-only napi-rs boundary, a reusable Node creation core, a loopback-only ComfyUI v0.27.0
 adapter, exact no-clobber creation-output export, byte-for-byte verified-package output matching,
 workspace-scoped explicit history restoration, and disposable SQLite application state. Its full workflow is one menu-free scrollable
@@ -25,8 +25,8 @@ succeeded.
 
 Local COSE/Ed25519 signatures are the 0.3/AP-031 phase; explicit RFC 3161 acquisition and offline
 verification are the 0.4/AP-032 phase; bounded C2PA 2.2 observation is the 0.5/AP-033 phase.
-Official identity services, production C2PA signing/KMS/HSM, S3-backed services, and WASM remain
-separate reviewed phases and are not implied by Workbench 0.8.0.
+Private official identity Phase 1 production is AP-034; only its portable offline verifier is public in 1.0/AP-035. Production identity deployment/provider/authentication/root governance, production C2PA signing/KMS/HSM, S3-backed services, and WASM remain
+separate reviewed phases and are not implied by Workbench 1.0.0.
 
 ## Rights Protection product track
 

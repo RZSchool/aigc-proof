@@ -89,6 +89,15 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
   chooseC2paSidecar() {
     return this.bridge.chooseC2paSidecar();
   }
+  chooseOfficialAttestation() {
+    return this.bridge.chooseOfficialAttestation();
+  }
+  chooseOfficialIssuerTrust() {
+    return this.bridge.chooseOfficialIssuerTrust();
+  }
+  chooseOfficialStatus() {
+    return this.bridge.chooseOfficialStatus();
+  }
   chooseReportOutput() {
     return this.bridge.chooseReportOutput();
   }
@@ -113,6 +122,11 @@ export class StandaloneProofHostAdapter implements ProofHostApi {
     request: Parameters<ProofHostApi["createC2paObservation"]>[0],
   ) {
     return this.bridge.createC2paObservation(request);
+  }
+  verifyOfficialIdentity(
+    request: Parameters<ProofHostApi["verifyOfficialIdentity"]>[0],
+  ) {
+    return this.bridge.verifyOfficialIdentity(request);
   }
   requestTrustedTimestamp(
     request: Parameters<ProofHostApi["requestTrustedTimestamp"]>[0],

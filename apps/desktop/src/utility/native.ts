@@ -66,6 +66,18 @@ export interface NativeAddon {
     sidecar?: string | undefined;
     profileJson: string;
   }): Promise<string>;
+  verifyOfficialIdentity(request: {
+    attestationCoseBase64: string;
+    issuerTrustJson: string;
+    statusCoseBase64?: string | undefined;
+    creatorKeyFingerprint: string;
+    purpose: string;
+    verificationTime: number;
+    minimumTrustSequence: number;
+    minimumStatusSequence: number;
+    expectedPreviousStatusDigest?: string | undefined;
+    maxStatusAgeSeconds: number;
+  }): Promise<string>;
   getLocalSignerStatus(): Promise<string>;
   createLocalSigner(request: { displayLabel: string }): Promise<string>;
   rotateLocalSigner(request: { displayLabel: string }): Promise<string>;

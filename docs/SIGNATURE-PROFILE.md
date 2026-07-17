@@ -8,6 +8,8 @@ Protocol 0.3 adds one local creator signature with profile identifier `aigc-proo
 
 Protocol 0.4 uses profile identifier `aigc-proof.creator-signature.cose-ed25519.v2`. Its Manifest predeclares the RFC 3161 timestamp request plan before creator signing, and its signature domain is therefore distinct from 0.3. A 0.4 verifier continues to verify 0.3 `v1` signatures under their original rules.
 
+Protocol 0.5 introduced profile `aigc-proof.creator-signature.cose-ed25519.v3` with external AAD `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.5`. Protocol 1.0 retains this already frozen signature profile unchanged; the signed Manifest's exact `spec_version` prevents cross-version reinterpretation. New 1.0 packages may omit the timestamp descriptor, while a 0.5 Manifest still requires it.
+
 ## Identity and trust boundary
 
 The creator `display_label` is self-asserted. A valid signature proves only that the holder of the corresponding Ed25519 private key signed the exact canonical Manifest digest under this profile. It does not prove a real name, account, organization, originality, copyright, ownership, authorization, legal validity, or trusted creation time.
@@ -29,7 +31,7 @@ The signed content is the SHA-256 digest of the exact canonical `manifest.json` 
 
 - Protected header: exactly `alg = EdDSA` and `kid = SHA-256(COSE_Key bytes)`.
 - Unprotected header: empty.
-- External AAD, exact bytes: `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.3` for profile `v1`, or `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.4` for profile `v2`.
+- External AAD, exact bytes: `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.3` for profile `v1`, `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.4` for profile `v2`, or `AIGC-PROOF\0CREATOR-SIGNATURE\0v0.5` for profile `v3`.
 - Signature: 64-byte Ed25519 signature over the standard COSE `Sig_structure` produced from those values.
 
 Verification rejects untagged, malformed, non-deterministically encoded, embedded-payload, extra-header, wrong-algorithm, wrong-`kid`, wrong-key, wrong-domain, substituted-Manifest, and non-64-byte signature inputs. Ed25519 verification uses strict verification.

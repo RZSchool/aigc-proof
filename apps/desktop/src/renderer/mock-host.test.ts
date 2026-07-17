@@ -24,7 +24,7 @@ describe("deterministic ProofHostApi mock", () => {
       folderName: "mock-project",
     });
     expect(created.ok && created.data.workspace.workspace_version).toBe(
-      "0.5.0",
+      "1.0.0",
     );
     const job = await host.startJob({
       operation: "loadWorkspace",

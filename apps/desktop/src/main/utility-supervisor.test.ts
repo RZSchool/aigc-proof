@@ -252,7 +252,7 @@ describe("Utility supervisor", () => {
     forkMock.mockReturnValueOnce(incompatible);
     const supervisor = new UtilitySupervisor();
     const refused = supervisor.start();
-    incompatible.emit("message", ready({ apiVersion: "2.0.0" }));
+    incompatible.emit("message", ready({ apiVersion: "3.0.0" }));
     await expect(refused).rejects.toThrow(/incompatible/u);
     expect(incompatible.kill).toHaveBeenCalled();
 

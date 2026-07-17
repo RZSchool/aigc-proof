@@ -34,11 +34,11 @@ JSON Schema expresses portable structure. Shared Rust validation enforces strict
 
 The public workspace has no dependency on private official code or services.
 
-## Desktop Workbench 0.8.0
+## Desktop Workbench 1.0.0
 
 ```text
 React + TypeScript renderer (untrusted presentation)
-        | ProofHostApi 1.7.0
+        | ProofHostApi 2.0.0
         v
 Standalone Host adapter
         | typed window.aigcProof API
@@ -55,7 +55,7 @@ Electron Main (authority, SQLite v2, provider/process/staging, TSA HTTPS, C2PA r
         | versioned Utility messages
         v
 supervised Electron Utility Process (exclusive native-addon owner)
-        | native API 1.6.0 + Node-API
+        | native API 2.0.0 + Node-API
         v
 proof-napi (asynchronous proof adapter)
         |
@@ -71,7 +71,7 @@ access. Main validates every DTO, owns native dialogs and user-selected paths, a
 session/origin/kind/permission/expiry-bound opaque references whose display labels/paths have no
 authority. The supervised Utility Process is the only production process that loads
 `proof_napi.node`. Main registers proof IPC only after its versioned handshake reports compatible
-API 1.6.0, engine 0.5.0, protocols 0.2.0, 0.3.0, 0.4.0, and 0.5.0, capabilities, execution facts, and bounded limits. Rust
+API 2.0.0, engine 1.0.0, protocols 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0, capabilities, execution facts, and bounded limits. Rust
 remains the sole protocol and archive-security implementation; Electron never shells out to the
 CLI.
 
@@ -102,19 +102,19 @@ bytes, enforces lifecycle transitions, and maps successful observations into sta
 Main alone resolves Host references, selects installations, allocates staging, writes validated
 bytes, invokes proof jobs, and persists local state.
 
-Host contract 1.7.0 preserves workspace-scoped creation and timestamp operations and adds narrow
+Host contract 2.0.0 preserves workspace-scoped creation, timestamp, and C2PA operations and adds narrow
 C2PA trust-profile/image/sidecar/inspection/observation operations without exposing a generic URL,
 fetch, trust-store, or parser API. Renderer submits only the
 current opaque workspace reference; Main validates its kind, owner, permission, expiry and active
 scope, resolves the canonical workspace, and filters SQLite there. Host 1.5 signer operations remain unchanged. Workspace/session scope changes
 clear transient proof and verifier presentation before any history is shown, and history is
-restored only by an explicit user choice. Native API 1.6.0 adds strict C2PA profile validation,
-offline image/sidecar inspection, and digest-bound observation creation for protocol 0.5 while retaining
+restored only by an explicit user choice. Native API 2.0.0 adds strict offline official-attestation verification while retaining C2PA profile validation,
+offline image/sidecar inspection, and digest-bound observation creation for protocols 0.5/1.0 and retaining
 0.2/0.3/0.4 verification and the protocol 0.4 RFC 3161 path.
 
-The Utility owns the exact `c2pa` 0.85.0 SDK with default networking disabled. Main resolves and
+The Utility owns the exact `c2pa` 0.89.3 SDK with default networking disabled. Main resolves and
 revalidates selected regular-file references; the Renderer receives only bounded normalized evidence.
-C2PA signer/TSA trust, RFC 3161 trust, creator-key trust, and later official identity trust remain
+C2PA signer/TSA trust, RFC 3161 trust, creator-key trust, and official identity trust remain
 separate. See [C2PA Bridge Profile](C2PA-BRIDGE.md).
 
 The provider adapter accepts only a credential-free loopback HTTP/WebSocket origin, refuses
@@ -133,7 +133,7 @@ desktop frontend. See [Desktop Workbench](DESKTOP-WORKBENCH.md).
 
 ## Versioned standalone host and prospective integration
 
-`@aigc-proof/host-contracts` 1.7.0 is the reusable renderer-safe source of DTOs, strict Schemas,
+`@aigc-proof/host-contracts` 2.0.0 is the reusable renderer-safe source of DTOs, strict Schemas,
 versions, capabilities, errors, and `ProofHostApi`. The implemented Standalone adapter uses
 Host-issued local references and the Workbench Main boundary. A deterministic Mock Host supports
 consumer/component tests but is not registered by the packaged product.
@@ -152,7 +152,7 @@ reference only and introduces no AIGC-Proof dependency.
 
 Local COSE/Ed25519 signatures and self-asserted identity are implemented in protocol 0.3. Explicit
 RFC 3161 acquisition and offline verification are implemented in protocol 0.4. The bounded offline
-C2PA 2.2 image bridge is implemented in protocol 0.5. Official Axum/PostgreSQL/S3 services,
+C2PA 2.2 image bridge is retained from protocol 0.5. Public offline official identity verification is implemented in 1.0; private Axum/PostgreSQL services,
 production C2PA signing, and Rust WASM require separate reviewed versions and are not implied by
 the workbench.
 

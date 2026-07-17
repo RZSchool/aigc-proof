@@ -50,7 +50,7 @@ function reference<K extends ReferenceKind>(
 }
 
 const emptyWorkspace = (): Workspace => ({
-  workspace_version: "0.5.0",
+  workspace_version: "1.0.0",
   created_at: "2026-07-13T00:00:00Z",
   project: { name: "Mock project" },
   assets: [],
@@ -74,6 +74,18 @@ export class DeterministicMockProofHost implements ProofHostApi {
     "c2pa-profile.json",
   );
   readonly c2paSidecarReference = reference("c2pa-sidecar", "created.c2pa");
+  readonly officialAttestationReference = reference(
+    "official-attestation",
+    "official-attestation.cose",
+  );
+  readonly officialIssuerTrustReference = reference(
+    "official-issuer-trust",
+    "official-issuer-trust.json",
+  );
+  readonly officialStatusReference = reference(
+    "official-status",
+    "official-status.cose",
+  );
   readonly reportOutputReference = reference("report-output", "report output");
   readonly diagnosticReference = reference("diagnostic", "mock diagnostics");
   readonly providerReference = reference(
@@ -342,6 +354,15 @@ export class DeterministicMockProofHost implements ProofHostApi {
   chooseC2paSidecar() {
     return Promise.resolve(this.c2paSidecarReference);
   }
+  chooseOfficialAttestation() {
+    return Promise.resolve(this.officialAttestationReference);
+  }
+  chooseOfficialIssuerTrust() {
+    return Promise.resolve(this.officialIssuerTrustReference);
+  }
+  chooseOfficialStatus() {
+    return Promise.resolve(this.officialStatusReference);
+  }
   chooseReportOutput() {
     return Promise.resolve(this.reportOutputReference);
   }
@@ -398,6 +419,32 @@ export class DeterministicMockProofHost implements ProofHostApi {
           event_hash: "e".repeat(64),
         },
         workspace: this.#workspace,
+      }),
+    );
+  }
+  verifyOfficialIdentity(
+    request: Parameters<ProofHostApi["verifyOfficialIdentity"]>[0],
+  ) {
+    return Promise.resolve(
+      ok({
+        state: "valid_trusted" as const,
+        code: "OFFICIAL_IDENTITY_VALID_TRUSTED",
+        message: "Synthetic official identity verified offline.",
+        issuer: "urn:aigc-proof:official:mock",
+        attestation_id: "550e8400-e29b-41d4-a716-446655440035",
+        display_claim: "Mock verified identity",
+        creator_key_fingerprint: request.creatorKeyFingerprint.startsWith(
+          "sha256:",
+        )
+          ? request.creatorKeyFingerprint
+          : `sha256:${request.creatorKeyFingerprint}`,
+        purpose: request.purpose,
+        method_class: "synthetic_test" as const,
+        trust_sequence: request.minimumTrustSequence,
+        issuer_trust_sha256: `sha256:${"d".repeat(64)}`,
+        status_sequence: request.minimumStatusSequence,
+        attestation_sha256: `sha256:${"a".repeat(64)}`,
+        status_sha256: `sha256:${"b".repeat(64)}`,
       }),
     );
   }
@@ -574,13 +621,14 @@ export class DeterministicMockProofHost implements ProofHostApi {
   verifyPackage(_request: Parameters<ProofHostApi["verifyPackage"]>[0]) {
     void _request;
     const report: VerificationReport = {
-      spec_version: "0.5.0",
+      spec_version: "1.0.0",
       proof_id: "urn:uuid:00000000-0000-4000-8000-000000000000",
       verified_at: "2026-07-13T00:00:00Z",
       status: "valid",
       assurance: {
         internal_integrity: "valid",
         creator_identity: "self_asserted",
+        official_identity: "absent",
         digital_signature: "valid_locally_trusted",
         trusted_time: "absent",
         originality: "not_evaluated",

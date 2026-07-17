@@ -1,6 +1,6 @@
 Project: AIGC-Proof-Skill Open Source
-Stage: Phase 1 - v0.5 C2PA Bridge Candidate
-Status: AP-033 implementation and validation complete
+Stage: Stable Protocol and Workbench 1.0 Candidate
+Status: AP-035 implementation, validation and candidate freeze complete
 
 Implemented in source:
 
@@ -19,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 1.7.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 2.0.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -46,6 +46,10 @@ Implemented in source:
     and explicitly selected local sidecars, with claim v1 read compatibility, claim v2 current
     behavior, separate signer/TSA trust snapshots, normalized reports, and remote/soft-binding/
     unsupported-media refusal.
+23. Protocol 1.0 stable compatibility, optional independent trusted time/C2PA/official identity
+    assurance, strict public AP-034 attestation/status verification, rollback/freshness policy,
+    Host/native API 2.0 and Workbench 1.0 offline identity import without private-service runtime
+    dependency.
 
 Historical initial verification status (superseded by the versioned records below):
 
@@ -369,9 +373,13 @@ separate. Remote-manifest lookup, soft-binding lookup, MP4/PDF, future claim ver
 assertion text are refused or excluded from the trusted UI boundary. C2PA validity is provenance
 metadata; it does not prove factual truth, identity, originality, copyright, ownership or rights.
 
-The reviewed dependency graph pins `c2pa 0.85.0` with only `file_io` and
-`rust_native_crypto`; default networking and OpenSSL are absent. Frozen independent evidence uses
-C2PA SDK commit `3f40cdd22b60bf955d531b0301604e3f257e0a19`, conformance-public commit
+AP-035 updates the reviewed runtime dependency to `c2pa 0.89.3` with only `file_io` and
+`rust_native_crypto`; default networking and OpenSSL are absent. The runtime source is official
+tag object/peeled commit `c2pa-v0.89.3` / `4b9caf5398ca0e0106f989306daa00a9955504ea` /
+`e2c90ec7f1fd0a3c90adfaf93107e19abd5383b8`, crates.io SHA-256
+`033a638e07c1c6194f0e0964e2cf0c1848109b25cc77d7070a9417e59005b010`, and uses the fixed
+`quick-xml 0.41.0`. Frozen independent evidence retains the AP-033 SDK 0.85.0 commit
+`3f40cdd22b60bf955d531b0301604e3f257e0a19` as a read-compatibility corpus, plus conformance-public commit
 `5e0e60d90cf8656b4e92320eda7c783ddd1808bf`, C2PA Attacks commit
 `f4af902ea55dfe43c5ce27d5079ba3c47153466c`, and c2patool 0.26.60 crate SHA-256
 `3d41841f6269d593dcebe35fd69e63a84d912ea87388f22265c824e6f7bf8e8d`. The frozen 32-image
@@ -406,12 +414,55 @@ The Windows x64 EXE is 205,586,944 bytes with SHA-256
 evidence and reviewed screenshots are under `test-results/AP-033/qa/packaged/`. macOS was not
 executed and is not claimed.
 
+Stable interoperable assurance (AP-035, 2026-07-17): passed through protocol/engine/workspace and
+Workbench 1.0.0 with Host/native API 2.0.0. The stable protocol retains exact 0.2/0.3/0.4/0.5
+read verification, rejects downgrade and unknown members, makes trusted time optional for new 1.0
+packages, and keeps Internal Integrity, self-asserted creator signature, RFC 3161, C2PA 2.2 and
+official identity as independent evidence. Public offline official-identity verification accepts
+only bounded deterministic COSE/JCS artifacts, an explicit issuer trust snapshot, caller-supplied
+creator fingerprint/purpose/time/rollback/freshness policy and a signed status snapshot. It has no
+private-service, moving-root, account, proofing-evidence, network or issuer-private-key path.
+
+The exact security-maintained runtime is `c2pa 0.89.3` with default features disabled and only
+`file_io` plus `rust_native_crypto`; AP-033 SDK 0.85 fixtures remain read-compatibility inputs.
+Official c2patool 0.26.60 matched embedded/sidecar/tamper results, OpenSSL and the frozen Sigstore
+corpus matched RFC 3161 results, and an independent Python CBOR/OpenSSL verifier accepted the
+sanitized AP-034 producer format. New verification accepted valid packages created under every
+old protocol; AP-031 through AP-033 verifiers all rejected the new 1.0 package, with AP-032/033
+reporting `UNSUPPORTED_SPEC_VERSION` and AP-031 failing its strict 0.3 Schema.
+
+Native Windows `x86_64-pc-windows-msvc` and actual Ubuntu 24.04 WSL2 both used Rust 1.88.0 and
+passed locked formatting, all-target/all-feature checks, warnings-denied Clippy, documentation,
+metadata/tree, complete applicable tests, the real CLI smoke path and current/compatibility C2PA
+corpora. Windows passed 71 normal tests plus the explicit OS-credential lifecycle; Ubuntu passed
+74 applicable tests and the expected fail-closed unavailable credential-store path. The frozen
+RustSec database at commit `9f3e138091487e69144f536d36976e427a7a3307` found no unignored
+advisory; the reviewed exceptions remain RSA timing advisory RUSTSEC-2023-0071 with no private-key
+path/fix and build-only unmaintained proc macro RUSTSEC-2024-0370. The locked graph contains 522
+packages, 518 third-party packages, no missing license declaration and no forbidden license.
+
+Windows Node v24.14.0/pnpm 11.9.0 passed Prettier, all TypeScript checks, ESLint, 7 Host-contract
+tests, 16 creation-core tests, 77 Desktop tests and production/release builds. Sequential
+development and refreshed packaged Electron/CDP runs each passed 82 observations across both
+viewports, complete creation/signature/timestamp/C2PA/official-identity positive and negative
+states, AP-034 producer fixtures, process/boundary recovery and clean exits. Package-boundary QA
+found 430 files, zero source maps, coherent versions and Utility-only addon loading. A separate
+normal launch exposed no QA/CDP port and exited cleanly.
+
+The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
+`2e4c4b56ecf5a476508be75b57c71cb16b831bf565e180956618b464f9982ef7`; ASAR SHA-256 is
+`e659d95c85d5913955fb4c83787bca3d941a93bb61d5a64ef8e94364280ee784`; native-addon SHA-256 is
+`0501732b02d204c59cb019a1d6e393998ed647c85862ff49e9c9077c732c8b03`; release CLI SHA-256 is
+`5f0e2999a3883188fbfc6fc5e10f520f75456f70895b91b183b80034665555b5`. Final evidence and
+screenshots are under `test-results/AP-035/`. macOS was not executed and is not claimed as
+passed. No independent or parallel QA, push, tag, release, upload or publication was started.
+
 Not implemented:
 
-- Externally verified creator identity, accounts or legal-name attestation
+- Production online identity enrollment/proofing, accounts, provider integration or legal-name governance
 - Standalone C2PA authoring/signing, remote lookup, soft binding, video/audio/PDF, or claim 2.3+
 - Originality or copyright evaluation
-- Official verification, accounts, network APIs, official-service databases, WASM, or upload
+- Hosted official-service deployment, production roots/keys, network APIs, WASM, or upload
 
 A valid creator signature or RFC 3161 result does not turn a self-asserted label into verified
 identity and does not establish originality, copyright, ownership, authorization, C2PA provenance

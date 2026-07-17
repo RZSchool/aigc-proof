@@ -3,15 +3,15 @@
 Open protocol and Rust reference implementation for recording an AIGC creation workflow, signing a portable proof package with a local creator key, and verifying it offline.
 
 ```text
-Protocol/engine: 0.5.0
-Workbench: 0.8.0
-Status: AP-033 candidate implementation
-Assurance: Internal Integrity + self-asserted local creator signature + optional RFC 3161 trusted time + optional C2PA observation
+Protocol/engine/workspace: 1.0.0
+Workbench: 1.0.0
+Status: AP-035 stable candidate implementation
+Assurance: Internal Integrity + self-asserted local creator signature + optional RFC 3161 trusted time + optional C2PA observation + optional official identity attestation
 ```
 
-A valid 0.5 result means the package is internally consistent and its exact canonical Manifest was signed by the embedded Ed25519 key. When an explicitly imported portable TSA snapshot verifies an attached RFC 3161 response, the report separately marks trusted time `valid_trusted`. An optional C2PA observation binds the exact image and manifest-store digests to separately imported signer/TSA trust snapshots. The creator display name remains self-asserted, and C2PA provenance metadata is not factual truth or identity proof.
+A valid 1.0 result means the package is internally consistent and its exact canonical Manifest was signed by the embedded Ed25519 key. Optional RFC 3161 trusted time, C2PA observations, and an externally supplied official identity attestation are evaluated as independent evidence. Official identity verification is offline against explicit issuer-trust and signed status snapshots and binds only the stated creator public-key fingerprint, purpose, consent, time, and status. It does not turn provenance into authorship, rights, originality, or truth.
 
-It is not real-name verification, copyright registration, rights determination, originality certification, proof of ownership, or official verification. Protocol 0.4 timestamp-capable packages, 0.3 signed packages, and explicitly unsigned 0.2 packages remain verifiable.
+It is not copyright registration, rights determination, originality certification, proof of ownership, or factual verification. Protocol 0.5 C2PA packages, 0.4 timestamp-capable packages, 0.3 signed packages, and explicitly unsigned 0.2 packages remain verifiable.
 
 ## Offline CLI workflow
 
@@ -26,6 +26,7 @@ aigc-proof verify example.aigcproof
 aigc-proof inspect example.aigcproof --json
 aigc-proof c2pa profile c2pa-trust.json
 aigc-proof c2pa inspect --asset signed.png --trust-profile c2pa-trust.json
+aigc-proof official-identity --attestation official-attestation-v1.cose --issuer-trust official-issuer-trust-v1.json --status official-status-snapshot-v1.cose --creator-key-fingerprint <sha256> --purpose creator_identity --at <unix-seconds>
 ```
 
 Key rotation and disable require explicit confirmation flags. The private key remains in the operating-system credential store; public export emits only deterministic `COSE_Key` bytes. The CLI is offline, uses bounded streaming I/O, never overwrites outputs, and does not upload.
@@ -34,11 +35,11 @@ For legacy compatibility testing only, `seal --legacy-unsigned-v02` creates an u
 
 ## Desktop workbench
 
-Workbench 0.8.0 is a local-first React/TypeScript Electron application using renderer-safe `ProofHostApi` 1.7.0, native API 1.6.0, and engine/protocol 0.5.0. Electron Main owns path authority, validated IPC, operating-system credential operations, bounded jobs, the explicit RFC 3161 HTTPS adapter, and C2PA trust-profile lifetime; a supervised Utility Process exclusively owns the napi-rs addon. The renderer has no Node.js, filesystem, SQLite, credential-store, native-module, C2PA SDK, trust store, or generic network access.
+Workbench 1.0.0 is a local-first React/TypeScript Electron application using renderer-safe `ProofHostApi` 2.0.0, native API 2.0.0, and engine/protocol 1.0.0. Electron Main owns path authority, validated IPC, operating-system credential operations, bounded jobs, the explicit RFC 3161 HTTPS adapter, and portable trust-input lifetime; a supervised Utility Process exclusively owns the napi-rs addon. The renderer has no Node.js, filesystem, SQLite, credential-store, native-module, C2PA SDK, trust store, or generic network access.
 
-The one-page workflow supports a local self-asserted signer identity, explicit per-package signing confirmation, local ComfyUI v0.27.0 creation, signed sealing, explicit RFC 3161 acquisition, exact image-to-package matching, and offline C2PA 2.2 inspection/observation for JPEG, PNG, WebP, and explicitly selected local `.c2pa` sidecars. Remote manifests, soft bindings, certificate private-key import, and standalone C2PA signing are unavailable. ComfyUI, Python, models, custom nodes, and trust roots are not bundled or downloaded.
+The one-page workflow supports a local self-asserted signer identity, explicit per-package signing confirmation, local ComfyUI v0.27.0 creation, signed sealing, explicit RFC 3161 acquisition, exact image-to-package matching, offline C2PA 2.2 inspection/observation, and offline official-attestation verification from explicitly selected local files. Remote manifests, soft bindings, private official-service calls, certificate private-key import, and standalone C2PA signing are unavailable. ComfyUI, Python, models, custom nodes, and trust roots are not bundled or downloaded.
 
-See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md), [Signature Profile](docs/SIGNATURE-PROFILE.md), [Trusted Time Profile](docs/TRUSTED-TIME-PROFILE.md), and [C2PA Bridge Profile](docs/C2PA-BRIDGE.md).
+See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md), [Signature Profile](docs/SIGNATURE-PROFILE.md), [Trusted Time Profile](docs/TRUSTED-TIME-PROFILE.md), [C2PA Bridge Profile](docs/C2PA-BRIDGE.md), and [Official Identity Profile](docs/OFFICIAL-IDENTITY-PROFILE.md).
 
 ## Public/private boundary
 
@@ -48,7 +49,7 @@ Official accounts, organizational key registration and online revocation service
 
 ## Build and test
 
-Rust 1.88.0, rustfmt, and Clippy are pinned for protocol 0.5/AP-033.
+Rust 1.88.0, rustfmt, and Clippy are pinned for protocol 1.0/AP-035.
 
 ```bash
 cargo fmt --all --check

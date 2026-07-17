@@ -40,11 +40,11 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(WORKBENCH_VERSION).toBe("0.8.0");
-    expect(HOST_CONTRACT_VERSION).toBe("1.7.0");
-    expect(NATIVE_API_VERSION).toBe("1.6.0");
-    expect(NATIVE_ENGINE_VERSION).toBe("0.5.0");
-    expect(PROTOCOL_VERSION).toBe("0.5.0");
+    expect(WORKBENCH_VERSION).toBe("1.0.0");
+    expect(HOST_CONTRACT_VERSION).toBe("2.0.0");
+    expect(NATIVE_API_VERSION).toBe("2.0.0");
+    expect(NATIVE_ENGINE_VERSION).toBe("1.0.0");
+    expect(PROTOCOL_VERSION).toBe("1.0.0");
   });
 
   it("applies fail-closed SemVer and capability compatibility", () => {
@@ -52,9 +52,9 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("1.6.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("2.0.0");
     for (const invalid of [
-      discovery({ apiVersion: "2.0.0" }),
+      discovery({ apiVersion: "3.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
       discovery({ supportedProtocolVersions: ["0.1.0"] }),
       discovery({ capabilities: NATIVE_CAPABILITIES.slice(1) }),
@@ -188,6 +188,9 @@ describe("@aigc-proof/host-contracts", () => {
       timestampPackageOutput: reference("timestamp-package-output", "o"),
       c2paProfile: reference("c2pa-trust-profile", "p"),
       c2paSidecar: reference("c2pa-sidecar", "q"),
+      officialAttestation: reference("official-attestation", "r"),
+      officialTrust: reference("official-issuer-trust", "s"),
+      officialStatus: reference("official-status", "t"),
       reportOutput: reference("report-output", "f"),
       task: reference("task", "g"),
       result: reference("result", "h"),
@@ -384,6 +387,9 @@ describe("@aigc-proof/host-contracts", () => {
       chooseC2paTrustProfile: references.c2paProfile,
       chooseC2paImage: references.image,
       chooseC2paSidecar: references.c2paSidecar,
+      chooseOfficialAttestation: references.officialAttestation,
+      chooseOfficialIssuerTrust: references.officialTrust,
+      chooseOfficialStatus: references.officialStatus,
       chooseReportOutput: references.reportOutput,
       importTsaProfile: {
         ok: true,
@@ -439,6 +445,25 @@ describe("@aigc-proof/host-contracts", () => {
         data: {
           event: { ...event, event_type: "c2pa_observation" },
           workspace,
+        },
+      },
+      verifyOfficialIdentity: {
+        ok: true,
+        data: {
+          state: "valid_trusted",
+          code: "OFFICIAL_IDENTITY_VALID_TRUSTED",
+          message: "Synthetic identity verified offline.",
+          issuer: "urn:aigc-proof:official:test",
+          attestation_id: "550e8400-e29b-41d4-a716-446655440035",
+          display_claim: "Synthetic Person",
+          creator_key_fingerprint: `sha256:${"a".repeat(64)}`,
+          purpose: "creator_identity",
+          method_class: "synthetic_test",
+          trust_sequence: 1,
+          issuer_trust_sha256: `sha256:${"d".repeat(64)}`,
+          status_sequence: 1,
+          attestation_sha256: `sha256:${"b".repeat(64)}`,
+          status_sha256: `sha256:${"c".repeat(64)}`,
         },
       },
       requestTrustedTimestamp: {

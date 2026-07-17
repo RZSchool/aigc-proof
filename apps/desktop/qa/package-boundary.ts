@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "0.8.0") {
+  if (packagedManifest.version !== "1.0.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
@@ -76,16 +76,16 @@ async function main(): Promise<void> {
   const readmeSource = await fs.readFile(readme, "utf8");
   const noticesSource = await fs.readFile(notices, "utf8");
   if (
-    !readmeSource.includes("AIGC-Proof Workbench 0.8.0 Preview") ||
+    !readmeSource.includes("AIGC-Proof Workbench 1.0.0") ||
     !readmeSource.includes(
-      "Workbench 0.8.0 使用 ProofHostApi 1.7.0 / native API 1.6.0",
+      "Workbench 1.0.0 使用 ProofHostApi 2.0.0 / native API 2.0.0",
     ) ||
-    !readmeSource.includes("AIGC-Proof 0.5.0")
+    !readmeSource.includes("AIGC-Proof 1.0.0")
   ) {
     throw new Error("Packaged README version or protocol boundary is stale.");
   }
   if (
-    !noticesSource.includes("c2pa` 0.85.0") ||
+    !noticesSource.includes("c2pa` 0.89.3") ||
     !noticesSource.includes("Apache-2.0 OR MIT") ||
     !noticesSource.includes("not included in the Workbench package")
   ) {
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     discovery.apiVersion !== NATIVE_API_VERSION ||
     discovery.engineVersion !== NATIVE_ENGINE_VERSION ||
     discovery.supportedProtocolVersions.join(",") !==
-      ["0.2.0", "0.3.0", "0.4.0", PROTOCOL_VERSION].join(",") ||
+      ["0.2.0", "0.3.0", "0.4.0", "0.5.0", PROTOCOL_VERSION].join(",") ||
     discovery.capabilities.join(",") !== NATIVE_CAPABILITIES.join(",")
   ) {
     throw new Error(
@@ -153,10 +153,10 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "1.7.0",
+    contractVersion: "2.0.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
-    protocolVersion: "0.5.0",
+    protocolVersion: "1.0.0",
     utilityOnlyAddonLoading: true,
     capabilities: discovery.capabilities,
     packagedFiles: files.length,

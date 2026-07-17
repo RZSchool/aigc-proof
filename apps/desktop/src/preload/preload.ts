@@ -44,6 +44,11 @@ const api: ProofHostApi = {
     ipcRenderer.invoke(channels.chooseC2paTrustProfile),
   chooseC2paImage: () => ipcRenderer.invoke(channels.chooseC2paImage),
   chooseC2paSidecar: () => ipcRenderer.invoke(channels.chooseC2paSidecar),
+  chooseOfficialAttestation: () =>
+    ipcRenderer.invoke(channels.chooseOfficialAttestation),
+  chooseOfficialIssuerTrust: () =>
+    ipcRenderer.invoke(channels.chooseOfficialIssuerTrust),
+  chooseOfficialStatus: () => ipcRenderer.invoke(channels.chooseOfficialStatus),
   chooseReportOutput: () => ipcRenderer.invoke(channels.chooseReportOutput),
   importTsaProfile: (request) =>
     ipcRenderer.invoke(channels.importTsaProfile, request),
@@ -56,6 +61,8 @@ const api: ProofHostApi = {
     ipcRenderer.invoke(channels.inspectC2paImage, request),
   createC2paObservation: (request) =>
     ipcRenderer.invoke(channels.createC2paObservation, request),
+  verifyOfficialIdentity: (request) =>
+    ipcRenderer.invoke(channels.verifyOfficialIdentity, request),
   requestTrustedTimestamp: (request) =>
     ipcRenderer.invoke(channels.requestTrustedTimestamp, request),
   cancelTrustedTimestamp: () =>

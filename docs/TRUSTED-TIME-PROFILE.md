@@ -2,7 +2,7 @@
 
 ## Assurance boundary
 
-Protocol 0.4 can add externally witnessed time over the exact tagged creator `COSE_Sign1` bytes. A `valid_trusted` result means the RFC 3161 signer, chain, bound request values, certificate profile, evidence time, and imported trust snapshot all passed the checks below. It does not identify the creator or establish originality, copyright, ownership, authorization, or C2PA provenance.
+Protocol 0.4 introduced externally witnessed time over the exact tagged creator `COSE_Sign1` bytes; protocol 0.5 retained its mandatory plan and protocol 1.0 retains it as an optional independent layer. A `valid_trusted` result means the RFC 3161 signer, chain, bound request values, certificate profile, evidence time, and imported trust snapshot all passed the checks below. It does not identify the creator or establish originality, copyright, ownership, authorization, C2PA provenance, or official identity.
 
 Timestamp assurance is independent of creator-signature and package-integrity assurance. Missing, failed, stale, untrusted, or malformed timestamp evidence never turns a valid creator signature into an invalid one.
 
@@ -47,7 +47,7 @@ Unsupported RSA or algorithm paths are reported as `unsupported_algorithm`; they
 
 ## Attachment and portability
 
-Attachment verifies the response before publication, writes a new no-clobber `.aigcproof`, copies `manifest.json`, public key, and creator signature bytes exactly, and adds only the predeclared DER entry. The output is self-verified before success is returned. A protocol 0.3 package must be migrated by a new contemporary 0.4 signature; it cannot be backdated in place.
+Attachment verifies the response before publication, writes a new no-clobber `.aigcproof`, copies `manifest.json`, public key, and creator signature bytes exactly, and adds only the predeclared DER entry. The output is self-verified before success is returned. An old package must be migrated by creating and signing new contemporary 1.0 evidence; it cannot be relabeled or backdated in place.
 
 ## Privacy disclosure
 

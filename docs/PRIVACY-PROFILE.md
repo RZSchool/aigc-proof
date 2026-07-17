@@ -1,10 +1,10 @@
-# Privacy Profile 0.5
+# Privacy Profile 1.0
 
 The CLI runs offline and does not automatically upload workspaces, packages, prompts, parameters, or assets.
 
 Event payloads are supplied through JSON files so sensitive prompt text does not need to appear directly in shell command history. The JSON file and package may still contain sensitive prompts, model parameters, personal data, licenses, and source assets.
 
-Version 0.5 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace and package contents before sharing them. File, key, trust-profile, signature, C2PA manifest-store, and certificate-snapshot digests can reveal equality and should not be treated as anonymous.
+Version 1.0 has no field encryption, selective disclosure, or automatic redaction. Users must inspect workspace, package, and external identity artifacts before sharing them. File, key, trust-profile, signature, C2PA manifest-store, official-attestation/status, and certificate-snapshot digests can reveal equality and should not be treated as anonymous.
 
 Raw external absolute paths are not stored in the Manifest. original_name is retained, so filenames themselves may be sensitive.
 
@@ -17,7 +17,7 @@ directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 0.8.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 1.0.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
@@ -46,7 +46,7 @@ unbounded logs. Declared checkpoint names and original asset filenames can still
 and hashes may reveal equality with known content.
 
 The local creator display label and public key fingerprint are intentionally embedded in each
-signed 0.3/0.4/0.5 package and may link packages made with the same key. The private key remains in the
+signed 0.3/0.4/0.5/1.0 package and may link packages made with the same key. The private key remains in the
 operating-system credential store and is never written to packages, workspaces, reports, SQLite,
 renderer/preload IPC, or logs. Rotation creates a new linkability domain; it does not erase the
 public identity evidence in already shared packages.
@@ -67,3 +67,12 @@ status codes; these values may link the same media, manifest, certificate popula
 profile across packages. Arbitrary assertion explanations, ingredient text, certificate subjects,
 and remote content are not copied into the event or trusted UI. Imported C2PA roots remain
 session-only and are not persisted in SQLite or bundled with the product.
+
+Official identity verification is offline. Main reads only the user-selected attestation,
+issuer-trust, and optional status files and passes bounded bytes to the isolated Utility. The
+result can expose an opaque subject identifier, display claim, method class, creator-key
+fingerprint, purpose, attestation identifier, sequences, and artifact digests; these are linkable
+identity metadata. Raw proofing evidence, identity documents, biometrics, provider tokens,
+accounts, production endpoints, and issuer private keys are neither accepted nor returned. The
+files and result are not silently uploaded, fetched, embedded into the proof package, or persisted
+as authority in SQLite.

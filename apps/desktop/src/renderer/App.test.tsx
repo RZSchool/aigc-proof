@@ -10,6 +10,9 @@ import {
   type C2paTrustProfileReference,
   type CreationSessionSummary,
   type ImageReference,
+  type OfficialAttestationReference,
+  type OfficialIssuerTrustReference,
+  type OfficialStatusReference,
   type PackageReference,
   type ProofHostApi,
   type TimestampPackageOutputReference,
@@ -173,12 +176,18 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "0.8.0",
-        contractVersion: "1.7.0",
-        nativeApiVersion: "1.6.0",
-        engineVersion: "0.5.0",
-        protocolVersion: "0.5.0",
-        supportedProtocolVersions: ["0.2.0", "0.3.0", "0.4.0", "0.5.0"],
+        workbenchVersion: "1.0.0",
+        contractVersion: "2.0.0",
+        nativeApiVersion: "2.0.0",
+        engineVersion: "1.0.0",
+        protocolVersion: "1.0.0",
+        supportedProtocolVersions: [
+          "0.2.0",
+          "0.3.0",
+          "0.4.0",
+          "0.5.0",
+          "1.0.0",
+        ],
         capabilities: [...HOST_CAPABILITIES],
         execution: {
           napiAsyncTasks: true,
@@ -214,6 +223,9 @@ beforeEach(() => {
     chooseC2paTrustProfile: vi.fn(),
     chooseC2paImage: vi.fn(),
     chooseC2paSidecar: vi.fn(),
+    chooseOfficialAttestation: vi.fn(),
+    chooseOfficialIssuerTrust: vi.fn(),
+    chooseOfficialStatus: vi.fn(),
     chooseReportOutput: vi.fn(),
     importTsaProfile: vi.fn(),
     getTsaProfileStatus: vi.fn().mockResolvedValue({ ok: true, data: null }),
@@ -223,6 +235,7 @@ beforeEach(() => {
       .mockResolvedValue({ ok: true, data: null }),
     inspectC2paImage: vi.fn(),
     createC2paObservation: vi.fn(),
+    verifyOfficialIdentity: vi.fn(),
     requestTrustedTimestamp: vi.fn(),
     cancelTrustedTimestamp: vi
       .fn()
@@ -264,12 +277,15 @@ describe("workbench shell", () => {
   it("keeps the exact signed-local-identity assurance boundary visible", async () => {
     render(<App />);
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
-      "内部完整性、本地创建者数字签名与可选可信时间",
+      "内部完整性、本地创建者数字签名、可选可信时间、C2PA 与官方身份声明",
     );
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "显示名称为自我声明",
     );
-    expect(screen.getByText("Workbench 0.8.0")).toBeInTheDocument();
+    expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
+      "官方身份仅验证显式声明与创建者公钥/用途/状态绑定",
+    );
+    expect(screen.getByText("Workbench 1.0.0")).toBeInTheDocument();
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
@@ -281,8 +297,8 @@ describe("workbench shell", () => {
   it("shows exact compatible versions and explicitly unavailable features", async () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
-    expect(card).toHaveTextContent("0.5.0");
-    expect(card).toHaveTextContent("1.7.0");
+    expect(card).toHaveTextContent("1.0.0");
+    expect(card).toHaveTextContent("2.0.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
@@ -484,7 +500,7 @@ describe("workbench shell", () => {
       ...workspaceSummary,
       workspace: {
         ...workspaceSummary.workspace,
-        workspace_version: "0.5.0" as const,
+        workspace_version: "1.0.0" as const,
         assets: [asset],
       },
     };
@@ -553,6 +569,92 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("c2pa-panel")).toHaveTextContent(
       "不会联网查找远程清单或软绑定",
     );
+    expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
+      "原创性始终不评估",
+    );
+  });
+
+  it("verifies official identity from explicit offline artifacts without merging assurance", async () => {
+    const user = userEvent.setup();
+    const attestation: OfficialAttestationReference = {
+      id: `ref_${"6".repeat(32)}`,
+      kind: "official-attestation",
+      displayLabel: "official-attestation-v1.cose",
+      displayPath: "C:\\proofs\\official-attestation-v1.cose",
+    };
+    const issuerTrust: OfficialIssuerTrustReference = {
+      id: `ref_${"7".repeat(32)}`,
+      kind: "official-issuer-trust",
+      displayLabel: "official-issuer-trust-v1.json",
+      displayPath: "C:\\proofs\\official-issuer-trust-v1.json",
+    };
+    const status: OfficialStatusReference = {
+      id: `ref_${"8".repeat(32)}`,
+      kind: "official-status",
+      displayLabel: "official-status-snapshot-v1.cose",
+      displayPath: "C:\\proofs\\official-status-snapshot-v1.cose",
+    };
+    const fingerprint = "a".repeat(64);
+    vi.mocked(window.aigcProof.chooseOfficialAttestation).mockResolvedValue(
+      attestation,
+    );
+    vi.mocked(window.aigcProof.chooseOfficialIssuerTrust).mockResolvedValue(
+      issuerTrust,
+    );
+    vi.mocked(window.aigcProof.chooseOfficialStatus).mockResolvedValue(status);
+    vi.mocked(window.aigcProof.verifyOfficialIdentity).mockResolvedValue({
+      ok: true,
+      data: {
+        state: "revoked",
+        code: "OFFICIAL_ATTESTATION_REVOKED",
+        message: "The signed status snapshot revokes this attestation.",
+        issuer: "urn:aigc-proof:test:issuer",
+        attestation_id: "att_test_001",
+        display_claim: "Synthetic test user",
+        creator_key_fingerprint: fingerprint,
+        purpose: "creator_identity",
+        method_class: "synthetic_test",
+        trust_sequence: 4,
+        issuer_trust_sha256: `sha256:${"d".repeat(64)}`,
+        status_sequence: 7,
+        attestation_sha256: `sha256:${"b".repeat(64)}`,
+        status_sha256: `sha256:${"c".repeat(64)}`,
+      },
+    });
+
+    render(<App />);
+    await user.click(screen.getByTestId("choose-official-attestation"));
+    await user.click(screen.getByTestId("choose-official-trust"));
+    await user.click(screen.getByTestId("choose-official-status"));
+    await user.clear(screen.getByTestId("official-creator-fingerprint"));
+    await user.type(
+      screen.getByTestId("official-creator-fingerprint"),
+      fingerprint,
+    );
+    await user.clear(screen.getByTestId("official-verification-time"));
+    await user.type(
+      screen.getByTestId("official-verification-time"),
+      "1784173500",
+    );
+    await user.click(screen.getByTestId("verify-official-identity"));
+
+    await waitFor(() =>
+      expect(window.aigcProof.verifyOfficialIdentity).toHaveBeenCalledWith({
+        attestation,
+        issuerTrust,
+        status,
+        creatorKeyFingerprint: fingerprint,
+        purpose: "creator_identity",
+        verificationTime: 1784173500,
+        minimumTrustSequence: 1,
+        minimumStatusSequence: 1,
+        maxStatusAgeSeconds: 604_800,
+      }),
+    );
+    const evidence = await screen.findByTestId("official-identity-evidence");
+    expect(evidence).toHaveTextContent("官方身份：revoked");
+    expect(evidence).toHaveTextContent("OFFICIAL_ATTESTATION_REVOKED");
+    expect(evidence).toHaveTextContent("信任序列 4 · 状态序列 7");
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "原创性始终不评估",
     );

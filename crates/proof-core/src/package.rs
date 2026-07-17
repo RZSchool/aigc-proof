@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use proof_schema::{
     CREATOR_KEY_PREFIX, CREATOR_SIGNATURE_PATH, CREATOR_SIGNATURE_PROFILE,
-    CREATOR_SIGNATURE_PROFILE_V03, CreatorSignatureDescriptor, EventChainSummary, HASH_ALGORITHM,
-    LEGACY_SCHEMA_VERSION, MANIFEST_PATH, Manifest, ManifestSecurity, SCHEMA_VERSION,
-    SIGNED_SCHEMA_VERSION, TRUSTED_TIMESTAMP_PREFIX, TRUSTED_TIMESTAMP_PROFILE, ToolInfo,
-    TrustedTimestampDescriptor, VerificationStatus, validate_manifest_schema,
+    CreatorSignatureDescriptor, EventChainSummary, HASH_ALGORITHM, LEGACY_SCHEMA_VERSION,
+    MANIFEST_PATH, Manifest, ManifestSecurity, SCHEMA_VERSION, TRUSTED_TIMESTAMP_PREFIX,
+    TRUSTED_TIMESTAMP_PROFILE, ToolInfo, TrustedTimestampDescriptor, VerificationStatus,
+    validate_manifest_schema,
 };
 use tempfile::Builder;
 use zip::CompressionMethod;
@@ -174,10 +174,8 @@ fn seal_workspace_internal(
             "Event JSON exceeds the configured limit.",
         ));
     }
-    let spec_version = if timestamp.is_some() {
+    let spec_version = if signing.is_some() {
         SCHEMA_VERSION
-    } else if signing.is_some() {
-        SIGNED_SCHEMA_VERSION
     } else {
         LEGACY_SCHEMA_VERSION
     };
@@ -185,11 +183,7 @@ fn seal_workspace_internal(
         let signature_id = random_signature_id();
         ManifestSecurity {
             creator_signature: CreatorSignatureDescriptor {
-                profile: if timestamp.is_some() {
-                    CREATOR_SIGNATURE_PROFILE.to_owned()
-                } else {
-                    CREATOR_SIGNATURE_PROFILE_V03.to_owned()
-                },
+                profile: CREATOR_SIGNATURE_PROFILE.to_owned(),
                 signature_id: signature_id.clone(),
                 display_label: material.display_label.clone(),
                 key_fingerprint: material.key_fingerprint.clone(),
@@ -239,7 +233,7 @@ fn seal_workspace_internal(
                 .security
                 .as_ref()
                 .map(|security| security.creator_signature.profile.as_str())
-                .unwrap_or(CREATOR_SIGNATURE_PROFILE_V03);
+                .unwrap_or(CREATOR_SIGNATURE_PROFILE);
             sign_manifest_with_profile(material, &manifest_bytes, profile)
         })
         .transpose()?;

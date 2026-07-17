@@ -1,16 +1,17 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "0.8.0" as const;
-export const HOST_CONTRACT_VERSION = "1.7.0" as const;
-export const NATIVE_API_VERSION = "1.6.0" as const;
-export const NATIVE_ENGINE_VERSION = "0.5.0" as const;
-export const PROTOCOL_VERSION = "0.5.0" as const;
+export const WORKBENCH_VERSION = "1.0.0" as const;
+export const HOST_CONTRACT_VERSION = "2.0.0" as const;
+export const NATIVE_API_VERSION = "2.0.0" as const;
+export const NATIVE_ENGINE_VERSION = "1.0.0" as const;
+export const PROTOCOL_VERSION = "1.0.0" as const;
 
 export const NATIVE_CAPABILITIES = [
   "c2pa.image.inspect",
   "c2pa.observation.create",
   "c2pa.trust-profile.validate",
   "execution.phase-progress",
+  "official.identity.verify",
   "proof.asset.add",
   "proof.asset.export",
   "proof.asset.match",
@@ -44,6 +45,8 @@ export const HOST_CAPABILITIES = [
   "execution.phase-progress",
   "execution.queued-cancellation",
   "execution.utility-process",
+  "official.identity.import-local",
+  "official.identity.verify",
   "proof.asset.add",
   "proof.asset.export",
   "proof.asset.match",
@@ -181,6 +184,9 @@ export const referenceKinds = [
   "timestamp-package-output",
   "c2pa-sidecar",
   "c2pa-trust-profile",
+  "official-attestation",
+  "official-issuer-trust",
+  "official-status",
 ] as const;
 export type ReferenceKind = (typeof referenceKinds)[number];
 
@@ -244,6 +250,15 @@ export const c2paSidecarReferenceSchema = hostReferenceSchema
 export const c2paTrustProfileReferenceSchema = hostReferenceSchema
   .extend({ kind: z.literal("c2pa-trust-profile") })
   .strict();
+export const officialAttestationReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("official-attestation") })
+  .strict();
+export const officialIssuerTrustReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("official-issuer-trust") })
+  .strict();
+export const officialStatusReferenceSchema = hostReferenceSchema
+  .extend({ kind: z.literal("official-status") })
+  .strict();
 
 export type HostReference<K extends ReferenceKind = ReferenceKind> = Readonly<
   Omit<z.infer<typeof hostReferenceSchema>, "kind"> & { kind: K }
@@ -267,6 +282,11 @@ export type TimestampPackageOutputReference =
   HostReference<"timestamp-package-output">;
 export type C2paSidecarReference = HostReference<"c2pa-sidecar">;
 export type C2paTrustProfileReference = HostReference<"c2pa-trust-profile">;
+export type OfficialAttestationReference =
+  HostReference<"official-attestation">;
+export type OfficialIssuerTrustReference =
+  HostReference<"official-issuer-trust">;
+export type OfficialStatusReference = HostReference<"official-status">;
 
 export type AssetRole = "input" | "output" | "reference" | "license" | "other";
 export type VerificationStatus = "valid" | "invalid" | "error";
@@ -283,7 +303,7 @@ export interface Asset {
 }
 
 export interface Workspace {
-  workspace_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
+  workspace_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0" | "1.0.0";
   created_at: string;
   project: { name?: string | undefined };
   assets: Asset[];
@@ -347,6 +367,34 @@ export interface C2paInspection {
   elapsed_ms: number;
 }
 
+export type OfficialIdentityState =
+  | "absent"
+  | "unsupported"
+  | "malformed"
+  | "invalid"
+  | "untrusted"
+  | "revoked"
+  | "expired"
+  | "indeterminate"
+  | "valid_trusted";
+
+export interface OfficialIdentityVerification {
+  state: OfficialIdentityState;
+  code: string;
+  message: string;
+  issuer?: string;
+  attestation_id?: string;
+  display_claim?: string;
+  creator_key_fingerprint?: string;
+  purpose?: string;
+  method_class?: "synthetic_test" | "organization_control" | "person_presence";
+  trust_sequence: number;
+  issuer_trust_sha256: string;
+  status_sequence?: number;
+  attestation_sha256: string;
+  status_sha256?: string;
+}
+
 export type LocalSignerState =
   | "missing"
   | "active"
@@ -384,13 +432,14 @@ export interface EventRecord {
 }
 
 export interface VerificationReport {
-  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0" | "1.0.0";
   proof_id: string | null;
   verified_at: string;
   status: VerificationStatus;
   assurance: {
     internal_integrity: "valid" | "invalid" | "not_evaluated";
     creator_identity: "not_verified" | "self_asserted";
+    official_identity?: OfficialIdentityState | undefined;
     digital_signature:
       | "not_present"
       | "absent"
@@ -460,7 +509,7 @@ export interface VerificationReport {
 }
 
 export interface Inspection {
-  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0";
+  spec_version: "0.2.0" | "0.3.0" | "0.4.0" | "0.5.0" | "1.0.0";
   proof_id: string;
   created_at: string;
   project: { name?: string | undefined };
@@ -904,6 +953,23 @@ export const createC2paObservationRequestSchema = z
     sidecar: c2paSidecarReferenceSchema.optional(),
   })
   .strict();
+export const verifyOfficialIdentityRequestSchema = z
+  .object({
+    attestation: officialAttestationReferenceSchema,
+    issuerTrust: officialIssuerTrustReferenceSchema,
+    status: officialStatusReferenceSchema.optional(),
+    creatorKeyFingerprint: z.string().regex(/^(?:sha256:)?[0-9a-f]{64}$/u),
+    purpose: z.string().min(1).max(96),
+    verificationTime: z.number().int().nonnegative(),
+    minimumTrustSequence: z.number().int().positive(),
+    minimumStatusSequence: z.number().int().positive(),
+    expectedPreviousStatusDigest: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
+    maxStatusAgeSeconds: z.number().int().min(0).max(31_536_000),
+  })
+  .strict();
 export const requestTrustedTimestampSchema = z
   .object({
     package: packageReferenceSchema,
@@ -968,6 +1034,17 @@ export const exportCreationOutputRequestSchema = z
   })
   .strict();
 
+export const officialIdentityStateSchema = z.enum([
+  "absent",
+  "unsupported",
+  "malformed",
+  "invalid",
+  "untrusted",
+  "revoked",
+  "expired",
+  "indeterminate",
+  "valid_trusted",
+]);
 const verificationIssueSchema = z
   .object({
     code: z.string(),
@@ -985,7 +1062,7 @@ export const creatorSignatureEvidenceSchema = z
   .strict();
 export const verificationReportSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"]),
     proof_id: z.string().nullable(),
     verified_at: z.string(),
     status: z.enum(["valid", "invalid", "error"]),
@@ -993,6 +1070,7 @@ export const verificationReportSchema = z
       .object({
         internal_integrity: z.enum(["valid", "invalid", "not_evaluated"]),
         creator_identity: z.enum(["not_verified", "self_asserted"]),
+        official_identity: officialIdentityStateSchema.optional(),
         digital_signature: z.enum([
           "not_present",
           "absent",
@@ -1337,6 +1415,9 @@ export interface ProofHostApi {
   chooseC2paTrustProfile(): Promise<C2paTrustProfileReference | null>;
   chooseC2paImage(): Promise<ImageReference | null>;
   chooseC2paSidecar(): Promise<C2paSidecarReference | null>;
+  chooseOfficialAttestation(): Promise<OfficialAttestationReference | null>;
+  chooseOfficialIssuerTrust(): Promise<OfficialIssuerTrustReference | null>;
+  chooseOfficialStatus(): Promise<OfficialStatusReference | null>;
   chooseReportOutput(): Promise<ReportOutputReference | null>;
   importTsaProfile(request: {
     profile: TsaProfileReference;
@@ -1357,6 +1438,18 @@ export interface ProofHostApi {
     assetId: string;
     sidecar?: C2paSidecarReference;
   }): Promise<HostEnvelope<{ event: EventRecord; workspace: Workspace }>>;
+  verifyOfficialIdentity(request: {
+    attestation: OfficialAttestationReference;
+    issuerTrust: OfficialIssuerTrustReference;
+    status?: OfficialStatusReference;
+    creatorKeyFingerprint: string;
+    purpose: string;
+    verificationTime: number;
+    minimumTrustSequence: number;
+    minimumStatusSequence: number;
+    expectedPreviousStatusDigest?: string;
+    maxStatusAgeSeconds: number;
+  }): Promise<HostEnvelope<OfficialIdentityVerification>>;
   requestTrustedTimestamp(request: {
     package: PackageReference;
     output: TimestampPackageOutputReference;
@@ -1544,9 +1637,35 @@ export const c2paInspectionSchema = z
     elapsed_ms: z.number().int().nonnegative().max(30_000),
   })
   .strict();
+export const officialIdentityVerificationSchema = z
+  .object({
+    state: officialIdentityStateSchema,
+    code: z.string().regex(/^[A-Z][A-Z0-9_]*$/u),
+    message: z.string().min(1).max(16_384),
+    issuer: z.string().min(1).max(128).optional(),
+    attestation_id: z.string().uuid().optional(),
+    display_claim: z.string().min(1).max(120).optional(),
+    creator_key_fingerprint: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
+    purpose: z.string().min(1).max(96).optional(),
+    method_class: z
+      .enum(["synthetic_test", "organization_control", "person_presence"])
+      .optional(),
+    trust_sequence: z.number().int().nonnegative(),
+    issuer_trust_sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    status_sequence: z.number().int().positive().optional(),
+    attestation_sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/u),
+    status_sha256: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
+  })
+  .strict();
 export const workspaceSchema = z
   .object({
-    workspace_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
+    workspace_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"]),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
     assets: z.array(assetSchema),
@@ -1583,7 +1702,7 @@ export const eventRecordSchema = z
   .strict();
 export const inspectionSchema = z
   .object({
-    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0"]),
+    spec_version: z.enum(["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"]),
     proof_id: z.string().min(1),
     created_at: z.string().min(1),
     project: z.object({ name: z.string().optional() }).strict(),
@@ -2006,6 +2125,9 @@ export const proofHostResponseSchemas = {
   chooseC2paTrustProfile: c2paTrustProfileReferenceSchema.nullable(),
   chooseC2paImage: imageReferenceSchema.nullable(),
   chooseC2paSidecar: c2paSidecarReferenceSchema.nullable(),
+  chooseOfficialAttestation: officialAttestationReferenceSchema.nullable(),
+  chooseOfficialIssuerTrust: officialIssuerTrustReferenceSchema.nullable(),
+  chooseOfficialStatus: officialStatusReferenceSchema.nullable(),
   chooseReportOutput: reportOutputReferenceSchema.nullable(),
   importTsaProfile: hostEnvelopeSchemaFor(tsaProfileSummarySchema),
   getTsaProfileStatus: hostEnvelopeSchemaFor(
@@ -2018,6 +2140,9 @@ export const proofHostResponseSchemas = {
   inspectC2paImage: hostEnvelopeSchemaFor(c2paInspectionSchema),
   createC2paObservation: hostEnvelopeSchemaFor(
     z.object({ event: eventRecordSchema, workspace: workspaceSchema }).strict(),
+  ),
+  verifyOfficialIdentity: hostEnvelopeSchemaFor(
+    officialIdentityVerificationSchema,
   ),
   requestTrustedTimestamp: hostEnvelopeSchemaFor(
     timestampAcquisitionResultSchema,

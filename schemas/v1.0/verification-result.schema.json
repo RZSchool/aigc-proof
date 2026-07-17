@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v1.0/verification-result.schema.json",
+  "title": "AIGC-Proof Verification Result v1.0",
+  "type": "object", "additionalProperties": false,
+  "required": ["spec_version", "proof_id", "verified_at", "status", "assurance", "c2pa", "checks", "errors", "warnings"],
+  "properties": {
+    "spec_version": { "const": "1.0.0" },
+    "proof_id": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }] },
+    "verified_at": { "$ref": "#/$defs/canonicalTimestamp" },
+    "status": { "enum": ["valid", "invalid", "error"] },
+    "assurance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["internal_integrity", "creator_identity", "official_identity", "digital_signature", "trusted_time", "originality"],
+      "properties": {
+        "internal_integrity": { "enum": ["valid", "invalid", "not_evaluated"] },
+        "creator_identity": { "enum": ["not_verified", "self_asserted"] },
+        "official_identity": { "enum": ["absent", "unsupported", "malformed", "invalid", "untrusted", "revoked", "expired", "indeterminate", "valid_trusted"] },
+        "digital_signature": { "enum": ["absent", "unsupported", "malformed", "invalid", "valid_untrusted", "valid_locally_trusted", "disabled"] },
+        "trusted_time": { "enum": ["absent", "acquisition_failed", "malformed", "imprint_mismatch", "nonce_mismatch", "policy_mismatch", "invalid_signature", "invalid_chain", "invalid_eku", "invalid_ess", "untrusted", "expired_or_stale", "indeterminate_revocation", "unsupported_algorithm", "valid_trusted"] },
+        "originality": { "const": "not_evaluated" }
+      }
+    },
+    "creator_signature": {
+      "type": "object", "additionalProperties": false, "required": ["display_label", "key_fingerprint", "profile", "local_trust"],
+      "properties": { "display_label": { "type": "string", "minLength": 1, "maxLength": 200 }, "key_fingerprint": { "$ref": "#/$defs/sha256" }, "profile": { "type": "string", "minLength": 1 }, "local_trust": { "enum": ["untrusted", "trusted", "disabled"] } }
+    },
+    "trusted_time": {
+      "type": "object", "additionalProperties": false, "required": ["profile", "timestamp_path", "tsa_profile_sha256", "requested_policy", "revocation"],
+      "properties": {
+        "profile": { "const": "aigc-proof.trusted-time.rfc3161.v1" }, "timestamp_path": { "type": "string", "pattern": "^security/timestamps/[0-9a-f]{64}\\.tsr$" },
+        "tsa_profile_sha256": { "$ref": "#/$defs/sha256" }, "requested_policy": { "type": "string", "minLength": 1 }, "granted_policy": { "type": "string", "minLength": 3 },
+        "gen_time": { "$ref": "#/$defs/canonicalTimestamp" }, "source_label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "revocation": { "enum": ["not_provided", "valid_crl", "revoked", "indeterminate"] }
+      }
+    },
+    "c2pa": {
+      "type": "object", "additionalProperties": false, "required": ["state", "observations"],
+      "properties": { "state": { "enum": ["absent", "observed_invalid", "observed_valid_untrusted", "observed_trusted"] }, "observations": { "type": "array", "maxItems": 1019, "items": { "$ref": "#/$defs/c2paObservation" } } },
+      "allOf": [{ "if": { "properties": { "state": { "const": "absent" } }, "required": ["state"] }, "then": { "properties": { "observations": { "maxItems": 0 } } }, "else": { "properties": { "observations": { "minItems": 1 } } } }]
+    },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/error" } },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } }
+  },
+  "$defs": {
+    "canonicalTimestamp": { "type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "statusCodes": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" } },
+    "c2paObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "asset_id", "asset_sha256", "manifest_store_sha256", "source_mode", "claim_version", "active_manifest", "signer_trust_snapshot_sha256", "timestamp_trust_snapshot_sha256", "validation_state", "signer_trust", "timestamp_trust", "success_codes", "informational_codes", "failure_codes"],
+      "properties": {
+        "profile": { "const": "aigc-proof.c2pa-observation.v1" }, "asset_id": { "type": "string", "format": "uuid" }, "asset_sha256": { "$ref": "#/$defs/sha256" }, "manifest_store_sha256": { "$ref": "#/$defs/sha256" },
+        "source_mode": { "enum": ["embedded", "sidecar"] }, "claim_version": { "enum": [1, 2] }, "active_manifest": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "signer_trust_snapshot_sha256": { "$ref": "#/$defs/sha256" }, "timestamp_trust_snapshot_sha256": { "$ref": "#/$defs/sha256" },
+        "validation_state": { "enum": ["invalid", "valid_untrusted", "trusted"] }, "signer_trust": { "enum": ["not_evaluated", "untrusted", "trusted"] }, "timestamp_trust": { "enum": ["not_evaluated", "untrusted", "trusted"] },
+        "success_codes": { "$ref": "#/$defs/statusCodes" }, "informational_codes": { "$ref": "#/$defs/statusCodes" }, "failure_codes": { "$ref": "#/$defs/statusCodes" }
+      }
+    },
+    "check": { "type": "object", "additionalProperties": false, "required": ["code", "status", "message"], "properties": { "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "status": { "enum": ["pass", "fail", "skipped"] }, "path": { "type": "string" }, "message": { "type": "string" } } },
+    "error": { "type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": { "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "path": { "type": "string" }, "message": { "type": "string" } } },
+    "warning": { "type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": { "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }, "message": { "type": "string" } } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "valid" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "assurance": {
+            "properties": {
+              "internal_integrity": { "const": "valid" },
+              "creator_identity": { "const": "self_asserted" },
+              "digital_signature": { "enum": ["valid_untrusted", "valid_locally_trusted", "disabled"] }
+            }
+          },
+          "errors": { "maxItems": 0 }
+        },
+        "required": ["creator_signature", "c2pa"]
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "invalid" } }, "required": ["status"] },
+      "then": { "properties": { "errors": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "error" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "assurance": { "properties": { "internal_integrity": { "const": "not_evaluated" } } },
+          "errors": { "minItems": 1 }
+        }
+      }
+    }
+  ]
+}

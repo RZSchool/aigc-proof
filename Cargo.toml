@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "1.0.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/RZSchool/aigc-proof"
@@ -16,7 +16,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 base64 = "=0.22.1"
-c2pa = { version = "=0.85.0", default-features = false, features = ["file_io", "rust_native_crypto"] }
+c2pa = { version = "=0.89.3", default-features = false, features = ["file_io", "rust_native_crypto"] }
 clap = { version = "=4.5.27", features = ["derive"] }
 cms = { version = "=0.2.3", features = ["std"] }
 const-oid = "=0.9.6"

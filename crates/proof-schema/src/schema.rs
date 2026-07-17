@@ -4,6 +4,7 @@ const MANIFEST_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/manifest.s
 const MANIFEST_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/manifest.schema.json");
 const MANIFEST_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/manifest.schema.json");
 const MANIFEST_SCHEMA_V05: &str = include_str!("../../../schemas/v0.5/manifest.schema.json");
+const MANIFEST_SCHEMA_V10: &str = include_str!("../../../schemas/v1.0/manifest.schema.json");
 const EVENT_SCHEMA: &str = include_str!("../../../schemas/v0.2/event.schema.json");
 const REPORT_SCHEMA_V02: &str =
     include_str!("../../../schemas/v0.2/verification-result.schema.json");
@@ -13,13 +14,22 @@ const REPORT_SCHEMA_V04: &str =
     include_str!("../../../schemas/v0.4/verification-result.schema.json");
 const REPORT_SCHEMA_V05: &str =
     include_str!("../../../schemas/v0.5/verification-result.schema.json");
+const REPORT_SCHEMA_V10: &str =
+    include_str!("../../../schemas/v1.0/verification-result.schema.json");
 const WORKSPACE_SCHEMA_V02: &str = include_str!("../../../schemas/v0.2/workspace.schema.json");
 const WORKSPACE_SCHEMA_V03: &str = include_str!("../../../schemas/v0.3/workspace.schema.json");
 const WORKSPACE_SCHEMA_V04: &str = include_str!("../../../schemas/v0.4/workspace.schema.json");
 const WORKSPACE_SCHEMA_V05: &str = include_str!("../../../schemas/v0.5/workspace.schema.json");
+const WORKSPACE_SCHEMA_V10: &str = include_str!("../../../schemas/v1.0/workspace.schema.json");
 const TSA_PROFILE_SCHEMA: &str = include_str!("../../../schemas/v0.4/tsa-profile.schema.json");
 const C2PA_PROFILE_SCHEMA: &str =
     include_str!("../../../schemas/v0.5/c2pa-trust-profile.schema.json");
+const OFFICIAL_ATTESTATION_SCHEMA: &str =
+    include_str!("../../../schemas/v1.0/official-attestation-v1.schema.json");
+const OFFICIAL_STATUS_SCHEMA: &str =
+    include_str!("../../../schemas/v1.0/official-status-snapshot-v1.schema.json");
+const OFFICIAL_TRUST_SCHEMA: &str =
+    include_str!("../../../schemas/v1.0/official-issuer-trust-v1.schema.json");
 
 pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(
@@ -30,6 +40,7 @@ pub fn validate_manifest_schema(value: &Value) -> Result<(), Vec<String>> {
             MANIFEST_SCHEMA_V03,
             MANIFEST_SCHEMA_V04,
             MANIFEST_SCHEMA_V05,
+            MANIFEST_SCHEMA_V10,
         ),
         value,
     )
@@ -48,6 +59,7 @@ pub fn validate_verification_result_schema(value: &Value) -> Result<(), Vec<Stri
             REPORT_SCHEMA_V03,
             REPORT_SCHEMA_V04,
             REPORT_SCHEMA_V05,
+            REPORT_SCHEMA_V10,
         ),
         value,
     )
@@ -62,6 +74,7 @@ pub fn validate_workspace_schema(value: &Value) -> Result<(), Vec<String>> {
             WORKSPACE_SCHEMA_V03,
             WORKSPACE_SCHEMA_V04,
             WORKSPACE_SCHEMA_V05,
+            WORKSPACE_SCHEMA_V10,
         ),
         value,
     )
@@ -75,18 +88,32 @@ pub fn validate_c2pa_profile_schema(value: &Value) -> Result<(), Vec<String>> {
     validate(C2PA_PROFILE_SCHEMA, value)
 }
 
+pub fn validate_official_attestation_schema(value: &Value) -> Result<(), Vec<String>> {
+    validate(OFFICIAL_ATTESTATION_SCHEMA, value)
+}
+
+pub fn validate_official_status_schema(value: &Value) -> Result<(), Vec<String>> {
+    validate(OFFICIAL_STATUS_SCHEMA, value)
+}
+
+pub fn validate_official_trust_schema(value: &Value) -> Result<(), Vec<String>> {
+    validate(OFFICIAL_TRUST_SCHEMA, value)
+}
+
 fn versioned<'a>(
     value: &Value,
     field: &str,
     legacy: &'a str,
     signed: &'a str,
     trusted: &'a str,
+    c2pa: &'a str,
     current: &'a str,
 ) -> &'a str {
     match value.get(field).and_then(Value::as_str) {
         Some(crate::LEGACY_SCHEMA_VERSION) => legacy,
         Some(crate::SIGNED_SCHEMA_VERSION) => signed,
         Some(crate::TRUSTED_SCHEMA_VERSION) => trusted,
+        Some(crate::C2PA_SCHEMA_VERSION) => c2pa,
         _ => current,
     }
 }

@@ -106,6 +106,8 @@ async function execute(job: UtilityJob): Promise<HostEnvelope<unknown>> {
       return invokeNative(addon.inspectC2paImage(job.payload));
     case "createC2paObservation":
       return invokeNative(addon.createWorkspaceC2paObservation(job.payload));
+    case "verifyOfficialIdentity":
+      return invokeNative(addon.verifyOfficialIdentity(job.payload));
     case "validateRecents":
       return validateRecents(job);
   }

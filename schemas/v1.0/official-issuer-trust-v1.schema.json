@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RZSchool/aigc-proof/raw/main/schemas/v1.0/official-issuer-trust-v1.schema.json",
+  "title": "AIGC-Proof Official Issuer Trust Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "issuer", "sequence", "key_id", "algorithm", "public_key_b64", "valid_from", "valid_until", "status"],
+  "properties": {
+    "profile": { "const": "aigc-proof.official-issuer-trust.v1" },
+    "issuer": { "type": "string", "pattern": "^urn:aigc-proof:official:[A-Za-z0-9._:-]{1,96}$" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "key_id": { "type": "string", "minLength": 8, "maxLength": 64 },
+    "algorithm": { "const": "Ed25519" },
+    "public_key_b64": { "type": "string", "minLength": 43, "maxLength": 44 },
+    "valid_from": { "type": "integer", "minimum": 0 },
+    "valid_until": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["active", "retired", "revoked"] }
+  }
+}

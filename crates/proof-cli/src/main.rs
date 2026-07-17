@@ -8,12 +8,13 @@ use base64::Engine as _;
 use clap::{Parser, Subcommand};
 use proof_core::{
     AddAssetOptions, C2paInspectOptions, CoreError, CreateC2paObservationOptions,
-    InitWorkspaceOptions, ParsedC2paTrustProfile, ParsedTsaProfile, RecordEventOptions,
-    SealOptions, SignerService, VerificationLimits, add_asset, attach_timestamp_response,
-    create_c2pa_observation, current_timestamp, init_workspace, inspect_c2pa, inspect_package,
-    media_type_for_path, parse_c2pa_trust_profile, parse_tsa_profile, prepare_timestamp_request,
-    record_event, seal_signed_workspace, seal_signed_workspace_with_timestamp, seal_workspace,
-    tsa_profile_summary, verify_package_with_signer, verify_package_with_signer_and_profile,
+    InitWorkspaceOptions, OfficialIdentityVerifyOptions, ParsedC2paTrustProfile, ParsedTsaProfile,
+    RecordEventOptions, SealOptions, SignerService, VerificationLimits, add_asset,
+    attach_timestamp_response, create_c2pa_observation, current_timestamp, init_workspace,
+    inspect_c2pa, inspect_package, media_type_for_path, parse_c2pa_trust_profile,
+    parse_tsa_profile, prepare_timestamp_request, record_event, seal_signed_workspace,
+    seal_signed_workspace_with_timestamp, seal_workspace, tsa_profile_summary,
+    verify_official_identity, verify_package_with_signer, verify_package_with_signer_and_profile,
 };
 use proof_schema::{
     AssetRole, VerificationStatus, parse_json_strict, validate_verification_result_schema,
@@ -26,8 +27,8 @@ use uuid::Uuid;
 #[command(
     name = "aigc-proof",
     version,
-    about = "Offline AIGC-Proof provenance, creator-signature and trusted-time workflow",
-    long_about = "Creates and verifies AIGC-Proof 0.2 through 0.5 packages. Protocol 0.5 can record a digest-bound, offline C2PA 2.2 image observation using explicitly imported signer and TSA trust snapshots."
+    about = "Offline AIGC-Proof interoperable assurance workflow",
+    long_about = "Creates protocol 1.0 packages; verifies 0.2 through 1.0; and evaluates creator signatures, RFC 3161, C2PA 2.2, and official identity as separate assurance layers using explicit portable trust snapshots."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -109,6 +110,30 @@ enum Command {
     C2pa {
         #[command(subcommand)]
         command: C2paCommand,
+    },
+    /// Verify an official identity attestation and signed status snapshot entirely offline.
+    OfficialIdentity {
+        #[arg(long, value_name = "FILE")]
+        attestation: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        issuer_trust: PathBuf,
+        #[arg(long, value_name = "FILE")]
+        status: Option<PathBuf>,
+        #[arg(long)]
+        creator_key_fingerprint: String,
+        #[arg(long)]
+        purpose: String,
+        /// Explicit Unix verification time; never inferred from the attestation.
+        #[arg(long)]
+        at: i64,
+        #[arg(long, default_value_t = 1)]
+        minimum_trust_sequence: i64,
+        #[arg(long, default_value_t = 1)]
+        minimum_status_sequence: i64,
+        #[arg(long)]
+        expected_previous_status_digest: Option<String>,
+        #[arg(long, default_value_t = 604800)]
+        max_status_age_seconds: i64,
     },
 }
 
@@ -541,6 +566,47 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                 Ok(ExitCode::SUCCESS)
             }
         },
+        Command::OfficialIdentity {
+            attestation,
+            issuer_trust,
+            status,
+            creator_key_fingerprint,
+            purpose,
+            at,
+            minimum_trust_sequence,
+            minimum_status_sequence,
+            expected_previous_status_digest,
+            max_status_age_seconds,
+        } => {
+            let attestation = read_bounded_file(&attestation, 64 * 1024, "OFFICIAL_ATTESTATION")?;
+            let trust = read_bounded_file(&issuer_trust, 64 * 1024, "OFFICIAL_ISSUER_TRUST")?;
+            let status = status
+                .as_deref()
+                .map(|path| read_bounded_file(path, 64 * 1024, "OFFICIAL_STATUS"))
+                .transpose()?;
+            let report = verify_official_identity(OfficialIdentityVerifyOptions {
+                attestation_cose: &attestation,
+                issuer_trust_json: &trust,
+                status_cose: status.as_deref(),
+                expected_creator_key_fingerprint: &creator_key_fingerprint,
+                expected_purpose: &purpose,
+                verification_time: at,
+                minimum_trust_sequence,
+                minimum_status_sequence,
+                expected_previous_status_digest: expected_previous_status_digest.as_deref(),
+                max_status_age_seconds,
+            });
+            print_json(&serde_json::to_value(&report).map_err(|error| {
+                CliError::new("OFFICIAL_REPORT_SERIALIZATION_FAILED", error.to_string())
+            })?)?;
+            Ok(
+                if report.state == proof_schema::OfficialIdentityAssurance::ValidTrusted {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                },
+            )
+        }
     }
 }
 

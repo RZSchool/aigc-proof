@@ -18,6 +18,9 @@ const qaSelectionsSchema = z
     c2paTrustProfiles: z.array(selectedPath).default([]),
     c2paImages: z.array(selectedPath).default([]),
     c2paSidecars: z.array(selectedPath).default([]),
+    officialAttestations: z.array(selectedPath).default([]),
+    officialIssuerTrusts: z.array(selectedPath).default([]),
+    officialStatuses: z.array(selectedPath).default([]),
     reportOutputs: z.array(selectedPath),
     providerInstallations: z.array(selectedPath).default([]),
   })
