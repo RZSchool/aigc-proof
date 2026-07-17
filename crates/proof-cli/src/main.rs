@@ -151,7 +151,7 @@ enum C2paCommand {
         #[arg(long, value_name = "FILE")]
         sidecar: Option<PathBuf>,
         #[arg(long, value_name = "FILE")]
-        trust_profile: PathBuf,
+        trust_profile: Option<PathBuf>,
     },
     /// Inspect and append a C2PA observation for an already ingested workspace asset.
     Observe {
@@ -532,11 +532,14 @@ fn run(cli: Cli) -> Result<ExitCode, CliError> {
                 sidecar,
                 trust_profile,
             } => {
-                let profile = read_c2pa_profile(&trust_profile)?;
+                let profile = trust_profile
+                    .as_deref()
+                    .map(read_c2pa_profile)
+                    .transpose()?;
                 let inspection = inspect_c2pa(C2paInspectOptions {
                     asset_path: asset,
                     sidecar_path: sidecar,
-                    trust_profile: &profile,
+                    trust_profile: profile.as_ref(),
                     observed_at: current_timestamp().map_err(CliError::from_core)?,
                 })
                 .map_err(CliError::from_core)?;

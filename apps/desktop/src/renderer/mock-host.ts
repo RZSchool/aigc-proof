@@ -104,6 +104,8 @@ export class DeterministicMockProofHost implements ProofHostApi {
   #creationEventSequence = 0;
   #creationSession: CreationSessionSummary | undefined;
   #workspace = emptyWorkspace();
+  #tsaProfileImported = false;
+  #c2paProfileImported = false;
   #signer: LocalSignerStatus = {
     state: "active",
     display_label: "Mock creator",
@@ -368,19 +370,25 @@ export class DeterministicMockProofHost implements ProofHostApi {
   }
   importTsaProfile(_request: Parameters<ProofHostApi["importTsaProfile"]>[0]) {
     void _request;
+    this.#tsaProfileImported = true;
     return Promise.resolve(ok(this.tsaSummary()));
   }
   getTsaProfileStatus() {
-    return Promise.resolve(ok(this.tsaSummary()));
+    return Promise.resolve(
+      ok(this.#tsaProfileImported ? this.tsaSummary() : null),
+    );
   }
   importC2paTrustProfile(
     _request: Parameters<ProofHostApi["importC2paTrustProfile"]>[0],
   ) {
     void _request;
+    this.#c2paProfileImported = true;
     return Promise.resolve(ok(this.c2paSummary()));
   }
   getC2paTrustProfileStatus() {
-    return Promise.resolve(ok(this.c2paSummary()));
+    return Promise.resolve(
+      ok(this.#c2paProfileImported ? this.c2paSummary() : null),
+    );
   }
   inspectC2paImage(_request: Parameters<ProofHostApi["inspectC2paImage"]>[0]) {
     void _request;
@@ -392,11 +400,19 @@ export class DeterministicMockProofHost implements ProofHostApi {
         source_mode: "embedded" as const,
         claim_version: 2 as const,
         active_manifest: "urn:uuid:mock-c2pa-manifest",
-        signer_trust_snapshot_sha256: "c".repeat(64),
-        timestamp_trust_snapshot_sha256: "d".repeat(64),
+        ...(this.#c2paProfileImported
+          ? {
+              signer_trust_snapshot_sha256: "c".repeat(64),
+              timestamp_trust_snapshot_sha256: "d".repeat(64),
+            }
+          : {}),
         validation_state: "valid_untrusted" as const,
-        signer_trust: "untrusted" as const,
-        timestamp_trust: "untrusted" as const,
+        signer_trust: this.#c2paProfileImported
+          ? ("untrusted" as const)
+          : ("not_evaluated" as const),
+        timestamp_trust: this.#c2paProfileImported
+          ? ("untrusted" as const)
+          : ("not_evaluated" as const),
         success_codes: [],
         informational_codes: [],
         failure_codes: [],

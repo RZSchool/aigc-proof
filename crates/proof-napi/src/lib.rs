@@ -26,13 +26,14 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-pub const NATIVE_API_VERSION: &str = "2.0.0";
+pub const NATIVE_API_VERSION: &str = "2.1.0";
 pub const NATIVE_ENGINE_VERSION: &str = "1.0.0";
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["0.2.0", "0.3.0", "0.4.0", "0.5.0", "1.0.0"];
 pub const NATIVE_CAPABILITIES: &[&str] = &[
     "c2pa.image.inspect",
     "c2pa.observation.create",
     "c2pa.trust-profile.validate",
+    "c2pa.trustless-inspect",
     "execution.phase-progress",
     "official.identity.verify",
     "proof.asset.add",
@@ -239,7 +240,7 @@ pub struct C2paProfileRequest {
 pub struct C2paInspectRequest {
     pub asset: String,
     pub sidecar: Option<String>,
-    pub profile_json: String,
+    pub profile_json: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -692,12 +693,16 @@ fn execute<S: proof_core::SignerKeyStore>(
                 .as_deref()
                 .map(|value| safe_path(value, "C2PA sidecar"))
                 .transpose()?;
-            let profile =
-                parse_c2pa_trust_profile(&request.profile_json).map_err(BridgeFailure::core)?;
+            let profile = request
+                .profile_json
+                .as_deref()
+                .map(parse_c2pa_trust_profile)
+                .transpose()
+                .map_err(BridgeFailure::core)?;
             let inspection = inspect_c2pa(C2paInspectOptions {
                 asset_path: asset,
                 sidecar_path: sidecar,
-                trust_profile: &profile,
+                trust_profile: profile.as_ref(),
                 observed_at: current_timestamp().map_err(BridgeFailure::core)?,
             })
             .map_err(BridgeFailure::core)?;
@@ -921,7 +926,7 @@ mod tests {
     #[test]
     fn discovery_is_exact_deterministic_and_truthful() {
         let info = get_api_info();
-        assert_eq!(info.api_version, "2.0.0");
+        assert_eq!(info.api_version, "2.1.0");
         assert_eq!(info.engine_version, "1.0.0");
         assert_eq!(
             info.supported_protocol_versions,

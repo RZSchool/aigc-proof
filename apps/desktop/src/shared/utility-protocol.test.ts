@@ -103,4 +103,41 @@ describe("versioned Main/Utility messages", () => {
       }),
     ).toThrow();
   });
+
+  it("allows trustless C2PA inspection without exposing network or ambient trust inputs", () => {
+    const base = {
+      version: UTILITY_PROTOCOL_VERSION,
+      type: "execute" as const,
+      jobId: `job_${"c".repeat(32)}`,
+    };
+    const trustless = {
+      ...base,
+      job: {
+        operation: "inspectC2pa",
+        payload: { asset: "C:\\signed.png" },
+      },
+    };
+    expect(mainToUtilityMessageSchema.parse(trustless)).toEqual(trustless);
+    expect(() =>
+      mainToUtilityMessageSchema.parse({
+        ...trustless,
+        job: {
+          ...trustless.job,
+          payload: {
+            ...trustless.job.payload,
+            allowedNetworkHosts: ["example.invalid"],
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      mainToUtilityMessageSchema.parse({
+        ...base,
+        job: {
+          operation: "createC2paObservation",
+          payload: { workspace: "C:\\workspace", assetId: "asset-output" },
+        },
+      }),
+    ).toThrow();
+  });
 });

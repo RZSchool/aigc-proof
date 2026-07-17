@@ -1,6 +1,6 @@
 {
   "name": "aigc-proof-workbench",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Local-first AIGC-Proof 1.0 interoperable assurance workbench",
   "main": "dist/main/main.js",

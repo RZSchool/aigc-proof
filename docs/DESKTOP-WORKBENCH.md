@@ -1,11 +1,11 @@
-# Desktop Workbench 1.0.0
+# Desktop Workbench 1.1.0
 
 ## Architecture
 
 The primary desktop frontend is a local-first React + TypeScript application hosted by Electron.
 The renderer is an untrusted presentation layer: it has no Node.js, filesystem, SQLite,
 native-module, Utility primitive, or generic IPC access. Renderer code depends on
-`ProofHostApi` 2.0.0 through the Standalone adapter. A context-isolated preload exposes only that
+`ProofHostApi` 2.1.0 through the Standalone adapter. A context-isolated preload exposes only that
 typed surface. Electron Main validates requests, owns dialogs, paths, SQLite and bounded job
 scheduling, and sends strict versioned messages to a supervised Electron Utility Process. The
 Utility is the only production process that loads the allowlisted asynchronous napi-rs Node-API
@@ -21,7 +21,7 @@ or native loading. The Standalone implementation issues opaque, expiring, kind-s
 references for native selections and recent records. Display labels and paths are user clarity
 only; Main resolves the stored authority and rechecks the selected path when each operation runs.
 
-Native discovery reports API 2.0.0, engine 1.0.0, supported protocols 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0, implemented capabilities,
+Native discovery reports API 2.1.0, engine 1.0.0, supported protocols 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0, implemented capabilities,
 execution facts, and runtime limits. The Utility handshake confirms process isolation and phase
 progress; safe interruption of an already-running atomic Rust operation remains unavailable.
 Missing, malformed, incompatible, capability-inconsistent, or limit-inconsistent discovery stops
@@ -39,6 +39,11 @@ scrollable canvas keeps three primary outcomes visually dominant: verify a held 
 open a workspace; and generate locally plus complete its proof once. Package-only verification,
 metadata inspection, and report saving remain an independent tool rather than a required
 continuation of creation. Jobs and preferences remain visible on the same page.
+
+RFC 3161 acquisition and C2PA trust administration live in a collapsed
+`高级：外部信任与内容凭证` disclosure outside the numbered primary journey. Its summary reports
+the two configuration states independently. Signing, sealing, ordinary verification, and
+trustless C2PA inspection remain available without either profile.
 
 Manual import of all five asset roles, arbitrary structured event recording, and manual workspace
 sealing remain available together in the collapsed `高级：手工证明工具` disclosure at the end of
@@ -134,7 +139,7 @@ launch, disabled CDP, and clean exit.
 
 ## Local creator identity
 
-Workbench 1.0.0 manages one local Ed25519 identity through the operating-system credential store.
+Workbench 1.1.0 manages one local Ed25519 identity through the operating-system credential store.
 The renderer sees status, self-asserted display label, public fingerprint, and warnings only. Main
 validates every request and the Utility invokes the Rust signer. Creation, rotation, disable, and
 each package signature require explicit user actions. Private bytes never enter renderer, preload,
@@ -147,7 +152,7 @@ real-name, originality, copyright, ownership, authorization, or official verific
 
 ## RFC 3161 trusted time
 
-The trusted-time panel imports one explicit portable TSA snapshot into the current process. Main
+The optional advanced trusted-time panel imports one explicit portable TSA snapshot into the current process. Main
 validates its digest, endpoint scope, policy list, certificate material, effective time, and expiry
 through Rust before retaining it; the snapshot is not persisted in SQLite. When a 0.4 package and
 new output are selected, the renderer can request only the fixed operation—it cannot supply a URL,
@@ -160,15 +165,23 @@ response before a new no-clobber package is published. Cancellation and acquisit
 the creator signature valid and publish no package. All later verification is offline against the
 explicit snapshot. See [Trusted Time Profile](TRUSTED-TIME-PROFILE.md).
 
+No local clock, web clock, NTP/NTS, or generic UTC response substitutes for a signed RFC 3161
+token. A configured TSA may be a third-party service with account, quota, fee, or availability
+constraints; the Workbench does not hide those constraints behind a required primary step.
+
 ## C2PA 2.2 bridge
 
-The C2PA panel imports one explicit signer/TSA trust profile for the current process and accepts
-only a user-selected JPEG, PNG, WebP, and optional lowercase local `.c2pa` sidecar. Main validates
+The optional advanced C2PA panel accepts only a user-selected JPEG, PNG, WebP, and optional
+lowercase local `.c2pa` sidecar. Importing a signer/TSA trust profile for the current process is
+optional for read-only inspection. Main validates
 opaque regular-file references and the Utility performs bounded SDK validation with all remote
 manifest, OCSP, and soft-binding fetch behavior disabled. The UI shows claim version, source mode,
-media/manifest digests, validation state, signer trust, and timestamp trust separately.
+media/manifest digests, validation state, signer trust, and timestamp trust separately. Without a
+profile, valid media is `valid_untrusted` and both trust states are `not_evaluated`; no ambient
+root can upgrade the result.
 
-An ingested workspace image can receive a `c2pa_observation` only after Rust rehashes it and
+An ingested workspace image can receive a `c2pa_observation` only with an explicit profile and
+after Rust rehashes it and
 matches the recorded asset digest. The observation is subsequently covered by the event chain and
 creator signature. Standalone Workbench has no C2PA certificate private-key import or production
 writer. C2PA validity is provenance metadata, not truth, human identity, authorship, originality,
@@ -182,7 +195,7 @@ The panel shows `valid_trusted`, revoked, expired, untrusted, invalid, malformed
 
 ## Scope
 
-Workbench 1.0.0 uses protocol 1.0.0, verifies protocol 0.5.0/0.4.0/0.3.0 and legacy unsigned 0.2.0, and evaluates internal
+Workbench 1.1.0 uses protocol 1.0.0, verifies protocol 0.5.0/0.4.0/0.3.0 and legacy unsigned 0.2.0, and evaluates internal
 integrity, creator signatures, optional RFC 3161 trusted time, optional bounded C2PA observations, optional offline official identity claims, and exact byte correspondence to verified package assets. It does
 not provide authorship, originality evaluation, copyright or ownership
 determinations, official services, accounts, upload, or WASM.

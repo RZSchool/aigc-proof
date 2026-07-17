@@ -40,9 +40,9 @@ function discovery(overrides: Record<string, unknown> = {}) {
 
 describe("@aigc-proof/host-contracts", () => {
   it("loads as a renderer-safe package with independent version identities", () => {
-    expect(WORKBENCH_VERSION).toBe("1.0.0");
-    expect(HOST_CONTRACT_VERSION).toBe("2.0.0");
-    expect(NATIVE_API_VERSION).toBe("2.0.0");
+    expect(WORKBENCH_VERSION).toBe("1.1.0");
+    expect(HOST_CONTRACT_VERSION).toBe("2.1.0");
+    expect(NATIVE_API_VERSION).toBe("2.1.0");
     expect(NATIVE_ENGINE_VERSION).toBe("1.0.0");
     expect(PROTOCOL_VERSION).toBe("1.0.0");
   });
@@ -52,7 +52,7 @@ describe("@aigc-proof/host-contracts", () => {
     expect(isCompatibleSemVer("1.1.0", "1.0.9")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "2.0.0")).toBe(false);
     expect(isCompatibleSemVer("1.0.0", "not-semver")).toBe(false);
-    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("2.0.0");
+    expect(validateNativeDiscovery(discovery()).apiVersion).toBe("2.1.0");
     for (const invalid of [
       discovery({ apiVersion: "3.0.0" }),
       discovery({ engineVersion: "0.3.0" }),
@@ -429,11 +429,9 @@ describe("@aigc-proof/host-contracts", () => {
           source_mode: "embedded",
           claim_version: 2,
           active_manifest: "urn:uuid:test-manifest",
-          signer_trust_snapshot_sha256: "d".repeat(64),
-          timestamp_trust_snapshot_sha256: "e".repeat(64),
           validation_state: "valid_untrusted",
-          signer_trust: "untrusted",
-          timestamp_trust: "untrusted",
+          signer_trust: "not_evaluated",
+          timestamp_trust: "not_evaluated",
           success_codes: [],
           informational_codes: [],
           failure_codes: [],

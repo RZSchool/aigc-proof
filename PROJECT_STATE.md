@@ -1,6 +1,6 @@
 Project: AIGC-Proof-Skill Open Source
-Stage: Stable Protocol and Workbench 1.0 Candidate
-Status: AP-035 implementation, validation and candidate freeze complete
+Stage: Stable Protocol and Workbench 1.1 Candidate
+Status: AP-036 implementation, validation and candidate freeze complete
 
 Implemented in source:
 
@@ -19,7 +19,7 @@ Implemented in source:
 12. Async napi-rs Node-API bridge over `proof-core` / `proof-schema` and disposable bundled-SQLite
     workbench state.
 13. Development and packaged Electron/CDP QA with explicit QA-only debugging ports.
-14. Renderer-safe `ProofHostApi` 2.0.0 contract, Standalone and Mock Host adapters, opaque
+14. Renderer-safe `ProofHostApi` 2.1.0 contract, Standalone and Mock Host adapters, opaque
     authority references, and fail-closed native API/engine/capability/limit discovery.
 15. Supervised Electron Utility Process as the exclusive native-addon owner, one-running/
     sixteen-queued bounded jobs, phase progress, truthful cancellation, crash recovery without
@@ -48,8 +48,12 @@ Implemented in source:
     unsupported-media refusal.
 23. Protocol 1.0 stable compatibility, optional independent trusted time/C2PA/official identity
     assurance, strict public AP-034 attestation/status verification, rollback/freshness policy,
-    Host/native API 2.0 and Workbench 1.0 offline identity import without private-service runtime
+    Host/native API 2.1 and Workbench 1.1 offline identity import without private-service runtime
     dependency.
+24. Workbench 1.1 and Host/native API 2.1 keep RFC 3161 and C2PA in one collapsed optional
+    advanced area, allow bounded trustless offline C2PA inspection with explicit
+    `valid_untrusted`/`not_evaluated` states, and continue to require an explicit reviewed trust
+    snapshot before a C2PA observation can enter protocol evidence.
 
 Historical initial verification status (superseded by the versioned records below):
 
@@ -455,6 +459,50 @@ The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
 `0501732b02d204c59cb019a1d6e393998ed647c85862ff49e9c9077c732c8b03`; release CLI SHA-256 is
 `5f0e2999a3883188fbfc6fc5e10f520f75456f70895b91b183b80034665555b5`. Final evidence and
 screenshots are under `test-results/AP-035/`. macOS was not executed and is not claimed as
+passed. No independent or parallel QA, push, tag, release, upload or publication was started.
+
+Optional external assurance tools (AP-036, 2026-07-17): passed through Workbench 1.1.0 and
+Host/native API 2.1.0 without protocol, engine or workspace version drift from 1.0.0. The primary
+creation, sealing and ordinary offline-verification journey remains usable with no TSA account or
+C2PA trust profile. RFC 3161 acquisition and C2PA trust administration now live in one
+keyboard-accessible advanced area that is collapsed by default and reports their configuration
+states independently. RFC 3161 still requires explicit profile import and confirmation of the
+endpoint, imprint and policy before Main performs HTTPS; local time, web clocks, NTP/NTS and
+generic UTC services are not substitutes.
+
+C2PA JPEG/PNG/WebP inspection now permits bounded local cryptographic and structural validation
+without ambient roots or network activity. A structurally and cryptographically valid result is
+reported as `valid_untrusted`, with signer and timestamp trust `not_evaluated`; invalid content
+remains invalid. Importing an explicit profile enables the existing separate trust evaluation,
+while creation of a digest-bound protocol observation still fails closed without both reviewed
+snapshot digests. Profile parsing rejects signer or timestamp certificates with the wrong EKU.
+Remote manifests, soft binding, OCSP fetching and telemetry remain disabled. The UI explicitly
+states that RFC 3161 providers can involve third-party accounts, quotas, fees and availability,
+and that C2PA validity or trust does not prove truth, identity, authorship, originality,
+ownership or permission.
+
+Native Windows `x86_64-pc-windows-msvc` and Ubuntu 24.04 WSL2 each used the frozen Rust 1.88.0
+toolchain and passed locked formatting, all-target/all-feature check, warnings-denied Clippy,
+documentation, metadata/tree, complete applicable tests, real CLI execution and the current plus
+attack C2PA corpora. Windows also passed the explicit OS-credential lifecycle. `Cargo.lock` is
+unchanged from AP-035 at SHA-256
+`930e49effcf2dfcc05a842d6b5f4bb3b4bba4bbf1a8502d5efdc507d755abcc7`, so the reviewed RustSec
+and license graph has no dependency drift.
+
+Windows Node v24.14.0/pnpm 11.9.0 passed Prettier, all TypeScript checks, ESLint, 7 Host-contract
+tests, 16 creation-core tests, 80 desktop tests and production/release builds. Sequential native
+development and exact packaged Electron/CDP runs each passed 84 observations, including both
+viewports, the unconfigured standard flow, trustless C2PA inspection, configured trust,
+RFC 3161, official identity, process recovery and clean exits. Package-boundary QA found 430
+files, zero source maps, coherent versions and Utility-only addon loading. A separate normal
+launch exposed no QA/CDP port and exited cleanly.
+
+The frozen Windows x64 EXE is 205,586,944 bytes with SHA-256
+`1cf7301241a00ad918cf625e4044ffa8509b5b084f441f1ada3f309ef2ec4fc6`; ASAR SHA-256 is
+`1f18604f9c9becce1edafd9046ea74811d723ce82ac6441d101f0b5bc238cc41`; native-addon SHA-256 is
+`4317b27dd81d72b7c48c73b91fba7ab89155c8e07859a57a5f94ea15e4e4b2e1`; release CLI SHA-256 is
+`4296177da1f0b5ee2d1415c73c57a56e50a9f23ae8d052f83c3f4a5c3054b1ec`. Final evidence and
+screenshots are under `test-results/AP-036/`. macOS was not executed and is not claimed as
 passed. No independent or parallel QA, push, tag, release, upload or publication was started.
 
 Not implemented:

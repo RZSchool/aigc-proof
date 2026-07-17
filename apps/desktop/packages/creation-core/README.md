@@ -1,6 +1,6 @@
 # @aigc-proof/creation-core 1.0.0
 
-Reusable Node creation-to-proof semantics for Workbench 1.0.0. This package has no React,
+Reusable Node creation-to-proof semantics for Workbench 1.1.0. This package has no React,
 Electron, SQLite, Standalone database, or renderer dependency.
 
 It provides:

@@ -369,6 +369,37 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.external-assurance-panel {
+  padding: 0;
+}
+
+.external-assurance-panel > summary {
+  display: grid;
+  gap: 5px;
+  padding: 18px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.external-assurance-panel > summary strong {
+  font-size: 15px;
+}
+
+.external-assurance-panel > summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.external-assurance-panel[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.external-assurance-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
 .advanced-panel-body {
   padding: 0 24px 24px;
   border-top: 1px solid var(--border);

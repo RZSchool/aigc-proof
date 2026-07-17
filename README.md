@@ -4,7 +4,7 @@ Open protocol and Rust reference implementation for recording an AIGC creation w
 
 ```text
 Protocol/engine/workspace: 1.0.0
-Workbench: 1.0.0
+Workbench: 1.1.0
 Status: AP-035 stable candidate implementation
 Assurance: Internal Integrity + self-asserted local creator signature + optional RFC 3161 trusted time + optional C2PA observation + optional official identity attestation
 ```
@@ -25,7 +25,7 @@ aigc-proof seal demo-workspace --output example.aigcproof --confirm-signature
 aigc-proof verify example.aigcproof
 aigc-proof inspect example.aigcproof --json
 aigc-proof c2pa profile c2pa-trust.json
-aigc-proof c2pa inspect --asset signed.png --trust-profile c2pa-trust.json
+aigc-proof c2pa inspect --asset signed.png [--trust-profile c2pa-trust.json]
 aigc-proof official-identity --attestation official-attestation-v1.cose --issuer-trust official-issuer-trust-v1.json --status official-status-snapshot-v1.cose --creator-key-fingerprint <sha256> --purpose creator_identity --at <unix-seconds>
 ```
 
@@ -35,9 +35,9 @@ For legacy compatibility testing only, `seal --legacy-unsigned-v02` creates an u
 
 ## Desktop workbench
 
-Workbench 1.0.0 is a local-first React/TypeScript Electron application using renderer-safe `ProofHostApi` 2.0.0, native API 2.0.0, and engine/protocol 1.0.0. Electron Main owns path authority, validated IPC, operating-system credential operations, bounded jobs, the explicit RFC 3161 HTTPS adapter, and portable trust-input lifetime; a supervised Utility Process exclusively owns the napi-rs addon. The renderer has no Node.js, filesystem, SQLite, credential-store, native-module, C2PA SDK, trust store, or generic network access.
+Workbench 1.1.0 is a local-first React/TypeScript Electron application using renderer-safe `ProofHostApi` 2.1.0, native API 2.1.0, and engine/protocol 1.0.0. Electron Main owns path authority, validated IPC, operating-system credential operations, bounded jobs, the explicit RFC 3161 HTTPS adapter, and portable trust-input lifetime; a supervised Utility Process exclusively owns the napi-rs addon. The renderer has no Node.js, filesystem, SQLite, credential-store, native-module, C2PA SDK, trust store, or generic network access.
 
-The one-page workflow supports a local self-asserted signer identity, explicit per-package signing confirmation, local ComfyUI v0.27.0 creation, signed sealing, explicit RFC 3161 acquisition, exact image-to-package matching, offline C2PA 2.2 inspection/observation, and offline official-attestation verification from explicitly selected local files. Remote manifests, soft bindings, private official-service calls, certificate private-key import, and standalone C2PA signing are unavailable. ComfyUI, Python, models, custom nodes, and trust roots are not bundled or downloaded.
+The one-page workflow supports a local self-asserted signer identity, explicit per-package signing confirmation, local ComfyUI v0.27.0 creation, signed sealing, explicit RFC 3161 acquisition, exact image-to-package matching, trustless offline C2PA 2.2 inspection with optional explicit trust evaluation, digest-bound C2PA observations, and offline official-attestation verification from explicitly selected local files. RFC 3161 and C2PA administration are collapsed as optional advanced tools. Remote manifests, soft bindings, private official-service calls, certificate private-key import, and standalone C2PA signing are unavailable. ComfyUI, Python, models, custom nodes, and trust roots are not bundled or downloaded.
 
 See [Desktop Workbench](docs/DESKTOP-WORKBENCH.md), [Signature Profile](docs/SIGNATURE-PROFILE.md), [Trusted Time Profile](docs/TRUSTED-TIME-PROFILE.md), [C2PA Bridge Profile](docs/C2PA-BRIDGE.md), and [Official Identity Profile](docs/OFFICIAL-IDENTITY-PROFILE.md).
 

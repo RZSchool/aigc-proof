@@ -186,7 +186,7 @@ fn pinned_official_v1_fixture_is_read_only_compatible() {
     let inspection = inspect_c2pa(C2paInspectOptions {
         asset_path: fixtures.join("C.jpg"),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap();
@@ -225,7 +225,7 @@ fn host_callback_signs_and_bridge_reads_claim_v2_for_all_supported_images() {
         let inspection = inspect_c2pa(C2paInspectOptions {
             asset_path: output.clone(),
             sidecar_path: None,
-            trust_profile: &profile,
+            trust_profile: Some(&profile),
             observed_at: "2026-07-15T00:00:00Z".to_owned(),
         })
         .unwrap();
@@ -280,6 +280,86 @@ fn host_callback_signs_and_bridge_reads_claim_v2_for_all_supported_images() {
     }
 }
 
+#[test]
+fn trustless_inspection_is_offline_valid_untrusted_without_snapshot_digests() {
+    let Some(fixtures) = official_fixtures() else {
+        eprintln!("skipped: AIGC_PROOF_C2PA_SDK_FIXTURES is not configured");
+        return;
+    };
+    let callback = FixtureCallback::from_fixture_directory(&fixtures);
+    let temporary = tempdir().unwrap();
+    let signed = temporary.path().join("trustless.png");
+    sign_c2pa_with_host_callback(&fixtures.join("sample1.png"), &signed, &callback).unwrap();
+
+    let inspection = inspect_c2pa(C2paInspectOptions {
+        asset_path: signed,
+        sidecar_path: None,
+        trust_profile: None,
+        observed_at: "2026-07-15T00:00:00Z".to_owned(),
+    })
+    .unwrap();
+
+    assert_eq!(
+        inspection.validation_state,
+        proof_schema::C2paValidationState::ValidUntrusted
+    );
+    assert_eq!(
+        inspection.signer_trust,
+        proof_schema::C2paTrustState::NotEvaluated
+    );
+    assert_eq!(
+        inspection.timestamp_trust,
+        proof_schema::C2paTrustState::NotEvaluated
+    );
+    assert!(inspection.signer_trust_snapshot_sha256.is_none());
+    assert!(inspection.timestamp_trust_snapshot_sha256.is_none());
+    let encoded = serde_json::to_value(inspection).unwrap();
+    assert!(encoded.get("signer_trust_snapshot_sha256").is_none());
+    assert!(encoded.get("timestamp_trust_snapshot_sha256").is_none());
+}
+
+#[test]
+fn expired_and_malformed_profiles_fail_before_media_trust_evaluation() {
+    assert_eq!(
+        parse_c2pa_trust_profile("{not-json").unwrap_err().code,
+        "C2PA_TRUST_PROFILE_JSON_INVALID"
+    );
+    let Some(fixtures) = official_fixtures() else {
+        eprintln!("skipped: AIGC_PROOF_C2PA_SDK_FIXTURES is not configured");
+        return;
+    };
+    let mut expired: serde_json::Value =
+        serde_json::from_str(&trust_profile_json(&fixtures)).unwrap();
+    expired["signer"]["expires_at"] = json!("2026-07-14T00:00:00Z");
+    expired["timestamp"]["expires_at"] = json!("2026-07-14T00:00:00Z");
+    let expired = parse_c2pa_trust_profile(&serde_json::to_string(&expired).unwrap()).unwrap();
+    let error = inspect_c2pa(C2paInspectOptions {
+        asset_path: fixtures.join("C.jpg"),
+        sidecar_path: None,
+        trust_profile: Some(&expired),
+        observed_at: "2026-07-15T00:00:00Z".to_owned(),
+    })
+    .unwrap_err();
+    assert_eq!(error.code, "C2PA_TRUST_SNAPSHOT_NOT_EFFECTIVE");
+}
+
+#[test]
+fn wrong_purpose_profile_is_rejected_before_media_trust_evaluation() {
+    let Some(fixtures) = official_fixtures() else {
+        eprintln!("skipped: AIGC_PROOF_C2PA_SDK_FIXTURES is not configured");
+        return;
+    };
+    let mut wrong_purpose: serde_json::Value =
+        serde_json::from_str(&trust_profile_json(&fixtures)).unwrap();
+    wrong_purpose["signer"]["allowed_ekus"] = json!(["1.3.6.1.5.5.7.3.8"]);
+    assert_eq!(
+        parse_c2pa_trust_profile(&serde_json::to_string(&wrong_purpose).unwrap())
+            .unwrap_err()
+            .code,
+        "C2PA_TRUST_PROFILE_PURPOSE_INVALID"
+    );
+}
+
 fn inspection_media_type(extension: &str) -> &'static str {
     match extension {
         "jpg" => "image/jpeg",
@@ -311,7 +391,7 @@ fn explicit_local_sidecar_is_digest_bound_and_remote_lookup_is_not_used() {
     let inspection = inspect_c2pa(C2paInspectOptions {
         asset_path: sidecar_asset,
         sidecar_path: Some(sidecar),
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap();
@@ -377,7 +457,7 @@ fn remote_reference_and_unsupported_media_fail_closed() {
     let remote = inspect_c2pa(C2paInspectOptions {
         asset_path: fixtures.join("libpng-test_with_url.png"),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: None,
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -392,7 +472,7 @@ fn remote_reference_and_unsupported_media_fail_closed() {
     let unsupported = inspect_c2pa(C2paInspectOptions {
         asset_path: fixtures.join("basic.pdf"),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -421,7 +501,7 @@ fn tampering_is_normalized_without_copying_assertion_text() {
     let inspection = inspect_c2pa(C2paInspectOptions {
         asset_path: signed,
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap();
@@ -485,7 +565,7 @@ fn soft_binding_assertion_is_explicitly_unsupported() {
     let error = inspect_c2pa(C2paInspectOptions {
         asset_path: output,
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -519,7 +599,7 @@ fn pinned_official_attack_corpus_is_bounded_and_does_not_escape_status_fields() 
         let inspection = inspect_c2pa(C2paInspectOptions {
             asset_path: asset.clone(),
             sidecar_path: None,
-            trust_profile: &profile,
+            trust_profile: Some(&profile),
             observed_at: "2026-07-15T00:00:00Z".to_owned(),
         })
         .unwrap_or_else(|error| panic!("{}: {error}", asset.display()));
@@ -578,7 +658,7 @@ fn assertion_and_ingredient_count_limits_reject_real_signed_media() {
     let assertion_error = inspect_c2pa(C2paInspectOptions {
         asset_path: assertion_output.clone(),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -611,7 +691,7 @@ fn assertion_and_ingredient_count_limits_reject_real_signed_media() {
     let ingredient_error = inspect_c2pa(C2paInspectOptions {
         asset_path: ingredient_output.clone(),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -647,7 +727,7 @@ fn malformed_jumbf_media_and_byte_limits_fail_closed() {
     let malformed = inspect_c2pa(C2paInspectOptions {
         asset_path: fixtures.join("no_manifest.jpg"),
         sidecar_path: Some(malformed_sidecar),
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -658,7 +738,7 @@ fn malformed_jumbf_media_and_byte_limits_fail_closed() {
     let media = inspect_c2pa(C2paInspectOptions {
         asset_path: zip_disguised_as_image,
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -672,7 +752,7 @@ fn malformed_jumbf_media_and_byte_limits_fail_closed() {
     let asset_limit = inspect_c2pa(C2paInspectOptions {
         asset_path: oversized_asset,
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -686,7 +766,7 @@ fn malformed_jumbf_media_and_byte_limits_fail_closed() {
     let sidecar_limit = inspect_c2pa(C2paInspectOptions {
         asset_path: fixtures.join("no_manifest.jpg"),
         sidecar_path: Some(oversized_sidecar),
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();
@@ -718,7 +798,7 @@ fn future_claim_version_is_not_inferred_as_c2pa_2_2() {
     let error = inspect_c2pa(C2paInspectOptions {
         asset_path: output.clone(),
         sidecar_path: None,
-        trust_profile: &profile,
+        trust_profile: Some(&profile),
         observed_at: "2026-07-15T00:00:00Z".to_owned(),
     })
     .unwrap_err();

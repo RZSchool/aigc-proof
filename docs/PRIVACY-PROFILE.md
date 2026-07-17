@@ -17,7 +17,7 @@ directory. Those absolute local paths
 can be sensitive; they remain on the device and can be rebuilt or deleted without changing the
 portable proof files. The renderer never opens the database directly.
 
-Workbench 1.0.0 exposes selected locations to the renderer only as opaque Host references plus
+Workbench 1.1.0 exposes selected locations to the renderer only as opaque Host references plus
 display labels/paths. Display information may still reveal sensitive local names to the local UI,
 logs, or screenshots, but it grants no filesystem authority and is not stored in proof protocol
 artifacts unless the existing portable format explicitly includes a filename.
@@ -60,7 +60,9 @@ private HTTPS roots are held only for the current process and are not persisted 
 proof package.
 
 C2PA inspection is offline and receives only image bytes, an explicitly selected local sidecar,
-and an explicitly imported session trust profile. Remote-manifest and soft-binding lookup, OCSP,
+and, when the user chooses trust evaluation, an explicitly imported session trust profile. A
+profile is not required for bounded cryptographic/structural inspection; without one the result
+cannot be upgraded beyond `valid_untrusted` and trust remains `not_evaluated`. Remote-manifest and soft-binding lookup, OCSP,
 telemetry, and automatic trust retrieval are disabled. The portable observation records exact
 image/manifest-store and trust-snapshot SHA-256 values, active manifest label, and normalized SDK
 status codes; these values may link the same media, manifest, certificate population, or trust

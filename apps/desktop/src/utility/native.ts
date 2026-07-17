@@ -58,7 +58,7 @@ export interface NativeAddon {
   inspectC2paImage(request: {
     asset: string;
     sidecar?: string | undefined;
-    profileJson: string;
+    profileJson?: string | undefined;
   }): Promise<string>;
   createWorkspaceC2paObservation(request: {
     workspace: string;

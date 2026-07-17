@@ -136,7 +136,8 @@ const c2paInspectPayloadSchema = z
     profileJson: z
       .string()
       .min(2)
-      .max(4 * 1024 * 1024),
+      .max(4 * 1024 * 1024)
+      .optional(),
   })
   .strict();
 const c2paObservationPayloadSchema = z

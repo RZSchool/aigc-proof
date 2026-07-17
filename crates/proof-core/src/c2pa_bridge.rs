@@ -30,6 +30,8 @@ pub const C2PA_MAX_MANIFESTS: usize = 64;
 pub const C2PA_MAX_ASSERTIONS: usize = 1024;
 pub const C2PA_MAX_INGREDIENTS: usize = 256;
 pub const C2PA_MAX_ELAPSED: Duration = Duration::from_secs(30);
+const C2PA_SIGNER_PURPOSE_EKUS: &[&str] = &["1.3.6.1.5.5.7.3.36", "1.3.6.1.4.1.62558.2.1"];
+const C2PA_TIMESTAMP_PURPOSE_EKU: &str = "1.3.6.1.5.5.7.3.8";
 
 #[derive(Debug, Clone)]
 pub struct ParsedC2paTrustProfile {
@@ -44,7 +46,7 @@ pub struct ParsedC2paTrustProfile {
 pub struct C2paInspectOptions<'a> {
     pub asset_path: PathBuf,
     pub sidecar_path: Option<PathBuf>,
-    pub trust_profile: &'a ParsedC2paTrustProfile,
+    pub trust_profile: Option<&'a ParsedC2paTrustProfile>,
     pub observed_at: String,
 }
 
@@ -67,8 +69,10 @@ pub struct C2paInspection {
     pub source_mode: C2paSourceMode,
     pub claim_version: u8,
     pub active_manifest: String,
-    pub signer_trust_snapshot_sha256: String,
-    pub timestamp_trust_snapshot_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signer_trust_snapshot_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_trust_snapshot_sha256: Option<String>,
     pub validation_state: C2paValidationState,
     pub signer_trust: C2paTrustState,
     pub timestamp_trust: C2paTrustState,
@@ -79,8 +83,22 @@ pub struct C2paInspection {
 }
 
 impl C2paInspection {
-    fn into_observation(self, asset_id: String) -> C2paObservation {
-        C2paObservation {
+    fn into_observation(self, asset_id: String) -> CoreResult<C2paObservation> {
+        let signer_trust_snapshot_sha256 = self.signer_trust_snapshot_sha256.ok_or_else(|| {
+            c2pa_error(
+                "C2PA_OBSERVATION_TRUST_PROFILE_REQUIRED",
+                "A digest-bound C2PA observation requires an explicit signer trust snapshot.",
+            )
+        })?;
+        let timestamp_trust_snapshot_sha256 = self
+            .timestamp_trust_snapshot_sha256
+            .ok_or_else(|| {
+                c2pa_error(
+                    "C2PA_OBSERVATION_TRUST_PROFILE_REQUIRED",
+                    "A digest-bound C2PA observation requires an explicit timestamp trust snapshot.",
+                )
+            })?;
+        Ok(C2paObservation {
             profile: self.profile,
             asset_id,
             asset_sha256: self.asset_sha256,
@@ -88,15 +106,15 @@ impl C2paInspection {
             source_mode: self.source_mode,
             claim_version: self.claim_version,
             active_manifest: self.active_manifest,
-            signer_trust_snapshot_sha256: self.signer_trust_snapshot_sha256,
-            timestamp_trust_snapshot_sha256: self.timestamp_trust_snapshot_sha256,
+            signer_trust_snapshot_sha256,
+            timestamp_trust_snapshot_sha256,
             validation_state: self.validation_state,
             signer_trust: self.signer_trust,
             timestamp_trust: self.timestamp_trust,
             success_codes: self.success_codes,
             informational_codes: self.informational_codes,
             failure_codes: self.failure_codes,
-        }
+        })
     }
 }
 
@@ -156,6 +174,21 @@ pub fn parse_c2pa_trust_profile(json_text: &str) -> CoreResult<ParsedC2paTrustPr
         return Err(c2pa_error(
             issue.code,
             format!("{}: {}", issue.field, issue.message),
+        ));
+    }
+    if !profile.signer.allowed_ekus.iter().any(|eku| {
+        C2PA_SIGNER_PURPOSE_EKUS
+            .iter()
+            .any(|required| eku == required)
+    }) || !profile
+        .timestamp
+        .allowed_ekus
+        .iter()
+        .any(|eku| eku == C2PA_TIMESTAMP_PURPOSE_EKU)
+    {
+        return Err(c2pa_error(
+            "C2PA_TRUST_PROFILE_PURPOSE_INVALID",
+            "Signer trust must allow a C2PA/document-signing purpose and timestamp trust must allow id-kp-timeStamping.",
         ));
     }
     let canonical = canonical_json(&profile)?;
@@ -220,12 +253,12 @@ pub fn inspect_c2pa(options: C2paInspectOptions<'_>) -> CoreResult<C2paInspectio
     asset
         .seek(SeekFrom::Start(0))
         .map_err(|error| CoreError::io("C2PA_ASSET_SEEK_FAILED", &options.asset_path, error))?;
-    let signer_reader = read_with_snapshot(
+    let signer_reader = read_offline(
         media_type,
         &manifest_bytes,
         &mut asset,
-        &options.trust_profile.profile.signer,
-        true,
+        options.trust_profile.map(|profile| &profile.profile.signer),
+        options.trust_profile.is_some(),
         false,
         started,
     )?;
@@ -259,23 +292,44 @@ pub fn inspect_c2pa(options: C2paInspectOptions<'_>) -> CoreResult<C2paInspectio
         .to_owned();
     let (success_codes, informational_codes, failure_codes) =
         normalized_status_codes(&signer_reader);
-    let signer_trust = match signer_reader.validation_state() {
-        ValidationState::Trusted => C2paTrustState::Trusted,
-        ValidationState::Valid | ValidationState::Invalid => C2paTrustState::Untrusted,
+    let signer_trust = match options.trust_profile {
+        None => C2paTrustState::NotEvaluated,
+        Some(_) => match signer_reader.validation_state() {
+            ValidationState::Trusted => C2paTrustState::Trusted,
+            ValidationState::Valid | ValidationState::Invalid => C2paTrustState::Untrusted,
+        },
     };
 
-    asset
-        .seek(SeekFrom::Start(0))
-        .map_err(|error| CoreError::io("C2PA_ASSET_SEEK_FAILED", &options.asset_path, error))?;
-    let timestamp_reader = read_with_snapshot(
-        media_type,
-        &manifest_bytes,
-        &mut asset,
-        &options.trust_profile.profile.timestamp,
-        false,
-        true,
-        started,
-    )?;
+    let timestamp_trust = if let Some(profile) = options.trust_profile {
+        asset
+            .seek(SeekFrom::Start(0))
+            .map_err(|error| CoreError::io("C2PA_ASSET_SEEK_FAILED", &options.asset_path, error))?;
+        let timestamp_reader = read_offline(
+            media_type,
+            &manifest_bytes,
+            &mut asset,
+            Some(&profile.profile.timestamp),
+            false,
+            true,
+            started,
+        )?;
+        let timestamp_codes = all_status_codes(&timestamp_reader)
+            .into_iter()
+            .filter(|code| code.to_ascii_lowercase().contains("timestamp"))
+            .collect::<Vec<_>>();
+        if timestamp_codes.is_empty() {
+            C2paTrustState::NotEvaluated
+        } else if timestamp_codes
+            .iter()
+            .any(|code| code.eq_ignore_ascii_case("timeStamp.trusted"))
+        {
+            C2paTrustState::Trusted
+        } else {
+            C2paTrustState::Untrusted
+        }
+    } else {
+        C2paTrustState::NotEvaluated
+    };
     asset
         .seek(SeekFrom::Start(0))
         .map_err(|error| CoreError::io("C2PA_ASSET_SEEK_FAILED", &options.asset_path, error))?;
@@ -287,24 +341,13 @@ pub fn inspect_c2pa(options: C2paInspectOptions<'_>) -> CoreResult<C2paInspectio
         )
         .at_path(&options.asset_path));
     }
-    let timestamp_codes = all_status_codes(&timestamp_reader)
-        .into_iter()
-        .filter(|code| code.to_ascii_lowercase().contains("timestamp"))
-        .collect::<Vec<_>>();
-    let timestamp_trust = if timestamp_codes.is_empty() {
-        C2paTrustState::NotEvaluated
-    } else if timestamp_codes
-        .iter()
-        .any(|code| code.eq_ignore_ascii_case("timeStamp.trusted"))
-    {
-        C2paTrustState::Trusted
-    } else {
-        C2paTrustState::Untrusted
-    };
-    let validation_state = match signer_reader.validation_state() {
-        ValidationState::Invalid => C2paValidationState::Invalid,
-        ValidationState::Valid => C2paValidationState::ValidUntrusted,
-        ValidationState::Trusted => C2paValidationState::Trusted,
+    let validation_state = match (options.trust_profile, signer_reader.validation_state()) {
+        (_, ValidationState::Invalid) => C2paValidationState::Invalid,
+        (None, ValidationState::Valid | ValidationState::Trusted) => {
+            C2paValidationState::ValidUntrusted
+        }
+        (Some(_), ValidationState::Valid) => C2paValidationState::ValidUntrusted,
+        (Some(_), ValidationState::Trusted) => C2paValidationState::Trusted,
     };
     let elapsed = started.elapsed();
     if elapsed > C2PA_MAX_ELAPSED {
@@ -320,8 +363,12 @@ pub fn inspect_c2pa(options: C2paInspectOptions<'_>) -> CoreResult<C2paInspectio
         source_mode,
         claim_version,
         active_manifest,
-        signer_trust_snapshot_sha256: options.trust_profile.signer_snapshot_sha256.clone(),
-        timestamp_trust_snapshot_sha256: options.trust_profile.timestamp_snapshot_sha256.clone(),
+        signer_trust_snapshot_sha256: options
+            .trust_profile
+            .map(|profile| profile.signer_snapshot_sha256.clone()),
+        timestamp_trust_snapshot_sha256: options
+            .trust_profile
+            .map(|profile| profile.timestamp_snapshot_sha256.clone()),
         validation_state,
         signer_trust,
         timestamp_trust,
@@ -348,7 +395,7 @@ pub fn create_c2pa_observation(options: CreateC2paObservationOptions<'_>) -> Cor
     let inspection = inspect_c2pa(C2paInspectOptions {
         asset_path: path,
         sidecar_path: options.sidecar_path,
-        trust_profile: options.trust_profile,
+        trust_profile: Some(options.trust_profile),
         observed_at: options.created_at.clone(),
     })?;
     if inspection.asset_sha256 != asset.sha256 {
@@ -357,7 +404,7 @@ pub fn create_c2pa_observation(options: CreateC2paObservationOptions<'_>) -> Cor
             "Inspected image bytes do not match the recorded workspace asset.",
         ));
     }
-    let observation = inspection.into_observation(options.asset_id);
+    let observation = inspection.into_observation(options.asset_id)?;
     if let Some(issue) = observation.validate().into_iter().next() {
         return Err(c2pa_error(
             issue.code,
@@ -533,40 +580,38 @@ impl Signer for CallbackSigner<'_> {
     }
 }
 
-fn read_with_snapshot(
+fn read_offline(
     media_type: &str,
     manifest_bytes: &[u8],
     asset: &mut File,
-    snapshot: &C2paTrustSnapshot,
+    snapshot: Option<&C2paTrustSnapshot>,
     verify_signer_trust: bool,
     verify_timestamp_trust: bool,
     started: Instant,
 ) -> CoreResult<Reader> {
-    let trust_anchors = snapshot.trust_anchors_pem.join("");
-    let trust_config = format!("{}\n", snapshot.allowed_ekus.join("\n"));
+    let mut settings_json = json!({
+        "core": {
+            "backing_store_memory_threshold_in_mb": 32,
+            "decode_identity_assertions": false,
+            "allowed_network_hosts": []
+        },
+        "verify": {
+            "verify_after_reading": true,
+            "verify_trust": verify_signer_trust,
+            "verify_timestamp_trust": verify_timestamp_trust,
+            "ocsp_fetch": false,
+            "remote_manifest_fetch": false,
+            "strict_v1_validation": false
+        }
+    });
+    if let Some(snapshot) = snapshot {
+        settings_json["trust"] = json!({
+            "trust_anchors": snapshot.trust_anchors_pem.join(""),
+            "trust_config": format!("{}\n", snapshot.allowed_ekus.join("\n"))
+        });
+    }
     let settings = Settings::new()
-        .with_json(
-            &json!({
-                "core": {
-                    "backing_store_memory_threshold_in_mb": 32,
-                    "decode_identity_assertions": false,
-                    "allowed_network_hosts": []
-                },
-                "verify": {
-                    "verify_after_reading": true,
-                    "verify_trust": verify_signer_trust,
-                    "verify_timestamp_trust": verify_timestamp_trust,
-                    "ocsp_fetch": false,
-                    "remote_manifest_fetch": false,
-                    "strict_v1_validation": false
-                },
-                "trust": {
-                    "trust_anchors": trust_anchors,
-                    "trust_config": trust_config
-                }
-            })
-            .to_string(),
-        )
+        .with_json(&settings_json.to_string())
         .map_err(|_| {
             c2pa_error(
                 "C2PA_TRUST_SETTINGS_INVALID",
@@ -715,7 +760,7 @@ fn normalize_codes(codes: &mut Vec<String>) {
 
 fn validate_observation_time(
     observed_at: &str,
-    profile: &ParsedC2paTrustProfile,
+    profile: Option<&ParsedC2paTrustProfile>,
 ) -> CoreResult<()> {
     let observed = parse_canonical_rfc3339(observed_at).map_err(|_| {
         c2pa_error(
@@ -723,6 +768,9 @@ fn validate_observation_time(
             "C2PA observation time must be canonical UTC RFC 3339.",
         )
     })?;
+    let Some(profile) = profile else {
+        return Ok(());
+    };
     for (name, snapshot) in [
         ("signer", &profile.profile.signer),
         ("timestamp", &profile.profile.timestamp),

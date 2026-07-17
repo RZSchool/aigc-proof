@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   const packagedManifest = JSON.parse(
     extractFile(asar, "package.json").toString("utf8"),
   ) as { version?: string };
-  if (packagedManifest.version !== "1.0.0") {
+  if (packagedManifest.version !== "1.1.0") {
     throw new Error(
       `Packaged Workbench version is ${packagedManifest.version ?? "missing"}.`,
     );
@@ -76,9 +76,9 @@ async function main(): Promise<void> {
   const readmeSource = await fs.readFile(readme, "utf8");
   const noticesSource = await fs.readFile(notices, "utf8");
   if (
-    !readmeSource.includes("AIGC-Proof Workbench 1.0.0") ||
+    !readmeSource.includes("AIGC-Proof Workbench 1.1.0") ||
     !readmeSource.includes(
-      "Workbench 1.0.0 使用 ProofHostApi 2.0.0 / native API 2.0.0",
+      "Workbench 1.1.0 使用 ProofHostApi 2.1.0 / native API 2.1.0",
     ) ||
     !readmeSource.includes("AIGC-Proof 1.0.0")
   ) {
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
     asar,
     addon,
     workbenchVersion: packagedManifest.version,
-    contractVersion: "2.0.0",
+    contractVersion: "2.1.0",
     nativeApiVersion: discovery.apiVersion,
     engineVersion: discovery.engineVersion,
     protocolVersion: "1.0.0",

@@ -202,6 +202,13 @@ fn real_cli_inspects_and_records_a_digest_bound_c2pa_observation() {
     let profile = success(temp.path(), &["c2pa", "profile", "c2pa-trust.json"]);
     let summary: Value = serde_json::from_slice(&profile.stdout).unwrap();
     assert_eq!(summary["profile"], "aigc-proof.c2pa-trust-profile.v1");
+    let trustless = success(temp.path(), &["c2pa", "inspect", "--asset", "signed.jpg"]);
+    let trustless: Value = serde_json::from_slice(&trustless.stdout).unwrap();
+    assert_eq!(trustless["validation_state"], "valid_untrusted");
+    assert_eq!(trustless["signer_trust"], "not_evaluated");
+    assert_eq!(trustless["timestamp_trust"], "not_evaluated");
+    assert!(trustless.get("signer_trust_snapshot_sha256").is_none());
+    assert!(trustless.get("timestamp_trust_snapshot_sha256").is_none());
     let inspection = success(
         temp.path(),
         &[

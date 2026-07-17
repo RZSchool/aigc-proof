@@ -176,9 +176,9 @@ beforeEach(() => {
           kind: "diagnostic",
           displayLabel: "diagnostics",
         },
-        workbenchVersion: "1.0.0",
-        contractVersion: "2.0.0",
-        nativeApiVersion: "2.0.0",
+        workbenchVersion: "1.1.0",
+        contractVersion: "2.1.0",
+        nativeApiVersion: "2.1.0",
         engineVersion: "1.0.0",
         protocolVersion: "1.0.0",
         supportedProtocolVersions: [
@@ -285,7 +285,16 @@ describe("workbench shell", () => {
     expect(screen.getByTestId("assurance-banner")).toHaveTextContent(
       "官方身份仅验证显式声明与创建者公钥/用途/状态绑定",
     );
-    expect(screen.getByText("Workbench 1.0.0")).toBeInTheDocument();
+    expect(screen.getByText("Workbench 1.1.0")).toBeInTheDocument();
+    expect(screen.getByTestId("external-assurance-tools")).not.toHaveAttribute(
+      "open",
+    );
+    expect(screen.getByTestId("tsa-optional-state")).toHaveTextContent(
+      "尚未配置可信时间服务",
+    );
+    expect(screen.getByTestId("c2pa-optional-state")).toHaveTextContent(
+      "可离线检查并报告 valid_untrusted",
+    );
     expect(
       screen.getByTestId("unified-workflow").querySelectorAll("[data-region]"),
     ).toHaveLength(10);
@@ -298,11 +307,53 @@ describe("workbench shell", () => {
     render(<App />);
     const card = await screen.findByTestId("diagnostics-card");
     expect(card).toHaveTextContent("1.0.0");
-    expect(card).toHaveTextContent("2.0.0");
+    expect(card).toHaveTextContent("2.1.0");
     expect(card).toHaveTextContent("integration.aigcstudio");
     expect(card).toHaveTextContent("execution.utility-process");
     expect(card).toHaveTextContent("operation.safe-cancellation");
     expect(card).toHaveTextContent("不是认证");
+  });
+
+  it("inspects C2PA offline without importing trust material", async () => {
+    const user = userEvent.setup();
+    const image: ImageReference = {
+      id: `ref_${"4".repeat(32)}`,
+      kind: "image",
+      displayLabel: "signed.png",
+      displayPath: "C:\\proofs\\signed.png",
+    };
+    vi.mocked(window.aigcProof.chooseC2paImage).mockResolvedValue(image);
+    vi.mocked(window.aigcProof.inspectC2paImage).mockResolvedValue({
+      ok: true,
+      data: {
+        profile: "aigc-proof.c2pa-observation.v1",
+        asset_sha256: "6".repeat(64),
+        manifest_store_sha256: "a".repeat(64),
+        source_mode: "embedded",
+        claim_version: 2,
+        active_manifest: "urn:c2pa:trustless",
+        validation_state: "valid_untrusted",
+        signer_trust: "not_evaluated",
+        timestamp_trust: "not_evaluated",
+        success_codes: ["claimSignature.validated"],
+        informational_codes: [],
+        failure_codes: [],
+        elapsed_ms: 3,
+      },
+    });
+
+    render(<App />);
+    await user.click(screen.getByTestId("external-assurance-summary"));
+    await user.click(screen.getByTestId("choose-c2pa-image"));
+    await user.click(screen.getByTestId("inspect-c2pa"));
+
+    expect(window.aigcProof.inspectC2paImage).toHaveBeenCalledWith({ image });
+    expect(await screen.findByTestId("c2pa-inspection")).toHaveTextContent(
+      "valid_untrusted",
+    );
+    expect(screen.getByTestId("c2pa-inspection")).toHaveTextContent(
+      "签名者信任：not_evaluated",
+    );
   });
 
   it("creates a self-asserted local signer and exposes the full fingerprint", async () => {
@@ -420,6 +471,7 @@ describe("workbench shell", () => {
 
     render(<App />);
     await user.click(screen.getByTestId("choose-package"));
+    await user.click(screen.getByTestId("external-assurance-summary"));
     await user.click(screen.getByTestId("import-tsa-profile"));
     expect(await screen.findByTestId("tsa-profile-summary")).toHaveTextContent(
       "Local test TSA",
@@ -543,6 +595,7 @@ describe("workbench shell", () => {
     render(<App />);
     await user.click(screen.getByTestId("choose-open-workspace"));
     await user.click(screen.getByTestId("open-workspace"));
+    await user.click(screen.getByTestId("external-assurance-summary"));
     await user.click(screen.getByTestId("import-c2pa-profile"));
     expect(await screen.findByTestId("c2pa-profile-summary")).toHaveTextContent(
       "Pinned signer roots",

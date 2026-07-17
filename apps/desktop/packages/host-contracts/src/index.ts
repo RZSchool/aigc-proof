@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-export const WORKBENCH_VERSION = "1.0.0" as const;
-export const HOST_CONTRACT_VERSION = "2.0.0" as const;
-export const NATIVE_API_VERSION = "2.0.0" as const;
+export const WORKBENCH_VERSION = "1.1.0" as const;
+export const HOST_CONTRACT_VERSION = "2.1.0" as const;
+export const NATIVE_API_VERSION = "2.1.0" as const;
 export const NATIVE_ENGINE_VERSION = "1.0.0" as const;
 export const PROTOCOL_VERSION = "1.0.0" as const;
 
@@ -10,6 +10,7 @@ export const NATIVE_CAPABILITIES = [
   "c2pa.image.inspect",
   "c2pa.observation.create",
   "c2pa.trust-profile.validate",
+  "c2pa.trustless-inspect",
   "execution.phase-progress",
   "official.identity.verify",
   "proof.asset.add",
@@ -36,6 +37,7 @@ export const HOST_CAPABILITIES = [
   "c2pa.sidecar.import-local",
   "c2pa.trust-profile.import",
   "c2pa.trust-profile.validate",
+  "c2pa.trustless-inspect",
   "creation.comfyui-local",
   "creation.evidence-mapping",
   "creation.session-lifecycle",
@@ -356,8 +358,8 @@ export interface C2paInspection {
   source_mode: "embedded" | "sidecar";
   claim_version: 1 | 2;
   active_manifest: string;
-  signer_trust_snapshot_sha256: string;
-  timestamp_trust_snapshot_sha256: string;
+  signer_trust_snapshot_sha256?: string;
+  timestamp_trust_snapshot_sha256?: string;
   validation_state: "invalid" | "valid_untrusted" | "trusted";
   signer_trust: "not_evaluated" | "untrusted" | "trusted";
   timestamp_trust: "not_evaluated" | "untrusted" | "trusted";
@@ -1626,8 +1628,14 @@ export const c2paInspectionSchema = z
     source_mode: z.enum(["embedded", "sidecar"]),
     claim_version: z.union([z.literal(1), z.literal(2)]),
     active_manifest: z.string().min(1).max(512),
-    signer_trust_snapshot_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
-    timestamp_trust_snapshot_sha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    signer_trust_snapshot_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
+    timestamp_trust_snapshot_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
     validation_state: z.enum(["invalid", "valid_untrusted", "trusted"]),
     signer_trust: z.enum(["not_evaluated", "untrusted", "trusted"]),
     timestamp_trust: z.enum(["not_evaluated", "untrusted", "trusted"]),

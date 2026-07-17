@@ -1997,11 +1997,6 @@ export async function registerIpc(
     if (isFailure(request)) return request;
     try {
       const profile = c2paProfiles.get(event.sender.id);
-      if (!profile) {
-        throw new Error(
-          "C2PA_TRUST_PROFILE_NOT_IMPORTED: import an explicit C2PA trust profile first.",
-        );
-      }
       const asset = await registry.resolve(
         request.image,
         "image",
@@ -2021,7 +2016,7 @@ export async function registerIpc(
         payload: {
           asset,
           ...(sidecar ? { sidecar } : {}),
-          profileJson: profile.rawJson,
+          ...(profile ? { profileJson: profile.rawJson } : {}),
         },
       });
       return { ok: true, data: c2paInspectionSchema.parse(inspection) };

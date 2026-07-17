@@ -14,13 +14,13 @@ An older verifier must reject 1.0 as unsupported. A 1.0 verifier dispatches the 
 
 Display labels are new untrusted protocol text. They require NFC and strict length/control checks; a non-ASCII label produces a visual-confusable review warning. A label is never an authority identifier.
 
-## Workbench 1.0.0 matrix
+## Workbench 1.1.0 matrix
 
 | Layer | Version | Compatibility behavior |
 |---|---:|---|
-| Workbench | 1.0.0 | Adds explicit offline official attestation/trust/status import and keeps every assurance result separate |
-| `ProofHostApi` | 2.0.0 | Adds narrow opaque-reference official identity selection/verification without a generic file, parser, service, or network surface |
-| Native API | 2.0.0 | Adds bounded public official-attestation verification and retains all accepted C2PA/timestamp operations |
+| Workbench | 1.1.0 | Moves RFC 3161 and C2PA trust administration into a collapsed optional advanced area while preserving separate evidence states |
+| `ProofHostApi` | 2.1.0 | Allows trustless C2PA inspection responses without snapshot digests; observation creation and all file authority remain narrow and explicit |
+| Native API | 2.1.0 | Adds trustless bounded C2PA inspection while retaining explicit-trust evaluation, observations, timestamps, and official identity verification |
 | Native engine | 1.0.0 | Current stable signed engine; verifies legacy 0.2/0.3/0.4/0.5 |
 | Proof protocol | 1.0.0 | Current format; supported list is 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0 |
 | C2PA SDK | 0.89.3 | Exact minimal `file_io` + `rust_native_crypto` build; default HTTP, remote fetch, and OpenSSL are disabled; AP-033 SDK 0.85.0 remains a read-corpus baseline only |

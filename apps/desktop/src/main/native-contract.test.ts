@@ -75,4 +75,40 @@ describe("native compatibility gate", () => {
       expect(source).toContain(`#[napi(js_name = "${exportName}")]`);
     }
   });
+
+  it("keeps trustless C2PA offline and RFC 3161 behind explicit disclosure confirmation", () => {
+    const core = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../../../crates/proof-core/src/c2pa_bridge.rs",
+      ),
+      "utf8",
+    );
+    expect(core).toContain('"allowed_network_hosts": []');
+    expect(core).toContain('"ocsp_fetch": false');
+    expect(core).toContain('"remote_manifest_fetch": false');
+
+    const ipc = fs.readFileSync(path.resolve(__dirname, "./ipc.ts"), "utf8");
+    const inspectStart = ipc.indexOf("channels.inspectC2paImage");
+    const observationStart = ipc.indexOf(
+      "channels.createC2paObservation",
+      inspectStart,
+    );
+    const inspectHandler = ipc.slice(inspectStart, observationStart);
+    expect(inspectHandler).toContain(
+      "...(profile ? { profileJson: profile.rawJson } : {})",
+    );
+    expect(inspectHandler).not.toContain("C2PA_TRUST_PROFILE_NOT_IMPORTED");
+
+    const timestampStart = ipc.indexOf("channels.requestTrustedTimestamp");
+    const timestampHandler = ipc.slice(timestampStart);
+    for (const disclosed of [
+      "prepared.disclosure.endpoint",
+      "prepared.disclosure.requested_policy",
+      "prepared.disclosure.message_imprint_sha256",
+      "TSA_REQUEST_NOT_CONFIRMED",
+    ]) {
+      expect(timestampHandler).toContain(disclosed);
+    }
+  });
 });

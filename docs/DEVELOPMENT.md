@@ -44,7 +44,7 @@ over a loopback CDP port enabled only by the dedicated QA flag. `pnpm qa:package
 the packaged ASAR and native addon. On native Windows, `scripts/package-workbench.ps1` builds the
 addon and directly launchable folder, while `scripts/verify-packaged-workbench.ps1` checks normal
 launch, disabled CDP, and clean exit. Passing source tests alone is not packaged acceptance.
-Workbench startup validates the supervised Utility's native API 2.0.0 / engine 1.0.0 / protocol
+Workbench startup validates the supervised Utility's native API 2.1.0 / engine 1.0.0 / protocol
 0.2.0, 0.3.0, 0.4.0, 0.5.0, and 1.0.0 discovery, execution facts, and limits before proof IPC registration. Main is the authority,
 job scheduler, SQLite owner, and result publisher; only Utility source may load
 `proof_napi.node`. The QA-only selection manifest and crash command are accepted only together

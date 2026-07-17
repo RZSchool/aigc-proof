@@ -544,8 +544,8 @@ async function cleanupQaSigner(): Promise<void> {
 async function click(cdp: CdpClient, testId: string): Promise<void> {
   await cdp.evaluate(`(() => {
     const element = document.querySelector('[data-testid=${js(testId)}]');
-    if (!(element instanceof HTMLButtonElement)) throw new Error('Button not found: ${testId}');
-    if (element.disabled) throw new Error('Button is disabled: ${testId}');
+    if (!(element instanceof HTMLElement)) throw new Error('Clickable element not found: ${testId}');
+    if (element instanceof HTMLButtonElement && element.disabled) throw new Error('Button is disabled: ${testId}');
     element.click();
   })()`);
 }
@@ -736,7 +736,7 @@ async function launchApp(port: number): Promise<Launch> {
   const version = await cdp.evaluate<string>(
     `document.querySelector('[data-testid="workbench-version"]')?.textContent ?? ''`,
   );
-  if (version !== "Workbench 1.0.0")
+  if (version !== "Workbench 1.1.0")
     throw new Error(`Unexpected Workbench version: ${version}`);
   const qaApi = await cdp.evaluate<string>("typeof window.aigcProofQa");
   if (qaApi !== "object")
@@ -946,6 +946,7 @@ async function main(): Promise<void> {
         tsaProfiles: [localTsa.profilePath],
         c2paTrustProfiles: [c2paTrustProfile],
         c2paImages: [
+          c2paEmbeddedImages[0]!,
           ...c2paEmbeddedImages,
           ...c2paSidecarImages,
           c2paRemoteImage,
@@ -996,6 +997,32 @@ async function main(): Promise<void> {
   record("packaged-window-and-file-url", launch.protocol);
   const { cdp } = launch;
   await captureLayoutEvidence(cdp);
+  const optionalAssuranceState = await cdp.evaluate<{
+    open: boolean;
+    tsa: string;
+    c2pa: string;
+  }>(`(() => {
+    const panel = document.querySelector('[data-testid="external-assurance-tools"]');
+    return {
+      open: panel?.hasAttribute('open') ?? true,
+      tsa: document.querySelector('[data-testid="tsa-optional-state"]')?.textContent ?? '',
+      c2pa: document.querySelector('[data-testid="c2pa-optional-state"]')?.textContent ?? '',
+    };
+  })()`);
+  if (
+    optionalAssuranceState.open ||
+    !optionalAssuranceState.tsa.includes("尚未配置可信时间服务") ||
+    !optionalAssuranceState.c2pa.includes("valid_untrusted")
+  ) {
+    throw new Error(
+      `Optional assurance area did not start collapsed and unconfigured: ${JSON.stringify(optionalAssuranceState)}`,
+    );
+  }
+  record(
+    "optional-external-assurance-collapsed-by-default",
+    JSON.stringify(optionalAssuranceState),
+  );
+  await click(cdp, "external-assurance-summary");
   await clickAndWait(cdp, "import-tsa-profile", "TSA trust snapshot imported");
   const tsaProfileText = await controlText(cdp, "tsa-profile-summary");
   if (
@@ -1111,6 +1138,25 @@ async function main(): Promise<void> {
   await setControl(cdp, "asset-role", "output");
   await clickAndWait(cdp, "add-asset", "资产已添加");
   record("c2pa-image-ingested-before-observation");
+
+  await click(cdp, "choose-c2pa-image");
+  await waitFor(
+    () => controlValue(cdp, "c2pa-image-path"),
+    (value) => value.includes(c2paEmbeddedImages[0]!),
+    "Host-issued trustless C2PA image",
+  );
+  await clickAndWait(cdp, "inspect-c2pa", "C2PA observation preview created");
+  const trustlessInspection = await controlText(cdp, "c2pa-inspection");
+  if (
+    !trustlessInspection.includes("valid_untrusted") ||
+    !trustlessInspection.includes("签名者信任：not_evaluated") ||
+    !trustlessInspection.includes("时间戳信任：not_evaluated")
+  ) {
+    throw new Error(
+      `Trustless C2PA inspection was not separated from trust: ${trustlessInspection}`,
+    );
+  }
+  record("c2pa-trustless-offline-inspection", trustlessInspection);
 
   await clickAndWait(cdp, "import-c2pa-profile", "C2PA trust profile imported");
   const c2paProfileText = await controlText(cdp, "c2pa-profile-summary");
@@ -2310,11 +2356,12 @@ async function main(): Promise<void> {
 
   const diagnostics = await controlText(cdp, "diagnostics-card");
   for (const expected of [
-    "1.0.0",
-    "2.0.0",
+    "1.1.0",
+    "2.1.0",
     "official.identity.verify",
     "c2pa.image.inspect",
     "c2pa.observation.create",
+    "c2pa.trustless-inspect",
     "proof.asset.export",
     "proof.asset.match",
     "creation.comfyui-local",
@@ -2635,9 +2682,9 @@ async function main(): Promise<void> {
   const evidenceObject = {
     result: "PASS",
     mode,
-    workbenchVersion: "1.0.0",
-    contractVersion: "2.0.0",
-    nativeApiVersion: "2.0.0",
+    workbenchVersion: "1.1.0",
+    contractVersion: "2.1.0",
+    nativeApiVersion: "2.1.0",
     engineVersion: "1.0.0",
     protocolVersion: "1.0.0",
     executable: testedExecutable,

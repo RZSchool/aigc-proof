@@ -1030,7 +1030,7 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
           <div>
             <p className="eyebrow">OFFLINE PROOF WORKBENCH</p>
             <h1>AIGC-Proof</h1>
-            <span data-testid="workbench-version">Workbench 1.0.0</span>
+            <span data-testid="workbench-version">Workbench 1.1.0</span>
           </div>
         </div>
         <div className="header-actions">
@@ -1971,204 +1971,237 @@ export function App({ host }: { host?: ProofHostApi } = {}) {
               </button>
             </div>
           </Field>
-          <div className="subpanel" data-testid="trusted-time-panel">
-            <strong>RFC 3161 可信时间</strong>
-            <p>
-              日常验证保持离线；只有点击“请求可信时间”并确认披露后，才会连接已导入配置中的
-              HTTPS 端点。
-            </p>
-            <Field label="显式 TSA 信任快照">
-              <div className="field-row">
-                <input
-                  data-testid="tsa-profile-path"
-                  readOnly
-                  value={tsaProfilePath || tsaProfile?.source_label || ""}
-                  placeholder="导入可移植 TSA 信任快照"
-                />
-                <button
-                  className="secondary"
-                  data-testid="import-tsa-profile"
-                  onClick={() => void importTsaProfile()}
-                >
-                  导入配置
-                </button>
-              </div>
-            </Field>
-            {tsaProfile && (
-              <small data-testid="tsa-profile-summary">
-                {tsaProfile.source_label} · {tsaProfile.endpoint} · 有效期至{" "}
-                {tsaProfile.expires_at}
-              </small>
-            )}
-            <Field label="带时间戳的新证明包">
-              <div className="field-row">
-                <input
-                  data-testid="timestamp-output-path"
-                  readOnly
-                  value={timestampOutputPath}
-                  placeholder="选择新的 .aigcproof 输出"
-                />
-                <button
-                  className="secondary"
-                  data-testid="choose-timestamp-output"
-                  onClick={() =>
-                    void choose(
-                      setTimestampOutputReference,
-                      setTimestampOutputPath,
-                      () => proofHost.chooseTimestampPackageOutput(),
-                    )
-                  }
-                >
-                  选择输出
-                </button>
-              </div>
-            </Field>
-            <div className="actions">
-              <button
-                className="primary"
-                data-testid="request-trusted-time"
-                disabled={
-                  !tsaProfile || !packageReference || !timestampOutputReference
-                }
-                onClick={() => void requestTrustedTimestamp()}
-              >
-                请求可信时间
-              </button>
-              <button
-                className="secondary"
-                data-testid="cancel-trusted-time"
-                onClick={() => void proofHost.cancelTrustedTimestamp()}
-              >
-                取消请求
-              </button>
-            </div>
-          </div>
-          <div className="subpanel" data-testid="c2pa-panel">
-            <strong>C2PA 2.2 / Content Credentials（离线桥接）</strong>
-            <p>
-              仅读取 JPEG、PNG、WebP 内嵌清单或你明确选择的本地 .c2pa
-              sidecar；不会联网查找远程清单或软绑定。
-              有效性是来源元数据，不代表内容真实、身份、原创、权利或授权。
-            </p>
-            <Field label="C2PA 信任配置">
-              <div className="field-row">
-                <input
-                  data-testid="c2pa-profile-path"
-                  readOnly
-                  value={c2paProfilePath || c2paProfile?.signerSource || ""}
-                  placeholder="导入独立的签名者与 TSA 信任快照"
-                />
-                <button
-                  className="secondary"
-                  data-testid="import-c2pa-profile"
-                  onClick={() => void importC2paProfile()}
-                >
-                  导入配置
-                </button>
-              </div>
-            </Field>
-            {c2paProfile && (
-              <small data-testid="c2pa-profile-summary">
-                签名者：{c2paProfile.signerSource} · TSA：
-                {c2paProfile.timestampSource}
-              </small>
-            )}
-            <Field label="待检查图片">
-              <div className="field-row">
-                <input
-                  data-testid="c2pa-image-path"
-                  readOnly
-                  value={c2paImagePath}
-                  placeholder="选择 JPEG、PNG 或 WebP"
-                />
-                <button
-                  className="secondary"
-                  data-testid="choose-c2pa-image"
-                  onClick={() => void chooseC2paImage()}
-                >
-                  选择图片
-                </button>
-              </div>
-            </Field>
-            <Field label="本地 sidecar（可选）">
-              <div className="field-row">
-                <input
-                  data-testid="c2pa-sidecar-path"
-                  readOnly
-                  value={c2paSidecarPath}
-                  placeholder="不选择时仅读取内嵌清单"
-                />
-                <button
-                  className="secondary"
-                  data-testid="choose-c2pa-sidecar"
-                  onClick={() => void chooseC2paSidecar()}
-                >
-                  选择 .c2pa
-                </button>
-                {c2paSidecar && (
-                  <button
-                    className="quiet-button"
-                    data-testid="clear-c2pa-sidecar"
-                    onClick={() => {
-                      setC2paSidecar(undefined);
-                      setC2paSidecarPath("");
-                      setC2paInspection(undefined);
-                    }}
-                  >
-                    使用内嵌清单
-                  </button>
+          <details
+            className="subpanel external-assurance-panel"
+            data-testid="external-assurance-tools"
+          >
+            <summary data-testid="external-assurance-summary">
+              <strong>高级：外部信任与内容凭证</strong>
+              <span data-testid="tsa-optional-state">
+                {tsaProfile
+                  ? `RFC 3161：已配置 ${tsaProfile.source_label}`
+                  : "RFC 3161：尚未配置可信时间服务"}
+              </span>
+              <span data-testid="c2pa-optional-state">
+                {c2paProfile
+                  ? `C2PA：已配置 ${c2paProfile.signerSource}`
+                  : "C2PA：未配置信任；可离线检查并报告 valid_untrusted"}
+              </span>
+            </summary>
+            <div className="external-assurance-body">
+              <div className="subpanel" data-testid="trusted-time-panel">
+                <strong>RFC 3161 可信时间</strong>
+                <p>
+                  日常验证保持离线；只有点击“请求可信时间”并确认披露后，才会连接已导入配置中的
+                  HTTPS
+                  端点。服务可能由第三方提供并受账户、额度、费用或可用性限制；本地时间、
+                  网页时钟、NTP/NTS 或通用 UTC 服务都不能替代签名的 RFC 3161
+                  令牌。
+                </p>
+                <Field label="显式 TSA 信任快照">
+                  <div className="field-row">
+                    <input
+                      data-testid="tsa-profile-path"
+                      readOnly
+                      value={tsaProfilePath || tsaProfile?.source_label || ""}
+                      placeholder="导入可移植 TSA 信任快照"
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="import-tsa-profile"
+                      onClick={() => void importTsaProfile()}
+                    >
+                      导入配置
+                    </button>
+                  </div>
+                </Field>
+                {tsaProfile && (
+                  <small data-testid="tsa-profile-summary">
+                    {tsaProfile.source_label} · {tsaProfile.endpoint} · 有效期至{" "}
+                    {tsaProfile.expires_at}
+                  </small>
                 )}
+                <Field label="带时间戳的新证明包">
+                  <div className="field-row">
+                    <input
+                      data-testid="timestamp-output-path"
+                      readOnly
+                      value={timestampOutputPath}
+                      placeholder="选择新的 .aigcproof 输出"
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="choose-timestamp-output"
+                      onClick={() =>
+                        void choose(
+                          setTimestampOutputReference,
+                          setTimestampOutputPath,
+                          () => proofHost.chooseTimestampPackageOutput(),
+                        )
+                      }
+                    >
+                      选择输出
+                    </button>
+                  </div>
+                </Field>
+                <div className="actions">
+                  <button
+                    className="primary"
+                    data-testid="request-trusted-time"
+                    disabled={
+                      !tsaProfile ||
+                      !packageReference ||
+                      !timestampOutputReference
+                    }
+                    onClick={() => void requestTrustedTimestamp()}
+                  >
+                    请求可信时间
+                  </button>
+                  <button
+                    className="secondary"
+                    data-testid="cancel-trusted-time"
+                    onClick={() => void proofHost.cancelTrustedTimestamp()}
+                  >
+                    取消请求
+                  </button>
+                </div>
               </div>
-            </Field>
-            <div className="actions">
-              <button
-                className="primary"
-                data-testid="inspect-c2pa"
-                disabled={!c2paProfile || !c2paImage}
-                onClick={() => void inspectC2pa()}
-              >
-                离线检查 Content Credentials
-              </button>
+              <div className="subpanel" data-testid="c2pa-panel">
+                <strong>C2PA 2.2 / Content Credentials（离线桥接）</strong>
+                <p>
+                  仅读取 JPEG、PNG、WebP 内嵌清单或你明确选择的本地 .c2pa
+                  sidecar；不会联网查找远程清单或软绑定。
+                  信任配置是可选的；未配置时仍执行有界的密码学与结构检查，并把可验证结果标为
+                  valid_untrusted。有效性或信任都不代表事实真实、作者身份、原创、所有权、版权、
+                  权利或授权。
+                </p>
+                <Field label="C2PA 信任配置">
+                  <div className="field-row">
+                    <input
+                      data-testid="c2pa-profile-path"
+                      readOnly
+                      value={c2paProfilePath || c2paProfile?.signerSource || ""}
+                      placeholder="可选：导入独立的签名者与 TSA 信任快照"
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="import-c2pa-profile"
+                      onClick={() => void importC2paProfile()}
+                    >
+                      导入配置
+                    </button>
+                  </div>
+                </Field>
+                {c2paProfile && (
+                  <small data-testid="c2pa-profile-summary">
+                    签名者：{c2paProfile.signerSource} · TSA：
+                    {c2paProfile.timestampSource}
+                  </small>
+                )}
+                <Field label="待检查图片">
+                  <div className="field-row">
+                    <input
+                      data-testid="c2pa-image-path"
+                      readOnly
+                      value={c2paImagePath}
+                      placeholder="选择 JPEG、PNG 或 WebP"
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="choose-c2pa-image"
+                      onClick={() => void chooseC2paImage()}
+                    >
+                      选择图片
+                    </button>
+                  </div>
+                </Field>
+                <Field label="本地 sidecar（可选）">
+                  <div className="field-row">
+                    <input
+                      data-testid="c2pa-sidecar-path"
+                      readOnly
+                      value={c2paSidecarPath}
+                      placeholder="不选择时仅读取内嵌清单"
+                    />
+                    <button
+                      className="secondary"
+                      data-testid="choose-c2pa-sidecar"
+                      onClick={() => void chooseC2paSidecar()}
+                    >
+                      选择 .c2pa
+                    </button>
+                    {c2paSidecar && (
+                      <button
+                        className="quiet-button"
+                        data-testid="clear-c2pa-sidecar"
+                        onClick={() => {
+                          setC2paSidecar(undefined);
+                          setC2paSidecarPath("");
+                          setC2paInspection(undefined);
+                        }}
+                      >
+                        使用内嵌清单
+                      </button>
+                    )}
+                  </div>
+                </Field>
+                <div className="actions">
+                  <button
+                    className="primary"
+                    data-testid="inspect-c2pa"
+                    disabled={!c2paImage}
+                    onClick={() => void inspectC2pa()}
+                  >
+                    离线检查 Content Credentials
+                  </button>
+                </div>
+                {c2paInspection && (
+                  <div
+                    className="signature-evidence"
+                    data-testid="c2pa-inspection"
+                  >
+                    <strong>{c2paInspection.validation_state}</strong>
+                    <span>claim v{c2paInspection.claim_version}</span>
+                    <span>来源：{c2paInspection.source_mode}</span>
+                    <span>签名者信任：{c2paInspection.signer_trust}</span>
+                    <span>时间戳信任：{c2paInspection.timestamp_trust}</span>
+                    <code>{c2paInspection.asset_sha256}</code>
+                  </div>
+                )}
+                <Field label="记录到当前工作区资产（可选）">
+                  <select
+                    data-testid="c2pa-workspace-asset"
+                    value={c2paAssetId}
+                    onChange={(event) => setC2paAssetId(event.target.value)}
+                  >
+                    <option value="">选择已接入的图片资产</option>
+                    {(workspace?.workspace.assets ?? [])
+                      .filter((asset) =>
+                        ["image/jpeg", "image/png", "image/webp"].includes(
+                          asset.media_type,
+                        ),
+                      )
+                      .map((asset) => (
+                        <option key={asset.asset_id} value={asset.asset_id}>
+                          {asset.original_name} · {asset.role}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <button
+                  className="secondary"
+                  data-testid="create-c2pa-observation"
+                  disabled={!c2paProfile || !workspace || !c2paAssetId}
+                  onClick={() => void createC2paObservation()}
+                >
+                  创建摘要绑定的 C2PA 观察记录
+                </button>
+                <small>
+                  写入协议观察记录需要显式信任快照，以便固定签名者与时间戳信任摘要；普通离线检查不需要。
+                </small>
+              </div>
             </div>
-            {c2paInspection && (
-              <div className="signature-evidence" data-testid="c2pa-inspection">
-                <strong>{c2paInspection.validation_state}</strong>
-                <span>claim v{c2paInspection.claim_version}</span>
-                <span>来源：{c2paInspection.source_mode}</span>
-                <span>签名者信任：{c2paInspection.signer_trust}</span>
-                <span>时间戳信任：{c2paInspection.timestamp_trust}</span>
-                <code>{c2paInspection.asset_sha256}</code>
-              </div>
-            )}
-            <Field label="记录到当前工作区资产（可选）">
-              <select
-                data-testid="c2pa-workspace-asset"
-                value={c2paAssetId}
-                onChange={(event) => setC2paAssetId(event.target.value)}
-              >
-                <option value="">选择已接入的图片资产</option>
-                {(workspace?.workspace.assets ?? [])
-                  .filter((asset) =>
-                    ["image/jpeg", "image/png", "image/webp"].includes(
-                      asset.media_type,
-                    ),
-                  )
-                  .map((asset) => (
-                    <option key={asset.asset_id} value={asset.asset_id}>
-                      {asset.original_name} · {asset.role}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-            <button
-              className="secondary"
-              data-testid="create-c2pa-observation"
-              disabled={!c2paProfile || !workspace || !c2paAssetId}
-              onClick={() => void createC2paObservation()}
-            >
-              创建摘要绑定的 C2PA 观察记录
-            </button>
-          </div>
+          </details>
           <div className="subpanel" data-testid="official-identity-panel">
             <strong>使用者身份 / 官方身份声明（完全离线）</strong>
             <p>

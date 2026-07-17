@@ -44,9 +44,9 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $qa = [IO.File]::ReadAllText($qaPath, $utf8NoBom) | ConvertFrom-Json
 $metadataPath = Join-Path $PackageDirectory "artifact-metadata.json"
 $metadata = [IO.File]::ReadAllText($metadataPath, $utf8NoBom) | ConvertFrom-Json
-if ($metadata.workbench_version -ne "1.0.0" -or
-    $metadata.host_contract_version -ne "2.0.0" -or
-    $metadata.native_api_version -ne "2.0.0" -or
+if ($metadata.workbench_version -ne "1.1.0" -or
+    $metadata.host_contract_version -ne "2.1.0" -or
+    $metadata.native_api_version -ne "2.1.0" -or
     $metadata.native_engine_version -ne "1.0.0" -or
     $metadata.protocol_version -ne "1.0.0") {
     throw "Packaged artifact version metadata is invalid."
@@ -54,9 +54,9 @@ if ($metadata.workbench_version -ne "1.0.0" -or
 if ($qa.result -ne "PASS" -or
     $qa.mode -ne "packaged" -or
     $qa.protocol -ne "file:" -or
-    $qa.workbenchVersion -ne "1.0.0" -or
-    $qa.contractVersion -ne "2.0.0" -or
-    $qa.nativeApiVersion -ne "2.0.0" -or
+    $qa.workbenchVersion -ne "1.1.0" -or
+    $qa.contractVersion -ne "2.1.0" -or
+    $qa.nativeApiVersion -ne "2.1.0" -or
     $qa.engineVersion -ne "1.0.0" -or
     $qa.protocolVersion -ne "1.0.0") {
     throw "Packaged CDP QA result is invalid."
